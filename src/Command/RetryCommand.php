@@ -1,6 +1,7 @@
 <?php
 namespace Lp\MatterhornImport\Command;
 
+use Lp\MatterhornImport\Config\OperationalSettings;
 use Lp\MatterhornImport\Repository\ImageQueueRepository;
 use Lp\MatterhornImport\Repository\NewProductQueueRepository;
 use Lp\MatterhornImport\Util\CommandInput;
@@ -11,7 +12,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 final class RetryCommand extends Command
 {
-    public function __construct(private ImageQueueRepository $images, private NewProductQueueRepository $newProducts)
+    public function __construct(private ImageQueueRepository $images, private NewProductQueueRepository $newProducts, private OperationalSettings $settings)
     {
         parent::__construct('matterhornimport:retry');
     }
@@ -20,14 +21,14 @@ final class RetryCommand extends Command
     {
         $this->addOption('shop', null, InputOption::VALUE_OPTIONAL, 'Only this shop')
             ->addOption('domain', null, InputOption::VALUE_REQUIRED, 'image, new-product or all', 'all')
-            ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Max failed jobs per domain', '1000')
+            ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Max failed jobs per domain; omitted = shop setting')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Emit JSON');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $shopId = CommandInput::optionalPositiveInt($input->getOption('shop'), '--shop');
-        $limit = CommandInput::positiveInt($input->getOption('limit'), '--limit', 100000);
+        $limit = $input->getOption('limit') === null ? ($shopId === null ? 1000 : $this->settings->retryLimit($shopId)) : CommandInput::positiveInt($input->getOption('limit'), '--limit', 100000);
         $domain = strtolower(trim((string) $input->getOption('domain')));
         if (!in_array($domain, ['image','new-product','all'], true)) { throw new \InvalidArgumentException('--domain must be image, new-product or all'); }
         $result = ['image'=>0,'new_product'=>0,'total'=>0];
