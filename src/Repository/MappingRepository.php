@@ -90,12 +90,31 @@ final class MappingRepository
         return $this->findProductId($shopId, $source, $sourceKey) === $productId;
     }
 
+    public function ownsActiveProduct(int $shopId, string $source, string $sourceKey, int $productId): bool
+    {
+        if ($shopId <= 0 || $productId <= 0 || trim($source) === '' || trim($sourceKey) === '') { return false; }
+        return (bool) \Db::getInstance()->getValue(sprintf(
+            "SELECT 1 FROM `%s%s` WHERE id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d AND out_of_feed=0",
+            _DB_PREFIX_, self::TABLE, $shopId, pSQL($source), pSQL($sourceKey), $productId
+        ), false);
+    }
+
     public function lockProductOwnership(int $shopId, string $source, string $sourceKey, int $productId): bool
     {
         if ($shopId <= 0 || $productId <= 0 || trim($source) === '' || trim($sourceKey) === '') { return false; }
         $rows = \Db::getInstance()->executeS(sprintf(
             "SELECT id_product FROM `%s%s` WHERE id_shop=%d AND source='%s' AND source_key='%s' LIMIT 1 FOR UPDATE",
             _DB_PREFIX_, self::TABLE, $shopId, pSQL($source), pSQL($sourceKey)
+        ), true, false) ?: [];
+        return count($rows) === 1 && (int) $rows[0]['id_product'] === $productId;
+    }
+
+    public function lockActiveProductOwnership(int $shopId, string $source, string $sourceKey, int $productId): bool
+    {
+        if ($shopId <= 0 || $productId <= 0 || trim($source) === '' || trim($sourceKey) === '') { return false; }
+        $rows = \Db::getInstance()->executeS(sprintf(
+            "SELECT id_product FROM `%s%s` WHERE id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d AND out_of_feed=0 LIMIT 1 FOR UPDATE",
+            _DB_PREFIX_, self::TABLE, $shopId, pSQL($source), pSQL($sourceKey), $productId
         ), true, false) ?: [];
         return count($rows) === 1 && (int) $rows[0]['id_product'] === $productId;
     }
