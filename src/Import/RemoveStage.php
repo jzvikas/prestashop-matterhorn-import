@@ -32,6 +32,7 @@ final class RemoveStage
     public function plan(int $runId, int $shopId, string $source): array
     {
         $run = $this->runs->assertContext($runId, $shopId, $source);
+        $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
         $this->assertRunnable($run);
         $mapped = $this->mapping->countInFeedSource($shopId, $source);
         $candidates = $mapped > 0 ? $this->snapshots->countRemoved($runId, $shopId, $source) : 0;
