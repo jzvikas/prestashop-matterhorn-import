@@ -31,14 +31,18 @@ final class ErrorRepository
 
     public function countForRun(int $runId): int
     {
-        return (int) \Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . (int) $runId);
+        return (int) \Db::getInstance()->getValue(
+            'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . (int) $runId,
+            false
+        );
     }
 
     public function countWarningsForRun(int $runId): int
     {
         return (int) \Db::getInstance()->getValue(
             "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . self::TABLE . "` WHERE id_run=" . (int) $runId .
-            " AND message LIKE '" . pSQL(self::WARNING_PREFIX) . "%'"
+            " AND message LIKE '" . pSQL(self::WARNING_PREFIX) . "%'",
+            false
         );
     }
 
@@ -46,7 +50,8 @@ final class ErrorRepository
     {
         return (int) \Db::getInstance()->getValue(
             "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . self::TABLE . "` WHERE id_run=" . (int) $runId .
-            " AND message NOT LIKE '" . pSQL(self::WARNING_PREFIX) . "%'"
+            " AND message NOT LIKE '" . pSQL(self::WARNING_PREFIX) . "%'",
+            false
         );
     }
 }
