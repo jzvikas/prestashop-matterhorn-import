@@ -3,6 +3,9 @@ namespace Lp\MatterhornImport\Matterhorn;
 
 final class MatterhornCategoryPathNormalizer
 {
+    private const MAX_CATEGORY_SEGMENT_CHARS = 128;
+    private const MAX_SUPPLIER_KEY_CHARS = 191;
+
     public function normalize(string $path): string
     {
         $parts = preg_split('#/+#u', trim($path)) ?: [];
@@ -10,6 +13,14 @@ final class MatterhornCategoryPathNormalizer
             static fn(string $part): string => trim($part),
             $parts
         ), static fn(string $part): bool => $part !== ''));
+        foreach ($parts as $part) {
+            if (mb_strlen($part, 'UTF-8') > self::MAX_CATEGORY_SEGMENT_CHARS) {
+                throw new \InvalidArgumentException(
+                    'Matterhorn category path segment exceeds PrestaShop ' .
+                    self::MAX_CATEGORY_SEGMENT_CHARS . '-character limit'
+                );
+            }
+        }
         return implode(' > ', $parts);
     }
 
@@ -19,6 +30,12 @@ final class MatterhornCategoryPathNormalizer
         if ($id === '') {
             throw new \InvalidArgumentException('Matterhorn category id cannot be empty');
         }
-        return 'matterhorn-category:' . $id;
+        $key = 'matterhorn-category:' . $id;
+        if (mb_strlen($key, 'UTF-8') > self::MAX_SUPPLIER_KEY_CHARS) {
+            throw new \InvalidArgumentException(
+                'Matterhorn category supplier key exceeds module ' . self::MAX_SUPPLIER_KEY_CHARS . '-character limit'
+            );
+        }
+        return $key;
     }
 }
