@@ -44,6 +44,7 @@ final class UpdateStage
     {
         $this->safety->assertTransactionalCore();
         $run = $this->runs->assertContext($runId, $shopId, $source);
+        $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
         $this->assertRunnable($run);
         $this->budget->start($maxItems, $timeLimitSeconds);
         try {
