@@ -56,6 +56,23 @@ final class AttributeMappingRepository
         );
         if (!$db->execute($valueSql)) { throw new \RuntimeException('Could not save supplier attribute value mapping'); }
 
+        $verified = $db->getRow(sprintf(
+            "SELECT gm.id_attribute_group AS group_id,vm.id_attribute_group AS value_group_id,vm.id_attribute " .
+            "FROM `%sli_matterhornim_99dfbf_attribute_group_mapping` gm " .
+            "INNER JOIN `%sli_matterhornim_99dfbf_attribute_value_mapping` vm " .
+            "ON vm.id_shop=gm.id_shop AND vm.source=gm.source AND vm.supplier_group_key=gm.supplier_group_key " .
+            "WHERE gm.id_shop=%d AND gm.source='%s' AND gm.supplier_group_key='%s' AND vm.supplier_value_key='%s'",
+            _DB_PREFIX_, _DB_PREFIX_, $shopId, pSQL($source), pSQL($groupKey), pSQL($valueKey)
+        ), false);
+        if (!is_array($verified)
+            || (int) ($verified['group_id'] ?? 0) !== $groupId
+            || (int) ($verified['value_group_id'] ?? 0) !== $groupId
+            || (int) ($verified['id_attribute'] ?? 0) !== $attributeId
+        ) {
+            unset($this->pairCache[$this->cacheKey($shopId, $source, $groupKey, $valueKey)]);
+            throw new \RuntimeException('Supplier attribute mapping could not be verified after write');
+        }
+
         $this->pairCache[$this->cacheKey($shopId, $source, $groupKey, $valueKey)] = [
             'id_attribute_group' => $groupId,
             'id_attribute' => $attributeId,
