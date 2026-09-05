@@ -29,8 +29,10 @@ attrCheck(str_contains($mapping, 'Supplier attribute mapping could not be verifi
 attrCheck(str_contains($mapping, 'AS group_id,vm.id_attribute_group AS value_group_id,vm.id_attribute'), 'attribute mapping verification must compare group/value identity together');
 attrCheck(substr_count($mapping, '), false);') >= 2, 'attribute mapping resolution and post-write verification must both bypass Db query cache');
 attrCheck(str_contains($sql, 'PREFIX_li_matterhornim_99dfbf_attribute_group_mapping'), 'schema uses generated Matterhorn table token');
-attrCheck(!str_contains($mapping, 'lp_import_attribute_'), 'generic skeleton table token must not leak into standalone module');
-attrCheck(!str_contains($sql, 'PREFIX_lp_import_attribute_'), 'generic install table token must not leak into standalone module');
+$legacyAttributeToken = 'lp_' . 'import_attribute_';
+$legacyInstallAttributeToken = 'PREFIX_' . $legacyAttributeToken;
+attrCheck(!str_contains($mapping, $legacyAttributeToken), 'generic skeleton table token must not leak into standalone module');
+attrCheck(!str_contains($sql, $legacyInstallAttributeToken), 'generic install table token must not leak into standalone module');
 
 $resolver = (string) file_get_contents(dirname(__DIR__) . '/src/Combination/CombinationAttributeResolver.php');
 attrCheck(str_contains($resolver, "unset(\$row['attributes'])"), 'persistence resolver replaces supplier descriptors with numeric attribute_ids');
