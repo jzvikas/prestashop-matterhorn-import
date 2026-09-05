@@ -5,6 +5,8 @@ use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class FeatureResolver
 {
+    private const LOCK_TIMEOUT_SECONDS = 10;
+
     public function __construct(private ShopContextManager $shopContext) {}
 
     /** @return array{id_feature:int,id_feature_value:int} */
@@ -25,20 +27,34 @@ final class FeatureResolver
             throw new \RuntimeException('Target shop has no valid default language for feature resolution');
         }
 
-        $featureId = $this->findFeature($shopId, $langId, $name);
-        if ($featureId > 0) {
-            $valueId = $this->findValue($featureId, $langId, $value);
-            if ($valueId > 0) {
-                return ['id_feature' => $featureId, 'id_feature_value' => $valueId];
-            }
-            if ($this->featureShopCount($featureId) > 1) {
+        $db = \Db::getInstance();
+        $featureLock = $this->acquireLock(
+            $db,
+            'feature:' . $shopId . ':' . mb_strtolower($name, 'UTF-8')
+        );
+        try {
+            $featureId = $this->findFeature($shopId, $langId, $name);
+            if ($featureId <= 0) {
                 $featureId = $this->createFeature($shopId, $name);
             }
-        } else {
-            $featureId = $this->createFeature($shopId, $name);
+        } finally {
+            $this->releaseLock($db, $featureLock);
         }
 
-        return ['id_feature' => $featureId, 'id_feature_value' => $this->createValue($featureId, $shopId, $value)];
+        $valueLock = $this->acquireLock(
+            $db,
+            'value:' . $featureId . ':' . mb_strtolower($value, 'UTF-8')
+        );
+        try {
+            $valueId = $this->findValue($featureId, $langId, $value);
+            if ($valueId <= 0) {
+                $valueId = $this->createValue($featureId, $shopId, $value);
+            }
+        } finally {
+            $this->releaseLock($db, $valueLock);
+        }
+
+        return ['id_feature' => $featureId, 'id_feature_value' => $valueId];
     }
 
     private function findFeature(int $shopId, int $langId, string $name): int
@@ -49,7 +65,7 @@ final class FeatureResolver
             "INNER JOIN `%sfeature_lang` fl ON fl.id_feature=f.id_feature AND fl.id_lang=%d " .
             "WHERE BINARY fl.name=BINARY '%s' ORDER BY f.id_feature LIMIT 2",
             _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $langId, pSQL($name)
-        )) ?: [];
+        ), true, false) ?: [];
         if (count($rows) > 1) {
             throw new \RuntimeException('Ambiguous exact feature name in target shop: ' . $name);
         }
@@ -63,7 +79,7 @@ final class FeatureResolver
             "INNER JOIN `%sfeature_value_lang` fvl ON fvl.id_feature_value=fv.id_feature_value AND fvl.id_lang=%d " .
             "WHERE fv.id_feature=%d AND fv.custom=0 AND BINARY fvl.value=BINARY '%s' ORDER BY fv.id_feature_value LIMIT 2",
             _DB_PREFIX_, _DB_PREFIX_, $langId, $featureId, pSQL($value)
-        )) ?: [];
+        ), true, false) ?: [];
         if (count($rows) > 1) {
             throw new \RuntimeException('Ambiguous exact feature value for feature ' . $featureId . ': ' . $value);
         }
@@ -103,8 +119,23 @@ final class FeatureResolver
         return (int) $featureValue->id;
     }
 
-    private function featureShopCount(int $featureId): int
+    private function acquireLock(\Db $db, string $scope): string
     {
-        return (int) \Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'feature_shop` WHERE id_feature=' . $featureId);
+        $name = 'lpimp:feat:' . substr(hash('sha256', $scope), 0, 40);
+        if ((int) $db->getValue(
+            "SELECT GET_LOCK('" . pSQL($name) . "'," . self::LOCK_TIMEOUT_SECONDS . ')',
+            false
+        ) !== 1) {
+            throw new \RuntimeException('Could not acquire feature resolver lock');
+        }
+        return $name;
+    }
+
+    private function releaseLock(\Db $db, string $name): void
+    {
+        try {
+            $db->getValue("SELECT RELEASE_LOCK('" . pSQL($name) . "')", false);
+        } catch (\Throwable) {
+        }
     }
 }
