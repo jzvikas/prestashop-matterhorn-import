@@ -9,6 +9,8 @@ $import = (string) file_get_contents($root . '/src/Import/ImportStage.php');
 $update = (string) file_get_contents($root . '/src/Import/UpdateStage.php');
 $newWorker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
 $production = (string) file_get_contents($root . '/docs/PRODUCTION.md');
+$mapper = (string) file_get_contents($root . '/src/Mapper/MatterhornProductMapper.php');
+$composer = json_decode((string) file_get_contents($root . '/composer.json'), true, 512, JSON_THROW_ON_ERROR);
 $self = realpath(__FILE__);
 
 $fail = static function (string $message): never {
@@ -39,6 +41,11 @@ if (!str_contains($update, "'specific_price'")) { $fail('UPDATE does not route s
 if (!str_contains($production, 'READ -> IMPORT -> UPDATE -> REMOVE')) { $fail('production stage order missing'); }
 if (!str_contains($production, 'matterhornimport:images:reconcile')) { $fail('production image reconciliation documentation missing'); }
 if (!str_contains($production, 'flock -n')) { $fail('production overlap guard example missing'); }
+
+$requires = is_array($composer['require'] ?? null) ? $composer['require'] : [];
+if ((str_contains($mapper, 'mb_strlen(') || str_contains($mapper, 'mb_substr(') || str_contains($mapper, 'mb_strtolower(')) && !array_key_exists('ext-mbstring', $requires)) {
+    $fail('composer must declare ext-mbstring used by MatterhornProductMapper');
+}
 
 $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
 $forbidden = ['Lp\\ImportSkeleton\\', 'LPIMPORTSKELETON_', 'lp_import_'];
