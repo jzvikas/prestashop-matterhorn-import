@@ -5,6 +5,7 @@ php -r 'if (PHP_VERSION_ID < 80400) { fwrite(STDERR, "PHP 8.4+ required\n"); exi
 while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find . -path './vendor' -prune -o -name '*.php' -print0)
 bash tests/prestashop-db-single-row-limit-check.sh
 php tests/matterhorn-parser-mapper-check.php
+php tests/matterhorn-domain-hash-isolation-check.php
 php tests/matterhorn-xml-streaming-bounds-check.php
 php tests/matterhorn-feed-structure-check.php
 php tests/matterhorn-required-field-bound-check.php
