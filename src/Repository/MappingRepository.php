@@ -23,10 +23,6 @@ final class MappingRepository
         );
         $data = $this->data($runId, $productId, $product);
 
-        // Update only the exact existing owner identity. Never use ON DUPLICATE KEY UPDATE here:
-        // uq_shop_product_owner(id_shop,id_product) intentionally rejects a different source/key
-        // claiming the same PrestaShop product, and ON DUPLICATE KEY would otherwise mutate that
-        // foreign owner's hash state instead of surfacing the ownership conflict.
         if (!$db->update(self::TABLE, $data, $where, 0, true)) {
             throw new \RuntimeException('Matterhorn exact-owner mapping update failed: ' . $db->getMsgError());
         }
@@ -44,8 +40,6 @@ final class MappingRepository
             return;
         }
 
-        // A concurrent same-owner insert may have won between the exact-owner read and INSERT.
-        // Re-read without cache and accept it only when the complete owner identity is now ours.
         $afterRace = $this->findProductId($shopId, $source, $product->sourceKey);
         if ($afterRace === $productId) {
             if (!$db->update(self::TABLE, $data, $where, 0, true)) {
@@ -116,9 +110,28 @@ final class MappingRepository
         if ((int) $db->Affected_Rows() !== 1) { throw new \RuntimeException('Matterhorn mapping ownership changed before delete'); }
     }
 
-    public function markOutOfFeed(int $shopId, string $source, string $sourceKey, int $runId): void
+    public function markOutOfFeed(int $shopId, string $source, string $sourceKey, int $productId, int $runId): void
     {
-        if (!\Db::getInstance()->update(self::TABLE, ['out_of_feed'=>1,'last_seen_run_id'=>$runId,'updated_at'=>date('Y-m-d H:i:s')], sprintf("id_shop=%d AND source='%s' AND source_key='%s'", $shopId, pSQL($source), pSQL($sourceKey)))) { throw new \RuntimeException('Matterhorn out-of-feed mapping update failed'); }
+        if ($shopId <= 0 || $productId <= 0 || $runId <= 0 || trim($source) === '' || trim($sourceKey) === '') {
+            throw new \InvalidArgumentException('Invalid out-of-feed mapping ownership context');
+        }
+        $db = \Db::getInstance();
+        if (!$db->update(
+            self::TABLE,
+            ['out_of_feed' => 1, 'last_seen_run_id' => $runId, 'updated_at' => date('Y-m-d H:i:s')],
+            sprintf(
+                "id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d",
+                $shopId,
+                pSQL($source),
+                pSQL($sourceKey),
+                $productId
+            )
+        )) {
+            throw new \RuntimeException('Matterhorn out-of-feed mapping update failed');
+        }
+        if ((int) $db->Affected_Rows() !== 1) {
+            throw new \RuntimeException('Matterhorn mapping ownership changed before out-of-feed completion');
+        }
     }
 
     public function touchSeen(int $shopId, string $source, string $sourceKey, int $runId): void
