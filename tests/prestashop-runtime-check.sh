@@ -56,6 +56,12 @@ docker run -d --name "$PS_CONTAINER" --network "$NETWORK" \
 
 ready=0
 for attempt in $(seq 1 120); do
+  running="$(docker inspect -f '{{.State.Running}}' "$PS_CONTAINER" 2>/dev/null || true)"
+  if [[ "$running" != "true" ]]; then
+    echo 'PrestaShop container exited during automatic installation' >&2
+    docker logs "$PS_CONTAINER" >&2 || true
+    exit 3
+  fi
   if docker exec "$PS_CONTAINER" sh -lc 'test -f app/config/parameters.php' >/dev/null 2>&1; then
     count="$(docker exec "$DB_CONTAINER" mariadb -N -uroot -proot prestashop -e "SELECT COUNT(*) FROM ps_shop WHERE id_shop=1" 2>/dev/null || printf 0)"
     if [[ "$count" == "1" ]]; then ready=1; break; fi
@@ -63,6 +69,9 @@ for attempt in $(seq 1 120); do
   sleep 2
 done
 [[ "$ready" -eq 1 ]] || { docker logs "$PS_CONTAINER" >&2 || true; echo 'PrestaShop did not become ready' >&2; exit 3; }
+
+running="$(docker inspect -f '{{.State.Running}}' "$PS_CONTAINER" 2>/dev/null || true)"
+[[ "$running" == "true" ]] || { echo 'PrestaShop container stopped after readiness detection' >&2; docker logs "$PS_CONTAINER" >&2 || true; exit 3; }
 
 docker exec "$PS_CONTAINER" rm -rf /var/www/html/modules/matterhornimport
 docker exec "$PS_CONTAINER" mkdir -p /var/www/html/modules/matterhornimport
