@@ -22,7 +22,7 @@ final class Installer
         'MATTERHORNIMPORT_RETRY_LIMIT',
         self::RETAIN_DATA_KEY,
     ];
-    private const INSTALL_SQL = ['install.sql', 'attribute-mapping.sql', 'image-orphan.sql', 'performance-indexes.sql'];
+    private const INSTALL_SQL = ['install.sql', 'attribute-mapping.sql', 'image-orphan.sql'];
     private const UNINSTALL_SQL = ['uninstall-attribute-mapping.sql', 'uninstall.sql'];
 
     public function install(): bool
@@ -38,6 +38,9 @@ final class Installer
             }
             if (!$this->upgradeMappingState()) {
                 throw new \RuntimeException('Could not initialize Matterhorn mapping state schema');
+            }
+            if (!$this->ensurePerformanceIndexes()) {
+                throw new \RuntimeException('Could not initialize Matterhorn performance indexes');
             }
             $defaults = [
                 self::RETAIN_DATA_KEY => '1',
@@ -82,6 +85,46 @@ final class Installer
             return true;
         } catch (\Throwable $e) {
             error_log('[matterhornimport] mapping-state schema upgrade failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    public function ensurePerformanceIndexes(): bool
+    {
+        $indexes = [
+            'li_matterhornim_99dfbf_run' => [
+                'idx_shop_source_run' => '(`id_shop`,`source`,`id_run`)',
+            ],
+            'li_matterhornim_99dfbf_mapping' => [
+                'idx_feed_product' => '(`id_shop`,`source`,`out_of_feed`,`id_product`)',
+            ],
+            'li_matterhornim_99dfbf_image_queue' => [
+                'idx_shop_claim' => '(`id_shop`,`status`,`available_at`,`id_queue`)',
+            ],
+            'li_matterhornim_99dfbf_new_product_queue' => [
+                'idx_shop_claim' => '(`id_shop`,`status`,`available_at`,`id_queue`)',
+            ],
+        ];
+
+        try {
+            $db = \Db::getInstance();
+            foreach ($indexes as $suffix => $definitions) {
+                $table = _DB_PREFIX_ . $suffix;
+                foreach ($definitions as $index => $definition) {
+                    $exists = (bool) $db->getValue(
+                        "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
+                        "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1"
+                    );
+                    if (!$exists && !$db->execute(
+                        'ALTER TABLE `' . bqSQL($table) . '` ADD KEY `' . bqSQL($index) . '` ' . $definition
+                    )) {
+                        throw new \RuntimeException('Could not add performance index ' . $index . ' on ' . $table . ': ' . $db->getMsgError());
+                    }
+                }
+            }
+            return true;
+        } catch (\Throwable $e) {
+            error_log('[matterhornimport] performance-index schema upgrade failed: ' . $e->getMessage());
             return false;
         }
     }
