@@ -55,6 +55,10 @@ final class MatterhornHtmlSanitizer
             if ($node instanceof \DOMElement) {
                 $tag = strtolower($node->tagName);
                 if (!in_array($tag, self::ALLOWED_TAGS, true)) {
+                    // Sanitize descendants before unwrapping this node. Otherwise a disallowed
+                    // wrapper could move nested unsafe elements into the parent after the traversal
+                    // cursor has already passed them.
+                    $this->sanitizeChildren($node);
                     while ($node->firstChild !== null) {
                         $parent->insertBefore($node->firstChild, $node);
                     }
