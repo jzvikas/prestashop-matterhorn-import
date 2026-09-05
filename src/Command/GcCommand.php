@@ -21,8 +21,8 @@ final class GcCommand extends Command
             ->addOption('keep-run', null, InputOption::VALUE_REQUIRED, 'Keep snapshots from this run onward', '0')
             ->addOption('image-days', null, InputOption::VALUE_REQUIRED, 'Keep completed image jobs days', '2')
             ->addOption('new-product-days', null, InputOption::VALUE_REQUIRED, 'Keep completed mapped new-product jobs days', '7')
-            ->addOption('chunk', null, InputOption::VALUE_REQUIRED, 'Rows per DELETE chunk', '2000')
-            ->addOption('max-rows', null, InputOption::VALUE_REQUIRED, 'Max rows per invocation; 0 unlimited', '50000')
+            ->addOption('chunk', null, InputOption::VALUE_REQUIRED, 'Rows per bounded maintenance chunk', '2000')
+            ->addOption('max-rows', null, InputOption::VALUE_REQUIRED, 'Max rows processed per invocation; 0 unlimited', '50000')
             ->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Soft seconds limit; 0 unlimited', '30')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Emit JSON');
     }
@@ -42,7 +42,21 @@ final class GcCommand extends Command
         if ((bool) $input->getOption('json')) {
             $output->writeln((string) json_encode($stats, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         } else {
-            $output->writeln(sprintf('shop=%s images=%d new_products=%d snapshots=%d image_state=%d total=%d paused=%s reason=%s', $stats['shop_id'] === null ? 'all' : (string)$stats['shop_id'], $stats['images'], $stats['new_products'], $stats['snapshots'], $stats['image_state'], $stats['total'], $stats['paused'] ? 'yes' : 'no', $stats['reason'] ?? '-'));
+            $output->writeln(sprintf(
+                'shop=%s orphan_processed=%d orphan_deleted=%d orphan_resolved=%d orphan_deferred=%d images=%d new_products=%d snapshots=%d image_state=%d total=%d paused=%s reason=%s',
+                $stats['shop_id'] === null ? 'all' : (string) $stats['shop_id'],
+                $stats['image_orphans_processed'],
+                $stats['image_orphans_deleted'],
+                $stats['image_orphans_resolved'],
+                $stats['image_orphans_deferred'],
+                $stats['images'],
+                $stats['new_products'],
+                $stats['snapshots'],
+                $stats['image_state'],
+                $stats['total'],
+                $stats['paused'] ? 'yes' : 'no',
+                $stats['reason'] ?? '-'
+            ));
         }
         return Command::SUCCESS;
     }
