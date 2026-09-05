@@ -1,8 +1,19 @@
 <?php
 namespace Lp\MatterhornImport\Gc;
 
+use Lp\MatterhornImport\Image\PrestaImageProcessor;
+use Lp\MatterhornImport\Repository\ImageOrphanRepository;
+use Lp\MatterhornImport\Repository\ImageQueueRepository;
+
 final class GcService
 {
+    public function __construct(
+        private ImageOrphanRepository $imageOrphans,
+        private ImageQueueRepository $imageQueue,
+        private PrestaImageProcessor $imageProcessor
+    ) {
+    }
+
     public function run(int $keepRunId, int $imageDays, int $newProductDays, int $chunk, int $maxRows, int $timeLimitSeconds, ?int $shopId = null): array
     {
         if ($keepRunId < 0 || $imageDays < 0 || $newProductDays < 0 || $chunk < 1 || $maxRows < 0 || $timeLimitSeconds < 0) {
@@ -11,9 +22,17 @@ final class GcService
         if ($shopId !== null && $shopId <= 0) { throw new \InvalidArgumentException('GC shop ID must be positive'); }
         $chunk = min(10000, $chunk);
         $started = microtime(true);
-        $stats = ['images'=>0,'new_products'=>0,'snapshots'=>0,'image_state'=>0,'total'=>0];
+        $stats = [
+            'image_orphans_processed'=>0,'image_orphans_deleted'=>0,'image_orphans_resolved'=>0,'image_orphans_deferred'=>0,
+            'images'=>0,'new_products'=>0,'snapshots'=>0,'image_state'=>0,'total'=>0,
+        ];
 
-        $stats['images'] = $this->drain(fn(int $limit): int => $this->deleteImageJobs($imageDays, $limit, $shopId), $chunk, $maxRows, $stats['total'], $started, $timeLimitSeconds);
+        $orphanStats = $this->drainImageOrphans($chunk, $maxRows, $stats['total'], $started, $timeLimitSeconds, $shopId);
+        foreach ($orphanStats as $key => $value) { $stats[$key] = $value; }
+
+        if (!$this->stopped($maxRows, $stats['total'], $started, $timeLimitSeconds)) {
+            $stats['images'] = $this->drain(fn(int $limit): int => $this->deleteImageJobs($imageDays, $limit, $shopId), $chunk, $maxRows, $stats['total'], $started, $timeLimitSeconds);
+        }
         if (!$this->stopped($maxRows, $stats['total'], $started, $timeLimitSeconds)) {
             $stats['new_products'] = $this->drain(fn(int $limit): int => $this->deleteNewProductJobs($newProductDays, $limit, $shopId), $chunk, $maxRows, $stats['total'], $started, $timeLimitSeconds);
         }
@@ -43,6 +62,72 @@ final class GcService
         return $deletedTotal;
     }
 
+    /** @return array{image_orphans_processed:int,image_orphans_deleted:int,image_orphans_resolved:int,image_orphans_deferred:int} */
+    private function drainImageOrphans(int $chunk, int $maxRows, int &$total, float $started, int $timeLimitSeconds, ?int $shopId): array
+    {
+        $stats = ['image_orphans_processed'=>0,'image_orphans_deleted'=>0,'image_orphans_resolved'=>0,'image_orphans_deferred'=>0];
+        while (!$this->stopped($maxRows, $total, $started, $timeLimitSeconds)) {
+            $limit = $maxRows > 0 ? min($chunk, $maxRows - $total) : $chunk;
+            if ($limit <= 0) { break; }
+            $rows = $this->imageOrphans->due($limit, $shopId);
+            if ($rows === []) { break; }
+            $processed = 0;
+            foreach ($rows as $row) {
+                if ($this->stopped($maxRows, $total, $started, $timeLimitSeconds)) { break; }
+                $processed++; $total++; $stats['image_orphans_processed']++;
+                $result = $this->recoverImageOrphan($row);
+                $stats[$result]++;
+            }
+            if ($processed < $limit) { break; }
+        }
+        return $stats;
+    }
+
+    private function recoverImageOrphan(array $row): string
+    {
+        $idOrphan = (int) ($row['id_orphan'] ?? 0);
+        $idImage = (int) ($row['id_image'] ?? 0);
+        $productId = (int) ($row['id_product'] ?? 0);
+        $shopId = (int) ($row['id_shop'] ?? 0);
+        $queueStatus = $this->imageQueue->status((int) ($row['id_queue'] ?? 0));
+
+        if (in_array($queueStatus, ['pending','processing'], true)) {
+            $this->imageOrphans->defer($idOrphan, 'image queue job is still active: ' . $queueStatus);
+            return 'image_orphans_deferred';
+        }
+        if ($this->hasImageStateReference($productId, $idImage)) {
+            $this->imageOrphans->forget($idOrphan);
+            return 'image_orphans_resolved';
+        }
+        $imageExists = (bool) \Db::getInstance()->getValue(sprintf(
+            'SELECT 1 FROM `%simage` WHERE id_image=%d AND id_product=%d', _DB_PREFIX_, $idImage, $productId
+        ));
+        if (!$imageExists) {
+            $this->imageOrphans->forget($idOrphan);
+            return 'image_orphans_resolved';
+        }
+
+        try {
+            if ($this->imageProcessor->deleteImage($idImage, $productId, $shopId)) {
+                $this->imageOrphans->forget($idOrphan);
+                return 'image_orphans_deleted';
+            }
+            $this->imageOrphans->defer($idOrphan, 'image is not exclusively owned by the target shop; destructive orphan cleanup refused');
+        } catch (\Throwable $e) {
+            $this->imageOrphans->defer($idOrphan, $e->getMessage());
+        }
+        return 'image_orphans_deferred';
+    }
+
+    private function hasImageStateReference(int $productId, int $idImage): bool
+    {
+        if ($productId <= 0 || $idImage <= 0) { return false; }
+        return (bool) \Db::getInstance()->getValue(sprintf(
+            'SELECT 1 FROM `%sli_matterhornim_99dfbf_image_state` WHERE id_product=%d AND id_image=%d LIMIT 1',
+            _DB_PREFIX_, $productId, $idImage
+        ));
+    }
+
     private function stopped(int $maxRows, int $total, float $started, int $timeLimitSeconds): bool
     {
         return ($maxRows > 0 && $total >= $maxRows) || ($timeLimitSeconds > 0 && microtime(true) - $started >= $timeLimitSeconds);
@@ -50,7 +135,10 @@ final class GcService
 
     private function deleteImageJobs(int $days, int $limit, ?int $shopId): int
     {
-        return $this->deleteBounded('li_matterhornim_99dfbf_image_queue', "status='done' AND updated_at<DATE_SUB(NOW(),INTERVAL " . $days . ' DAY)' . ($shopId === null ? '' : ' AND id_shop=' . $shopId), 'id_queue', $limit);
+        $queueTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_queue';
+        $where = "status='done' AND updated_at<DATE_SUB(NOW(),INTERVAL " . $days . ' DAY)' . ($shopId === null ? '' : ' AND id_shop=' . $shopId);
+        $where .= ' AND NOT EXISTS (SELECT 1 FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_orphan` o WHERE o.id_queue=`' . $queueTable . '`.id_queue)';
+        return $this->deleteBounded('li_matterhornim_99dfbf_image_queue', $where, 'id_queue', $limit);
     }
 
     private function deleteNewProductJobs(int $days, int $limit, ?int $shopId): int
