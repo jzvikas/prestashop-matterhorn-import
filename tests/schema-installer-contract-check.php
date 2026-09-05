@@ -17,6 +17,7 @@ $upgrade012 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.2.php');
 $upgrade013 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.3.php');
 $upgrade014 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.4.php');
 $upgrade015 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.5.php');
+$upgrade016 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.6.php');
 $main = (string) file_get_contents($root . '/matterhornimport.php');
 
 schemaCheck(substr_count($install, 'CREATE TABLE IF NOT EXISTS') === 13, 'core schema must define 13 generated module tables');
@@ -34,6 +35,7 @@ schemaCheck(str_contains($install, 'KEY `idx_shop_source_run` (`id_shop`,`source
 schemaCheck(str_contains($install, 'KEY `idx_feed_product` (`id_shop`,`source`,`out_of_feed`,`id_product`)'), 'fresh mapping schema must include REMOVE keyset index');
 schemaCheck(substr_count($install, 'KEY `idx_shop_claim` (`id_shop`,`status`,`available_at`,`id_queue`)') === 2, 'fresh queue schema must include both per-shop claim indexes');
 schemaCheck(str_contains($install, 'KEY `idx_shop_source_status` (`id_shop`,`source`,`status`,`id_queue`)'), 'fresh image queue must support source-wide reconciliation fence');
+schemaCheck(str_contains($install, 'KEY `idx_revalidate` (`id_shop`,`source`,`updated_at`,`source_key`)'), 'fresh image state must support bounded stale revalidation');
 schemaCheck(str_contains($imageOrphanInstall, 'PREFIX_li_matterhornim_99dfbf_image_orphan'), 'generated Matterhorn DB token must own image orphan table');
 schemaCheck(str_contains($imageOrphanInstall, 'ENGINE=InnoDB'), 'image orphan recovery schema must require InnoDB');
 schemaCheck(str_contains($uninstall, 'PREFIX_li_matterhornim_99dfbf_image_orphan'), 'uninstall must target image orphan recovery table');
@@ -53,6 +55,7 @@ schemaCheck(str_contains($installer, "'image_reconcile_status'"), 'reconciliatio
 schemaCheck(str_contains($installer, "'image_reconcile_checkpoint'"), 'reconciliation checkpoint column ensure missing');
 schemaCheck(str_contains($installer, "'image_reconcile_done'"), 'reconciliation done column ensure missing');
 schemaCheck(str_contains($installer, 'idx_shop_source_status'), 'reconciliation source queue index ensure missing');
+schemaCheck(str_contains($installer, "'idx_revalidate' => '(`id_shop`,`source`,`updated_at`,`source_key`)'"), 'revalidation performance index ensure missing');
 schemaCheck(str_contains($installer, 'INFORMATION_SCHEMA.STATISTICS'), 'index detection must be idempotent');
 schemaCheck(str_contains($installer, 'ensurePerformanceIndexes()'), 'fresh install must ensure high-volume indexes idempotently');
 schemaCheck(str_contains($installer, 'MATTERHORNIMPORT_RETAIN_DATA_ON_UNINSTALL'), 'installer must expose retention policy');
@@ -62,7 +65,9 @@ schemaCheck(str_contains($upgrade013, 'upgrade_module_0_1_3'), '0.1.3 upgrade en
 schemaCheck(str_contains($upgrade014, 'upgrade_module_0_1_4'), '0.1.4 upgrade entrypoint must exist');
 schemaCheck(str_contains($upgrade015, 'upgrade_module_0_1_5'), '0.1.5 upgrade entrypoint must exist');
 schemaCheck(str_contains($upgrade015, 'ensureImageReconcileSchema()'), '0.1.5 upgrade must reuse idempotent reconciliation schema ensure');
-schemaCheck(str_contains($main, "\$this->version = '0.1.5'"), 'module version must match 0.1.5 schema upgrade');
+schemaCheck(str_contains($upgrade016, 'upgrade_module_0_1_6'), '0.1.6 upgrade entrypoint must exist');
+schemaCheck(str_contains($upgrade016, 'ensurePerformanceIndexes()'), '0.1.6 upgrade must reuse idempotent performance index ensure');
+schemaCheck(str_contains($main, "\$this->version = '0.1.6'"), 'module version must match 0.1.6 schema upgrade');
 schemaCheck(str_contains($main, '(new Installer())->install()'), 'module install hook must invoke schema installer');
 schemaCheck(str_contains($main, '(new Installer())->uninstall()'), 'module uninstall hook must invoke schema installer');
 
