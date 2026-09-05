@@ -28,6 +28,15 @@ final class ImageStateRepository
         return is_array($row) ? $row : null;
     }
 
+    /** @return list<array<string,mixed>> */
+    public function statesForProduct(int $shopId, string $source, string $sourceKey, int $productId): array
+    {
+        return \Db::getInstance()->executeS(sprintf(
+            "SELECT s.* FROM `%s%s` s INNER JOIN `%simage` i ON i.id_image=s.id_image AND i.id_product=s.id_product INNER JOIN `%simage_shop` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop WHERE s.id_shop=%d AND s.source='%s' AND s.source_key='%s' AND s.id_product=%d ORDER BY s.position,s.url_hash",
+            _DB_PREFIX_, self::TABLE, _DB_PREFIX_, _DB_PREFIX_, $shopId, pSQL($source), pSQL($sourceKey), $productId
+        )) ?: [];
+    }
+
     public function touchNotModified(array $queueRow, int $idImage): void
     {
         $sql = sprintf(
@@ -56,6 +65,42 @@ final class ImageStateRepository
         }
     }
 
+    public function canDeleteStateImage(int $shopId, string $source, string $sourceKey, int $productId, int $idImage, string $urlHash): bool
+    {
+        if ($shopId <= 0 || $productId <= 0 || $idImage <= 0 || $urlHash === '') {
+            return false;
+        }
+        $db = \Db::getInstance();
+        $otherRefs = (int) $db->getValue(sprintf(
+            "SELECT COUNT(*) FROM `%s%s` WHERE id_product=%d AND id_image=%d AND NOT (id_shop=%d AND source='%s' AND source_key='%s' AND url_hash='%s')",
+            _DB_PREFIX_, self::TABLE, $productId, $idImage, $shopId, pSQL($source), pSQL($sourceKey), pSQL($urlHash)
+        ));
+        if ($otherRefs !== 0) {
+            return false;
+        }
+        $shopRows = $db->executeS(sprintf('SELECT id_shop FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage)) ?: [];
+        return count($shopRows) === 1 && (int) $shopRows[0]['id_shop'] === $shopId;
+    }
+
+    public function hasOtherTargetShopStateRef(int $shopId, int $productId, int $idImage, string $source, string $sourceKey, string $urlHash): bool
+    {
+        return (bool) \Db::getInstance()->getValue(sprintf(
+            "SELECT 1 FROM `%s%s` WHERE id_shop=%d AND id_product=%d AND id_image=%d AND NOT (source='%s' AND source_key='%s' AND url_hash='%s') LIMIT 1",
+            _DB_PREFIX_, self::TABLE, $shopId, $productId, $idImage, pSQL($source), pSQL($sourceKey), pSQL($urlHash)
+        ));
+    }
+
+    public function deleteState(int $shopId, string $source, string $sourceKey, int $productId, string $urlHash): void
+    {
+        $where = sprintf(
+            "id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d AND url_hash='%s'",
+            $shopId, pSQL($source), pSQL($sourceKey), $productId, pSQL($urlHash)
+        );
+        if (!\Db::getInstance()->delete(self::TABLE, $where)) {
+            throw new \RuntimeException('Image state delete failed');
+        }
+    }
+
     public function canDeleteReplacedImage(int $shopId, int $productId, int $idImage): bool
     {
         if ($shopId <= 0 || $productId <= 0 || $idImage <= 0) {
@@ -72,5 +117,16 @@ final class ImageStateRepository
         }
         $shopRows = $db->executeS(sprintf('SELECT id_shop FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage)) ?: [];
         return count($shopRows) === 1 && (int) $shopRows[0]['id_shop'] === $shopId;
+    }
+
+    public function gcOrphans(): int
+    {
+        $sql = "DELETE s FROM `" . _DB_PREFIX_ . self::TABLE . "` s " .
+            "LEFT JOIN `" . _DB_PREFIX_ . "li_matterhornim_99dfbf_mapping` m ON m.id_shop=s.id_shop AND m.source=s.source AND m.source_key=s.source_key AND m.id_product=s.id_product " .
+            "LEFT JOIN `" . _DB_PREFIX_ . "image` i ON i.id_image=s.id_image AND i.id_product=s.id_product " .
+            "LEFT JOIN `" . _DB_PREFIX_ . "image_shop` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop " .
+            'WHERE m.source_key IS NULL OR i.id_image IS NULL OR ish.id_image IS NULL';
+        $db = \Db::getInstance();
+        return $db->execute($sql) ? (int) $db->Affected_Rows() : 0;
     }
 }

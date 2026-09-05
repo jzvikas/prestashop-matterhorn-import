@@ -99,6 +99,81 @@ final class PrestaImageProcessor
         return true;
     }
 
+    /** @param list<array{id_image:int,position:int,is_cover:bool}> $placements */
+    public function syncProductPlacement(int $productId, int $shopId, array $placements): void
+    {
+        if ($productId <= 0 || $shopId <= 0) {
+            throw new \InvalidArgumentException('Invalid image placement context');
+        }
+        if ($placements === []) {
+            // Preserve any manual BO cover when Matterhorn has no desired images.
+            return;
+        }
+        $this->shopContext->activate($shopId);
+        $db = \Db::getInstance();
+        $byImage = [];
+        foreach ($placements as $placement) {
+            $idImage = (int) ($placement['id_image'] ?? 0);
+            if ($idImage <= 0) {
+                continue;
+            }
+            $position = max(0, (int) ($placement['position'] ?? 0));
+            if (!isset($byImage[$idImage]) || $position < $byImage[$idImage]['position']) {
+                $byImage[$idImage] = [
+                    'id_image' => $idImage,
+                    'position' => $position,
+                    'is_cover' => (bool) ($placement['is_cover'] ?? false),
+                ];
+            } elseif ((bool) ($placement['is_cover'] ?? false)) {
+                $byImage[$idImage]['is_cover'] = true;
+            }
+        }
+        if ($byImage === []) {
+            return;
+        }
+        uasort($byImage, static fn(array $a, array $b): int => $a['position'] <=> $b['position']);
+        foreach ($byImage as $idImage => $placement) {
+            $valid = (bool) $db->getValue(sprintf(
+                'SELECT 1 FROM `%simage` i INNER JOIN `%simage_shop` ish ON ish.id_image=i.id_image AND ish.id_shop=%d WHERE i.id_image=%d AND i.id_product=%d',
+                _DB_PREFIX_, _DB_PREFIX_, $shopId, $idImage, $productId
+            ));
+            if (!$valid) {
+                throw new \RuntimeException('Cannot reconcile missing product image ' . $idImage);
+            }
+            $shopCount = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage));
+            if ($shopCount === 1 && !$db->execute(sprintf(
+                'UPDATE `%simage` SET position=%d WHERE id_image=%d AND id_product=%d',
+                _DB_PREFIX_, $placement['position'] + 1, $idImage, $productId
+            ))) {
+                throw new \RuntimeException('Cannot reconcile image position ' . $idImage);
+            }
+        }
+
+        if (!$db->execute(sprintf(
+            'UPDATE `%simage_shop` SET cover=NULL WHERE id_product=%d AND id_shop=%d AND cover=1',
+            _DB_PREFIX_, $productId, $shopId
+        ))) {
+            throw new \RuntimeException('Cannot clear target-shop cover during reconciliation');
+        }
+        $coverId = null;
+        foreach ($byImage as $placement) {
+            if ($placement['is_cover']) {
+                $coverId = (int) $placement['id_image'];
+                break;
+            }
+        }
+        if ($coverId === null) {
+            $first = reset($byImage);
+            $coverId = (int) $first['id_image'];
+        }
+        if (!$db->execute(sprintf(
+            'UPDATE `%simage_shop` SET cover=1 WHERE id_image=%d AND id_product=%d AND id_shop=%d',
+            _DB_PREFIX_, $coverId, $productId, $shopId
+        ))) {
+            throw new \RuntimeException('Cannot set reconciled target-shop cover');
+        }
+    }
+
     public function cleanupFilesystem(AttachedImage $attached): void
     {
         $root = realpath(_PS_PROD_IMG_DIR_);
