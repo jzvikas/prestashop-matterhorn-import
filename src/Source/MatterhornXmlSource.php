@@ -105,9 +105,8 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
     /** @return array<string,mixed> */
     private function readProduct(\XMLReader $reader, int $record): array
     {
-        $productId = trim((string) $reader->getAttribute('id'));
         $row = [
-            'id' => $productId,
+            'id' => trim((string) $reader->getAttribute('id')),
             'name' => '',
             'creation_date' => '',
             'brand' => '',
@@ -119,6 +118,7 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
             'price' => '',
             'description' => '',
             'options' => [],
+            'supplier_warnings' => [],
         ];
         if ($reader->isEmptyElement) {
             return $row;
@@ -140,7 +140,9 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
 
             $field = $reader->localName;
             if ($field === 'images') {
-                $row['images'] = $this->readImages($reader, $record, $recordBytes);
+                $imageResult = $this->readImages($reader, $record, $recordBytes);
+                $row['images'] = $imageResult['urls'];
+                $row['supplier_warnings'] = array_merge($row['supplier_warnings'], $imageResult['warnings']);
                 continue;
             }
             if ($field === 'options') {
@@ -148,9 +150,8 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
                 continue;
             }
             if ($field === 'category') {
-                $categoryId = trim((string) $reader->getAttribute('id'));
                 $row['category'] = [
-                    'id' => $categoryId,
+                    'id' => trim((string) $reader->getAttribute('id')),
                     'name' => trim($this->readScalarElement(
                         $reader,
                         $record,
@@ -180,18 +181,20 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
         throw new \RuntimeException('Unexpected EOF inside Matterhorn <product> at source record ' . $record);
     }
 
-    /** @return list<string> */
+    /** @return array{urls:list<string>,warnings:list<string>} */
     private function readImages(\XMLReader $reader, int $record, int &$recordBytes): array
     {
         if ($reader->isEmptyElement) {
-            return [];
+            return ['urls' => [], 'warnings' => []];
         }
         $depth = $reader->depth;
         $images = [];
-        $seen = [];
+        $warnings = [];
+        $seenHashes = [];
+        $imageNumber = 0;
         while ($reader->read()) {
             if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === 'images') {
-                return $images;
+                return ['urls' => $images, 'warnings' => $warnings];
             }
             if ($reader->nodeType !== \XMLReader::ELEMENT || $reader->depth !== $depth + 1) {
                 continue;
@@ -200,26 +203,74 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
                 $this->skipCurrentElementCounting($reader, $record, 'images/' . $reader->localName, $recordBytes);
                 continue;
             }
-            if (count($images) >= self::MAX_IMAGES_PER_PRODUCT) {
+            $imageNumber++;
+            if ($imageNumber > self::MAX_IMAGES_PER_PRODUCT) {
                 throw new \RuntimeException(
                     'Matterhorn product image count exceeds limit of ' . self::MAX_IMAGES_PER_PRODUCT .
                     ' at source record ' . $record
                 );
             }
-            $url = trim($this->readScalarElement(
-                $reader,
-                $record,
-                'images/image_url',
-                self::MAX_IMAGE_URL_BYTES,
-                $recordBytes
-            ));
-            if ($url === '' || isset($seen[$url])) {
+            $result = $this->readImageUrlElement($reader, $record, $recordBytes);
+            if (isset($seenHashes[$result['hash']])) {
                 continue;
             }
-            $seen[$url] = true;
-            $images[] = $url;
+            $seenHashes[$result['hash']] = true;
+            if ($result['oversized']) {
+                $warnings[] = 'image #' . $imageNumber . ' URL exceeds ' . self::MAX_IMAGE_URL_BYTES . ' bytes and was skipped';
+                continue;
+            }
+            $url = trim($result['url']);
+            if ($url !== '') {
+                $images[] = $url;
+            }
         }
         throw new \RuntimeException('Unexpected EOF inside Matterhorn <images> at source record ' . $record);
+    }
+
+    /** @return array{url:string,hash:string,oversized:bool} */
+    private function readImageUrlElement(\XMLReader $reader, int $record, int &$recordBytes): array
+    {
+        if ($reader->isEmptyElement) {
+            return ['url' => '', 'hash' => hash('sha256', ''), 'oversized' => false];
+        }
+        $depth = $reader->depth;
+        $name = $reader->localName;
+        $value = '';
+        $fieldBytes = 0;
+        $oversized = false;
+        $hash = hash_init('sha256');
+        while ($reader->read()) {
+            if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === $name) {
+                return ['url' => $value, 'hash' => hash_final($hash), 'oversized' => $oversized];
+            }
+            if ($reader->nodeType === \XMLReader::ELEMENT) {
+                throw new \RuntimeException(
+                    'Matterhorn scalar field images/image_url contains nested element <' . $reader->localName .
+                    '> at source record ' . $record
+                );
+            }
+            if (!in_array($reader->nodeType, [
+                \XMLReader::TEXT,
+                \XMLReader::CDATA,
+                \XMLReader::WHITESPACE,
+                \XMLReader::SIGNIFICANT_WHITESPACE,
+            ], true)) {
+                continue;
+            }
+            $chunk = $reader->value;
+            $chunkBytes = strlen($chunk);
+            $fieldBytes += $chunkBytes;
+            $recordBytes += $chunkBytes;
+            hash_update($hash, $chunk);
+            $this->assertRecordBytes($recordBytes, $record);
+            if (!$oversized && $fieldBytes <= self::MAX_IMAGE_URL_BYTES) {
+                $value .= $chunk;
+            } elseif (!$oversized) {
+                $oversized = true;
+                $value = '';
+            }
+        }
+        throw new \RuntimeException('Unexpected EOF inside Matterhorn <image_url> at source record ' . $record);
     }
 
     /** @return list<array<string,string>> */
