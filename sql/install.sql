@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_run` (
   `source_duplicate` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `read_checkpoint` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `source_fingerprint` CHAR(64) NULL,
+  `source_policy_hash` CHAR(64) NULL,
   `import_done` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `import_failed` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `update_done` BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_run` (
   `finished_at` DATETIME NULL,
   PRIMARY KEY (`id_run`),
   KEY `idx_shop_source_status` (`id_shop`,`source`,`status`),
+  KEY `idx_shop_source_run` (`id_shop`,`source`,`id_run`),
   KEY `idx_started_at` (`started_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -71,6 +73,7 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_mapping` (
   UNIQUE KEY `uq_shop_source_product` (`id_shop`,`source`,`id_product`),
   KEY `idx_seen` (`id_shop`,`source`,`last_seen_run_id`),
   KEY `idx_feed_state` (`id_shop`,`source`,`out_of_feed`,`last_seen_run_id`),
+  KEY `idx_feed_product` (`id_shop`,`source`,`out_of_feed`,`id_product`),
   KEY `idx_product` (`id_product`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -178,6 +181,7 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_new_product_queue` (
   PRIMARY KEY (`id_queue`),
   UNIQUE KEY `uq_shop_source_key` (`id_shop`,`source`,`source_key`),
   KEY `idx_claim` (`status`,`available_at`,`locked_until`,`id_queue`),
+  KEY `idx_shop_claim` (`id_shop`,`status`,`available_at`,`id_queue`),
   KEY `idx_run` (`id_run`,`status`),
   KEY `idx_product` (`id_product`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -239,6 +243,7 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_image_queue` (
   PRIMARY KEY (`id_queue`),
   UNIQUE KEY `uq_product_url` (`id_shop`,`id_product`,`url_hash`),
   KEY `idx_claim` (`status`,`available_at`,`locked_until`,`id_queue`),
+  KEY `idx_shop_claim` (`id_shop`,`status`,`available_at`,`id_queue`),
   KEY `idx_run` (`id_run`,`status`),
   KEY `idx_product` (`id_product`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
