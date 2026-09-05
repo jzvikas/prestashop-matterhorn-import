@@ -191,6 +191,9 @@ final class Installer
             'li_matterhornim_99dfbf_mapping' => [
                 'idx_feed_product' => '(`id_shop`,`source`,`out_of_feed`,`id_product`)',
             ],
+            'li_matterhornim_99dfbf_image_state' => [
+                'idx_revalidate' => '(`id_shop`,`source`,`updated_at`,`source_key`)',
+            ],
             'li_matterhornim_99dfbf_image_queue' => [
                 'idx_shop_claim' => '(`id_shop`,`status`,`available_at`,`id_queue`)',
             ],
