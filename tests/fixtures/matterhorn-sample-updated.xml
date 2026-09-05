@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<products>
+  <product id="206161">
+    <name><![CDATA[ Panties model 206161 Axami ]]></name>
+    <creation_date><![CDATA[2026-06-03 00:00:00]]></creation_date>
+    <brand><![CDATA[Axami]]></brand>
+    <category_path><![CDATA[/WOMEN/Women`s Lingerie/Knickers, Slips, Thongs/Briefs]]></category_path>
+    <category id="3"><![CDATA[Briefs]]></category>
+    <color><![CDATA[pink]]></color>
+    <type><![CDATA[Panties]]></type>
+    <images>
+      <image_url>https://matterhorn-wholesale.com/pics_source/1057030.jpg</image_url>
+      <image_url>https://matterhorn-wholesale.com/pics_source/1057031.jpg</image_url>
+      <image_url>https://matterhorn-wholesale.com/pics_source/1057032.jpg</image_url>
+      <image_url>https://matterhorn-wholesale.com/pics_source/1057033.jpg</image_url>
+    </images>
+    <price><![CDATA[15.9]]></price>
+    <description><![CDATA[Charming figs. <div class='prod_data'><table><thead><tr><th>Size</th><th>Hips width</th></tr></thead><tr><td><b>L</b></td><td>98-103 cm</td></tr></table></div>]]></description>
+    <options>
+      <option id="M1188149"><option_name><![CDATA[XS]]></option_name><STOCK>7</STOCK><avaible_in>3</avaible_in><ean>5902934981668</ean></option>
+      <option id="M1188151"><option_name><![CDATA[M]]></option_name><STOCK>9</STOCK><avaible_in>3</avaible_in><ean>5902934981682</ean></option>
+    </options>
+  </product>
+  <product id="34375">
+    <name><![CDATA[Stockings model 34375 Axami]]></name>
+    <creation_date><![CDATA[2014-10-31 00:00:00]]></creation_date>
+    <brand><![CDATA[Axami]]></brand>
+    <category_path><![CDATA[/WOMEN/Women`s Lingerie/Hosiery, Legwear, Stockings and Tights for Women]]></category_path>
+    <category id="187"><![CDATA[Hosiery, Legwear, Stockings and Tights for Women]]></category>
+    <color><![CDATA[beige]]></color>
+    <type><![CDATA[Stockings]]></type>
+    <images><image_url>https://matterhorn-wholesale.com/pics_source/77440.jpg</image_url></images>
+    <price><![CDATA[18.9]]></price>
+    <description><![CDATA[Fancy and romantic stockings. <div class='prod_data'><strong>Spandex</strong> 10 % <br><strong>polyamide</strong> 90 %</div>]]></description>
+    <options>
+      <option id="M224468"><option_name><![CDATA[S/M]]></option_name><STOCK>40</STOCK><avaible_in>3</avaible_in><ean>5901797352608</ean></option>
+      <option id="M224467"><option_name><![CDATA[L/XL]]></option_name><STOCK>1</STOCK><avaible_in>3</avaible_in><ean>5901797354480</ean></option>
+    </options>
+  </product>
+</products>
