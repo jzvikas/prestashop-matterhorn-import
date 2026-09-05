@@ -5,6 +5,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $files = [
     'src/Repository/NewProductQueueRepository.php',
+    'src/Repository/RunRepository.php',
     'src/Repository/SpecificPriceStateRepository.php',
     'src/SpecificPrice/SpecificPriceSynchronizer.php',
     'src/NewProduct/NewProductWorker.php',
@@ -17,6 +18,7 @@ foreach ($files as $file) {
 }
 
 $queue = (string) file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
+$runs = (string) file_get_contents($root . '/src/Repository/RunRepository.php');
 $worker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
 $enqueue = (string) file_get_contents($root . '/src/Command/NewProductsEnqueueCommand.php');
 $command = (string) file_get_contents($root . '/src/Command/NewProductsCommand.php');
@@ -31,12 +33,20 @@ $checks = [
     [$queue, 'scopeWhere = " AND source=', 'new-product claim predicate must include source'],
     [$queue, 'public function retryFailed(string $source', 'new-product retry must require source scope'],
     [$queue, "WHERE status='failed' AND source='", 'new-product retry update must recheck source at write time'],
+    [$queue, 'public function lockOwned(int $id, string $token)', 'new-product worker must lock/reload the claimed row'],
+    [$queue, 'FOR UPDATE', 'new-product generation/payload fence must use a row lock'],
+    [$queue, 'public function supersede(int $id, string $token, int $expectedRunId', 'stale generation must have an exact supersede path'],
+    [$queue, 'id_run=%d AND status=\'processing\'', 'stale supersede must fence exact run generation'],
+    [$queue, 'Affected_Rows() !== 1', 'stale supersede must verify exact ownership at write time'],
     [$queue, 'GREATEST(id_run,VALUES(id_run))', 'newer queue generation ownership'],
     [$queue, "payload=IF(VALUES(id_run)>=id_run", 'newer payload handoff'],
     [$queue, 'expectedRunId', 'generation-aware finalizer fencing'],
     [$queue, 'requeueNewerGeneration', 'newer generation requeue'],
     [$queue, 'id_run>%d', 'newer run comparison'],
     [$queue, 'TIMESTAMPADD(SECOND', 'retry backoff'],
+    [$runs, 'public function latestCompletedReadId', 'worker needs the latest authoritative completed READ generation'],
+    [$runs, "read_status='completed' ORDER BY id_run DESC LIMIT 1", 'latest READ lookup must ignore incomplete newer generations'],
+    [$runs, 'false\n        );', 'latest completed READ lookup must bypass Db query cache'],
     [$worker, 'InterruptedCreateRecovery', 'interrupted-create recovery'],
     [$worker, 'SourceInterface', 'worker must resolve its active supplier source'],
     [$worker, '$sourceName = trim($this->sourceAdapter->name())', 'worker must resolve active source once per tick'],
@@ -45,8 +55,20 @@ $checks = [
     [$worker, 'assertTransactionalCore()', 'transactional DB safety'],
     [$worker, 'lock->acquire', 'shop/source lock'],
     [$worker, '$expectedRunId = (int) $job', 'worker generation capture'],
+    [$worker, '$lockedJob = $this->queue->lockOwned($idQueue, $token)', 'worker must reload/lock queue state before catalog writes'],
+    [$worker, '$expectedRunId = $lockedRunId', 'worker must adopt an already-enqueued newer generation before mutation'],
+    [$worker, '$this->runs->assertContext($expectedRunId, $jobShop, $source)', 'locked generation must still belong to exact shop/source run'],
+    [$worker, '$latestCompletedReadId = $this->runs->latestCompletedReadId($jobShop, $source)', 'worker must fence superseded completed READ generations'],
+    [$worker, "$run['import_status'] ?? 'pending') === 'completed'", 'completed IMPORT must close the new-product worker lane'],
+    [$worker, "$run['update_status'] ?? 'pending') !== 'pending'", 'started UPDATE must close the new-product worker lane'],
+    [$worker, "$run['remove_status'] ?? 'pending') !== 'pending'", 'started REMOVE must close the new-product worker lane'],
+    [$worker, '$this->queue->supersede($idQueue, $token, $expectedRunId, $reason)', 'stale job must be finalized without catalog mutation'],
+    [$worker, "ProductData::fromJson((string) (\$lockedJob['payload'] ?? ''))", 'catalog projection must use the row-locked latest payload'],
+    [$worker, 'New-product locked payload/source-key mismatch', 'locked payload identity must be checked'],
     [$worker, 'existing_updated', 'latest generation must update existing mapping'],
     [$worker, 'generation_requeued', 'generation handoff metrics'],
+    [$worker, 'generation_adopted', 'in-flight newer generation adoption metric'],
+    [$worker, 'stale_superseded', 'stale worker suppression metric'],
     [$worker, 'writer->update($idProduct, $product, $jobShop)', 'existing product receives latest payload'],
     [$worker, 'ItemTransactionGuard', 'shared transaction recovery guard'],
     [$worker, '$this->transactionGuard->arm($db)', 'worker transaction guard arm'],
@@ -65,6 +87,8 @@ $checks = [
     [$enqueue, "remove_status'] !== 'pending'", 'enqueue/remove safety gate'],
     [$command, "parent::__construct('matterhornimport:new-products')", 'worker command name'],
     [$command, "'generation_requeued'=>0", 'CLI generation requeue visibility'],
+    [$command, "'generation_adopted'=>0", 'CLI generation adoption visibility'],
+    [$command, "'stale_superseded'=>0", 'CLI stale suppression visibility'],
     [$command, "'existing_updated'=>0", 'CLI latest-payload update visibility'],
     [$services, 'Lp\\MatterhornImport\\Command\\NewProductsEnqueueCommand:', 'enqueue command service registration'],
     [$services, 'Lp\\MatterhornImport\\Command\\NewProductsCommand:', 'worker command service registration'],
@@ -75,6 +99,22 @@ foreach ($checks as [$haystack, $needle, $label]) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+
+$lockPos = strpos($worker, '$lockedJob = $this->queue->lockOwned($idQueue, $token)');
+$payloadPos = strpos($worker, 'ProductData::fromJson(');
+$updatePos = strpos($worker, '$this->writer->update(');
+$createPos = strpos($worker, '$this->writer->create(');
+if ($lockPos === false || $payloadPos === false || $updatePos === false || $createPos === false || $lockPos >= $payloadPos || $lockPos >= $updatePos || $lockPos >= $createPos) {
+    fwrite(STDERR, "FAIL: queue generation/payload row lock must precede parsing and every catalog writer path\n");
+    exit(1);
+}
+
+$latestReadPos = strpos($worker, '$latestCompletedReadId = $this->runs->latestCompletedReadId');
+$supersedePos = strpos($worker, '$this->queue->supersede(');
+if ($latestReadPos === false || $supersedePos === false || $latestReadPos >= $supersedePos || $supersedePos >= $payloadPos) {
+    fwrite(STDERR, "FAIL: stale/newer completed READ must supersede the job before payload parsing/catalog mutation\n");
+    exit(1);
 }
 
 $donePos = strpos($worker, '$finalizedGeneration = $this->queue->done(');
