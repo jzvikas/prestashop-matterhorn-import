@@ -47,6 +47,7 @@ final class ImportRunner
         }
 
         $runId = null;
+        $executionStarted = false;
         $remainingItems = $maxItems;
         $deadline = $timeLimitSeconds > 0 ? microtime(true) + $timeLimitSeconds : 0.0;
 
@@ -57,9 +58,12 @@ final class ImportRunner
                 if ((string) $run['status'] === 'completed') {
                     throw new \RuntimeException('Matterhorn import run #' . $runId . ' is already completed');
                 }
+                $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
                 $this->runs->resume($runId);
+                $executionStarted = true;
             } else {
                 $runId = $this->runs->create($shopId, $source);
+                $executionStarted = true;
             }
 
             $run = $this->runs->assertContext($runId, $shopId, $source);
@@ -139,7 +143,7 @@ final class ImportRunner
             $this->runs->finish($runId, 'completed');
             return ['run' => $runId, 'status' => 'completed', 'stage' => 'completed'];
         } catch (\Throwable $e) {
-            if ($runId !== null) {
+            if ($runId !== null && $executionStarted) {
                 $this->markFailedBestEffort($runId);
             }
             throw $e;
