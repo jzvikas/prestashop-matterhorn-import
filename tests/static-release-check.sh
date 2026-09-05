@@ -14,4 +14,5 @@ php tests/import-orchestration-contract-check.php
 php tests/update-orchestration-contract-check.php
 php tests/remove-orchestration-contract-check.php
 php tests/image-pipeline-foundation-contract-check.php
+php tests/image-pipeline-worker-contract-check.php
 echo "Static release checks: OK"
