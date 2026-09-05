@@ -12,7 +12,7 @@ final class FeatureMappingRepository
         if ($shopId <= 0) {
             throw new \InvalidArgumentException('Feature mapping requires a concrete shop');
         }
-        $cacheKey = $shopId . "\0" . $source . "\0" . $featureKey . "\0" . $valueKey;
+        $cacheKey = $this->cacheKey($shopId, $source, $featureKey, $valueKey);
         if (array_key_exists($cacheKey, $this->pairCache)) {
             return $this->pairCache[$cacheKey];
         }
@@ -71,6 +71,14 @@ final class FeatureMappingRepository
         ))) {
             throw new \RuntimeException('Feature value mapping save failed');
         }
-        unset($this->pairCache[$cacheKey = $shopId . "\0" . $source . "\0" . $featureKey . "\0" . $valueKey]);
+        $this->pairCache[$this->cacheKey($shopId, $source, $featureKey, $valueKey)] = [
+            'id_feature' => $featureId,
+            'id_feature_value' => $featureValueId,
+        ];
+    }
+
+    private function cacheKey(int $shopId, string $source, string $featureKey, string $valueKey): string
+    {
+        return $shopId . "\0" . $source . "\0" . $featureKey . "\0" . $valueKey;
     }
 }
