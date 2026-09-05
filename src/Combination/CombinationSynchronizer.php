@@ -25,6 +25,7 @@ final class CombinationSynchronizer
         $survivors = [];
         $desiredKeys = [];
         $explicitDefault = null;
+        $authoritative = !empty($product->extra['combinations_authoritative']);
 
         foreach ($desired as $item) {
             $semanticKey = $item['semantic_key'];
@@ -74,8 +75,6 @@ final class CombinationSynchronizer
                 \StockAvailable::setQuantity($productId, $id, $item['quantity'], $shopId);
             }
 
-            // Combination/StockAvailable ObjectModels and hooks may commit the shared connection.
-            // Restore the caller-owned item boundary before persisting module ownership/hashes.
             $this->transactionGuard->restoreAfterExternalCommit();
             $this->mapping->save(
                 $shopId, $source, $product->sourceKey, $semanticKey, $productId, $id,
@@ -92,7 +91,7 @@ final class CombinationSynchronizer
             }
         }
 
-        if (!empty($product->extra['combinations_authoritative'])) {
+        if ($authoritative) {
             foreach ($mapped as $semanticKey => $row) {
                 if (isset($desiredKeys[$semanticKey])) { continue; }
                 $id = (int) ($row['id_product_attribute'] ?? 0);
@@ -104,7 +103,7 @@ final class CombinationSynchronizer
             }
         }
 
-        $this->healDefault($productId, $shopId, $survivors, $explicitDefault);
+        $this->healDefault($productId, $shopId, $survivors, $explicitDefault, $authoritative);
     }
 
     private function actualBySemantic(int $productId, int $shopId): array
@@ -311,9 +310,34 @@ final class CombinationSynchronizer
         ), false);
     }
 
-    private function healDefault(int $productId, int $shopId, array $survivors, ?string $explicitDefault): void
-    {
-        if ($survivors === []) { return; }
+    private function healDefault(
+        int $productId,
+        int $shopId,
+        array $survivors,
+        ?string $explicitDefault,
+        bool $authoritative
+    ): void {
+        if ($survivors === []) {
+            if ($authoritative) {
+                $db = \Db::getInstance();
+                if (!$db->execute(sprintf(
+                    "UPDATE `%sproduct_shop` ps SET ps.cache_default_attribute=COALESCE((" .
+                    "SELECT MIN(pas.id_product_attribute) FROM `%sproduct_attribute_shop` pas " .
+                    "INNER JOIN `%sproduct_attribute` pa ON pa.id_product_attribute=pas.id_product_attribute " .
+                    "WHERE pa.id_product=ps.id_product AND pas.id_shop=ps.id_shop AND pas.default_on=1" .
+                    "),0) WHERE ps.id_product=%d AND ps.id_shop=%d",
+                    _DB_PREFIX_,
+                    _DB_PREFIX_,
+                    _DB_PREFIX_,
+                    $productId,
+                    $shopId
+                ))) {
+                    throw new \RuntimeException('Could not synchronize cached default combination after authoritative removal for product ' . $productId);
+                }
+            }
+            return;
+        }
+
         $defaultId = $explicitDefault !== null ? (int) ($survivors[$explicitDefault] ?? 0) : 0;
         if ($defaultId <= 0) {
             $ids = array_values(array_map('intval', $survivors));
