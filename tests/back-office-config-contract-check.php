@@ -22,7 +22,6 @@ $checks = [
     [$module, 'Current shop status', 'BO status panel'],
     [$module, "\$source = 'matterhorn';", 'BO operational source scope'],
     [$module, "AND source='\" . \$sourceSql . \"'", 'BO queue/orphan status must stay source scoped'],
-    [$module, "GROUP BY status',\n                true,\n                false", 'BO mutable queue state must bypass Db query cache'],
     [$module, 'image_reconcile_status', 'BO image reconciliation status'],
     [$module, 'image_reconcile_checkpoint', 'BO image reconciliation checkpoint'],
     [$module, 'image_reconcile_done', 'BO image reconciliation progress'],
@@ -48,6 +47,14 @@ $checks = [
 ];
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
+}
+
+if (!preg_match(
+    '/executeS\(\s*[^;]*?GROUP BY status[^;]*?,\s*true\s*,\s*false\s*\)/s',
+    $module
+)) {
+    fwrite(STDERR, "FAIL: BO mutable queue state must bypass Db query cache\n");
+    exit(1);
 }
 
 echo "Back Office config contract: OK\n";
