@@ -10,6 +10,8 @@ use Lp\MatterhornImport\Matterhorn\MatterhornHtmlSanitizer;
 
 final class MatterhornProductMapper implements ProductMapperInterface
 {
+    private const MAX_IMAGE_URL_BYTES = 16384;
+
     public function __construct(
         private readonly SizeResolverInterface $sizes,
         private readonly MatterhornCategoryPathNormalizer $categories,
@@ -33,15 +35,23 @@ final class MatterhornProductMapper implements ProductMapperInterface
         $price = (float) $priceRaw;
         if (!is_finite($price) || $price < 0.0) { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' has invalid price'); }
 
+        $warnings = [];
         $images = [];
         $seenImages = [];
-        foreach ((array) ($row['images'] ?? []) as $urlRaw) {
+        foreach ((array) ($row['images'] ?? []) as $index => $urlRaw) {
             $url = trim((string) $urlRaw);
             if ($url === '' || isset($seenImages[$url])) { continue; }
-            $parts = parse_url($url);
-            $scheme = strtolower((string) ($parts['scheme'] ?? ''));
-            if (!in_array($scheme, ['http', 'https'], true)) { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' contains non-HTTP image URL'); }
             $seenImages[$url] = true;
+            if (strlen($url) > self::MAX_IMAGE_URL_BYTES) {
+                $warnings[] = 'image #' . ((int) $index + 1) . ' URL exceeds ' . self::MAX_IMAGE_URL_BYTES . ' bytes and was skipped';
+                continue;
+            }
+            $parts = parse_url($url);
+            $scheme = is_array($parts) ? strtolower((string) ($parts['scheme'] ?? '')) : '';
+            if (!in_array($scheme, ['http', 'https'], true)) {
+                $warnings[] = 'image #' . ((int) $index + 1) . ' non-HTTP URL was skipped';
+                continue;
+            }
             $images[] = $url;
         }
 
@@ -91,7 +101,6 @@ final class MatterhornProductMapper implements ProductMapperInterface
 
         $options = is_array($row['options'] ?? null) ? array_values($row['options']) : [];
         $prepared = [];
-        $warnings = [];
         $seenOptionIds = [];
         $seenSizes = [];
         foreach ($options as $index => $option) {
