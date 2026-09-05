@@ -34,7 +34,8 @@ final class PrestaProductWriter implements GranularProductWriterInterface
         $this->associations->ensure($productId, $shopId);
         $domains = array_values(array_unique($domains));
         $core = in_array('core', $domains, true);
-        $needsProduct = $core || in_array('price', $domains, true);
+        $price = in_array('price', $domains, true);
+        $needsProduct = $core || $price;
         if ($needsProduct) {
             if ($core) {
                 $this->associations->assertExclusiveGlobalOwnership($productId, $shopId);
@@ -42,8 +43,11 @@ final class PrestaProductWriter implements GranularProductWriterInterface
             $p = new \Product($productId, false, null, $shopId);
             if (!\Validate::isLoadedObject($p)) { throw new \RuntimeException('Product not found: ' . $productId); }
             if ($core) { $this->applyCore($p, $data, $shopId); }
-            if (in_array('price', $domains, true)) { $p->price = $data->price; }
+            if ($price) { $p->price = $data->price; }
             if (!$p->update()) { throw new \RuntimeException('PrestaShop product update failed: ' . $productId); }
+            if ($price && !$core) {
+                $this->associations->restoreDefaultShopShadows($productId, $shopId, ['price']);
+            }
         }
         if (in_array('stock', $domains, true)) { \StockAvailable::setQuantity($productId, 0, $data->quantity, $shopId); }
         if (in_array('category', $domains, true)) { $this->categories->sync($productId, $data, $shopId); }
@@ -62,6 +66,7 @@ final class PrestaProductWriter implements GranularProductWriterInterface
         if (!\Validate::isLoadedObject($p)) { return; }
         $p->active = false;
         if (!$p->update()) { throw new \RuntimeException('Cannot disable product ' . $productId); }
+        $this->associations->restoreDefaultShopShadows($productId, $shopId, ['active']);
 
         \StockAvailable::setQuantity($productId, 0, 0, $shopId);
         foreach (\Product::getProductAttributesIds($productId) as $attributeRow) {
