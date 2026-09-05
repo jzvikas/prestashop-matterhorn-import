@@ -40,8 +40,6 @@ $expected = [
 try {
     foreach ($uninstallFiles as $file) { $execFile($file); }
     foreach ($installFiles as $file) { $execFile($file); }
-    // Fresh schema SQL must be naturally idempotent; retained-data reinstall executes the
-    // same CREATE TABLE IF NOT EXISTS files before Installer ensure*() safety checks.
     foreach ($installFiles as $file) { $execFile($file); }
 
     foreach ($expected as $suffix) {
@@ -53,7 +51,10 @@ try {
     }
 
     $runTable = $prefix . 'li_matterhornim_99dfbf_run';
-    if (!$db->query("SHOW COLUMNS FROM `{$runTable}` LIKE 'source_policy_hash'")?->fetch_assoc()) { throw new RuntimeException('Run source_policy_hash column missing'); }
+    foreach (['source_policy_hash','image_reconcile_status','image_reconcile_checkpoint','image_reconcile_done'] as $columnName) {
+        $safe = $db->real_escape_string($columnName);
+        if (!$db->query("SHOW COLUMNS FROM `{$runTable}` LIKE '{$safe}'")?->fetch_assoc()) { throw new RuntimeException('Run column missing: ' . $columnName); }
+    }
     if (!$db->query("SHOW INDEX FROM `{$runTable}` WHERE Key_name='idx_shop_source_run'")?->fetch_assoc()) { throw new RuntimeException('Run idx_shop_source_run missing'); }
 
     $mapping = $prefix . 'li_matterhornim_99dfbf_mapping';
@@ -67,6 +68,7 @@ try {
         if (!$db->query("SHOW COLUMNS FROM `{$imageQueue}` LIKE '{$safe}'")?->fetch_assoc()) { throw new RuntimeException('Image queue column missing: ' . $columnName); }
     }
     if (!$db->query("SHOW INDEX FROM `{$imageQueue}` WHERE Key_name='idx_shop_claim'")?->fetch_assoc()) { throw new RuntimeException('Image queue idx_shop_claim missing'); }
+    if (!$db->query("SHOW INDEX FROM `{$imageQueue}` WHERE Key_name='idx_shop_source_status'")?->fetch_assoc()) { throw new RuntimeException('Image queue idx_shop_source_status missing'); }
 
     $newProductQueue = $prefix . 'li_matterhornim_99dfbf_new_product_queue';
     if (!$db->query("SHOW INDEX FROM `{$newProductQueue}` WHERE Key_name='idx_shop_claim'")?->fetch_assoc()) { throw new RuntimeException('New-product queue idx_shop_claim missing'); }
