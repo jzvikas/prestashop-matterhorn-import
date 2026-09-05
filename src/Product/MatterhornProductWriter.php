@@ -54,6 +54,9 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
     {
         $this->shopContext->activate($shopId);
         $this->associations->ensure($productId, $shopId);
+        if ($core) {
+            $this->associations->assertExclusiveGlobalOwnership($productId, $shopId);
+        }
         $product = new \Product($productId, false, null, $shopId);
         if (!\Validate::isLoadedObject($product)) { throw new \RuntimeException('Matterhorn product not found: ' . $productId); }
 
