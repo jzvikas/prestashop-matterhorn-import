@@ -41,7 +41,9 @@ final class ImageOrphanRepository
         $limit = max(1, min(2000, $limit));
         $shopWhere = $shopId === null ? '' : ' AND id_shop=' . (int) $shopId;
         return \Db::getInstance()->executeS(
-            'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE (available_at IS NULL OR available_at<=NOW())' . $shopWhere . ' ORDER BY id_orphan LIMIT ' . $limit
+            'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE (available_at IS NULL OR available_at<=NOW())' . $shopWhere . ' ORDER BY id_orphan LIMIT ' . $limit,
+            true,
+            false
         ) ?: [];
     }
 
@@ -64,8 +66,11 @@ final class ImageOrphanRepository
     public function defer(int $idOrphan, string $error): void
     {
         if ($idOrphan <= 0) { return; }
+        // MySQL evaluates assignments from left to right in this single-table UPDATE. attempts has
+        // already been incremented when available_at is calculated, so thresholds are expressed in
+        // terms of the post-increment value: first defer 15m, then 1h, 6h and finally 24h.
         $sql = sprintf(
-            "UPDATE `%s%s` SET attempts=LEAST(attempts+1,255),available_at=TIMESTAMPADD(SECOND,CASE WHEN attempts<1 THEN 900 WHEN attempts<3 THEN 3600 WHEN attempts<6 THEN 21600 ELSE 86400 END,NOW()),last_error='%s',updated_at=NOW() WHERE id_orphan=%d",
+            "UPDATE `%s%s` SET attempts=LEAST(attempts+1,255),available_at=TIMESTAMPADD(SECOND,CASE WHEN attempts<=1 THEN 900 WHEN attempts<=3 THEN 3600 WHEN attempts<=6 THEN 21600 ELSE 86400 END,NOW()),last_error='%s',updated_at=NOW() WHERE id_orphan=%d",
             _DB_PREFIX_, self::TABLE, pSQL(mb_substr($error, 0, 4000), true), $idOrphan
         );
         if (!\Db::getInstance()->execute($sql)) {
@@ -79,7 +84,8 @@ final class ImageOrphanRepository
         if ($shopId !== null) { $where[] = 'id_shop=' . (int) $shopId; }
         if ($source !== null) { $where[] = "source='" . pSQL($source) . "'"; }
         return (int) \Db::getInstance()->getValue(
-            'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . self::TABLE . '`' . ($where !== [] ? ' WHERE ' . implode(' AND ', $where) : '')
+            'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . self::TABLE . '`' . ($where !== [] ? ' WHERE ' . implode(' AND ', $where) : ''),
+            false
         );
     }
 }
