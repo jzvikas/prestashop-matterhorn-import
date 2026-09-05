@@ -18,7 +18,7 @@ final class AttributeMappingRepository
             "SELECT id_attribute_group,id_attribute FROM `%sli_matterhornim_99dfbf_attribute_value_mapping` " .
             "WHERE id_shop=%d AND source='%s' AND supplier_group_key='%s' AND supplier_value_key='%s'",
             _DB_PREFIX_, $shopId, pSQL($source), pSQL($groupKey), pSQL($valueKey)
-        ));
+        ), false);
         if (!is_array($row)) { return $this->pairCache[$cacheKey] = null; }
         $groupId = (int) ($row['id_attribute_group'] ?? 0);
         $attributeId = (int) ($row['id_attribute'] ?? 0);
