@@ -15,6 +15,7 @@ $categorySync = (string) file_get_contents($root . '/src/Category/CategorySynchr
 $featureMapping = (string) file_get_contents($root . '/src/Repository/FeatureMappingRepository.php');
 $imageState = (string) file_get_contents($root . '/src/Repository/ImageStateRepository.php');
 $revalidation = (string) file_get_contents($root . '/src/Image/ImageRevalidationScheduler.php');
+$newProductQueue = (string) file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
 
 $fail = static function (string $message): never {
     fwrite(STDERR, "FAIL: {$message}\n");
@@ -47,6 +48,10 @@ $check(str_contains($imageState, 'LIMIT %d'), 'stale image-state discovery must 
 $check(str_contains($imageState, 'updated_at<=DATE_SUB'), 'stale image-state discovery must be age bounded');
 $check(str_contains($revalidation, '$limit = max(1, min(5000, $limit))'), 'image revalidation product bound missing');
 $check(str_contains($revalidation, 'payload_window_deferred'), 'image revalidation payload-window deferral visibility missing');
+$check(str_contains($newProductQueue, 'MAX_ENQUEUE_SQL_BYTES = 8388608'), 'new-product enqueue SQL byte budget missing');
+$check(str_contains($newProductQueue, 'ENQUEUE_SQL_OVERHEAD_RESERVE = 4096'), 'new-product enqueue SQL overhead reserve missing');
+$check(str_contains($newProductQueue, '$valuesBytes + $valueBytes + self::ENQUEUE_SQL_OVERHEAD_RESERVE > self::MAX_ENQUEUE_SQL_BYTES'), 'new-product enqueue must flush by escaped SQL bytes');
+$check(str_contains($newProductQueue, 'strlen($sql) > self::MAX_ENQUEUE_SQL_BYTES'), 'new-product enqueue final SQL byte fence missing');
 
 $check(str_contains($product, 'private ?string $jsonCache'), 'ProductData JSON serialization cache missing');
 $check(str_contains($product, 'private array $hashCache'), 'ProductData domain hash cache missing');
