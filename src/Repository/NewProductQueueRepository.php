@@ -36,10 +36,16 @@ final class NewProductQueueRepository
     public function renew(int $id, string $token): bool
     {
         $db = \Db::getInstance();
-        if (!$db->execute(sprintf("UPDATE `%s%s` SET locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, self::LEASE_MINUTES, $id, pSQL($token)))) {
+        // A claim token owns a bounded batch consumed sequentially by one worker tick. Renew every
+        // still-live sibling when the current item heartbeats so untouched rows cannot expire and
+        // burn retry attempts while an earlier product is slow. Already-expired rows remain fenced.
+        if (!$db->execute(sprintf(
+            "UPDATE `%s%s` SET locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),updated_at=NOW() WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()",
+            _DB_PREFIX_, self::TABLE, self::LEASE_MINUTES, pSQL($token)
+        ))) {
             throw new \RuntimeException('Matterhorn new-product queue lease renewal failed');
         }
-        return (int) $db->Affected_Rows() === 1 || $this->ownsActiveLease($id, $token);
+        return $this->ownsActiveLease($id, $token);
     }
 
     /** @return array<string,mixed> */
