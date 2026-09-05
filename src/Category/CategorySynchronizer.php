@@ -8,6 +8,9 @@ use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class CategorySynchronizer
 {
+    /** @var array<string,list<int>> */
+    private array $hierarchyCache = [];
+
     public function __construct(
         private CategoryMappingRepository $mapping,
         private CategoryAutoMapper $autoMapper,
@@ -48,12 +51,19 @@ final class CategorySynchronizer
     /** @param list<int> $leafIds @return list<int> */
     private function expandHierarchy(array $leafIds, int $shopId): array
     {
+        $keyIds = array_values(array_unique(array_filter(array_map('intval', $leafIds), static fn(int $id): bool => $id > 0)));
+        sort($keyIds, SORT_NUMERIC);
+        $cacheKey = $shopId . ':' . implode(',', $keyIds);
+        if (isset($this->hierarchyCache[$cacheKey])) {
+            return $this->hierarchyCache[$cacheKey];
+        }
+
         $langId = (int) \Configuration::get('PS_LANG_DEFAULT', null, null, $shopId);
         if ($langId <= 0) { $langId = (int) \Configuration::get('PS_LANG_DEFAULT'); }
         $rootId = (int) \Configuration::get('PS_ROOT_CATEGORY', null, null, $shopId);
         if ($rootId <= 0) { $rootId = (int) \Configuration::get('PS_ROOT_CATEGORY'); }
         $ids = [];
-        foreach ($leafIds as $leafId) {
+        foreach ($keyIds as $leafId) {
             $category = new \Category($leafId, $langId, $shopId);
             if (!\Validate::isLoadedObject($category) || !$category->existsInShop($shopId)) { throw new \RuntimeException('Mapped category is unavailable in target shop: ' . $leafId); }
             foreach ($category->getParentsCategories($langId) as $row) {
@@ -61,6 +71,6 @@ final class CategorySynchronizer
                 if ($id > 0 && $id !== $rootId) { $ids[$id] = $id; }
             }
         }
-        return array_values($ids);
+        return $this->hierarchyCache[$cacheKey] = array_values($ids);
     }
 }
