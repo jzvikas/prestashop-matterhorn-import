@@ -1,6 +1,7 @@
 <?php
 namespace Lp\MatterhornImport\Mapper;
 
+use Lp\MatterhornImport\Config\MatterhornPolicy;
 use Lp\MatterhornImport\Contract\ProductMapperInterface;
 use Lp\MatterhornImport\Contract\SizeResolverInterface;
 use Lp\MatterhornImport\DTO\ProductData;
@@ -13,6 +14,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
         private readonly SizeResolverInterface $sizes,
         private readonly MatterhornCategoryPathNormalizer $categories,
         private readonly MatterhornHtmlSanitizer $html,
+        private readonly ?MatterhornPolicy $policy = null,
     ) {}
 
     public function map(array $row): ProductData
@@ -43,9 +45,10 @@ final class MatterhornProductMapper implements ProductMapperInterface
             $images[] = $url;
         }
 
-        $categoryAutoCreate = $this->configurationBool('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', true);
-        $featureAutoCreate = $this->configurationBool('MATTERHORNIMPORT_FEATURE_AUTO_CREATE', true);
-        $sourceLanguageId = $this->configuredSourceLanguageId();
+        $policy = ($this->policy ?? new MatterhornPolicy())->current();
+        $categoryAutoCreate = (bool) $policy['category_auto_create'];
+        $featureAutoCreate = (bool) $policy['feature_auto_create'];
+        $sourceLanguageId = (int) $policy['source_language_id'];
 
         $extra = ['description' => $this->html->sanitize((string) ($row['description'] ?? ''))];
         if ($sourceLanguageId > 0) { $extra['source_language_id'] = $sourceLanguageId; }
@@ -139,43 +142,6 @@ final class MatterhornProductMapper implements ProductMapperInterface
         }
 
         return new ProductData($sourceKey, $reference, ['default' => $name], $price, 0, true, $images, $extra);
-    }
-
-    private function configuredSourceLanguageId(): int
-    {
-        $context = $this->configurationContext();
-        if ($context === null) { return 0; }
-        [$shopId, $groupId] = $context;
-        $configured = (int) \Configuration::get('MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', null, $groupId, $shopId);
-        if ($configured > 0) { return $configured; }
-        $fallback = (int) \Configuration::get('PS_LANG_DEFAULT', null, $groupId, $shopId);
-        if ($fallback <= 0) { $fallback = (int) \Configuration::get('PS_LANG_DEFAULT'); }
-        return max(0, $fallback);
-    }
-
-    private function configurationBool(string $key, bool $default): bool
-    {
-        $context = $this->configurationContext();
-        if ($context === null) { return $default; }
-        [$shopId, $groupId] = $context;
-        $raw = \Configuration::get($key, null, $groupId, $shopId);
-        if ($raw === false || $raw === null || $raw === '') { return $default; }
-        return (int) $raw !== 0;
-    }
-
-    /** @return array{0:int,1:int}|null */
-    private function configurationContext(): ?array
-    {
-        // Keep Source/Mapper unit usage PrestaShop-independent. READ activates the concrete
-        // shop before map(), so production runs resolve shop-scoped policy here.
-        if (!class_exists('Context', false) || !class_exists('Configuration', false)) { return null; }
-        try {
-            $shop = \Context::getContext()->shop ?? null;
-            if (!$shop instanceof \Shop || (int) $shop->id <= 0) { return null; }
-            return [(int) $shop->id, max(0, (int) $shop->id_shop_group)];
-        } catch (\Throwable) {
-            return null;
-        }
     }
 
     private function identity(string $value): string
