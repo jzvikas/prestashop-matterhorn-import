@@ -13,6 +13,9 @@ $imageWorker = (string) file_get_contents($root . '/src/Image/ImageWorker.php');
 $manufacturer = (string) file_get_contents($root . '/src/Manufacturer/ManufacturerResolver.php');
 $attributeResolver = (string) file_get_contents($root . '/src/Attribute/AttributeResolver.php');
 $attributeMapping = (string) file_get_contents($root . '/src/Repository/AttributeMappingRepository.php');
+$categoryAuto = (string) file_get_contents($root . '/src/Category/CategoryAutoMapper.php');
+$categoryMapping = (string) file_get_contents($root . '/src/Repository/CategoryMappingRepository.php');
+$snapshots = (string) file_get_contents($root . '/src/Repository/SnapshotRepository.php');
 $newWorker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
 $production = (string) file_get_contents($root . '/docs/PRODUCTION.md');
 $mapper = (string) file_get_contents($root . '/src/Mapper/MatterhornProductMapper.php');
@@ -71,14 +74,40 @@ if (!str_contains($manufacturer, 'RELEASE_LOCK') || !str_contains($manufacturer,
 if (substr_count($attributeResolver, '), true, false)') < 2) {
     $fail('attribute resolver exact group/value reads must bypass Db query cache');
 }
-if (substr_count($attributeResolver, "\n            false\n") < 3) {
-    $fail('attribute resolver position/lock reads must bypass Db query cache');
+if (!str_contains($attributeResolver, "'lpimp:attr:'") || substr_count($attributeResolver, "\n            false\n") < 3) {
+    $fail('attribute resolver position/lock reads must use fresh shared state');
 }
 if (!str_contains($attributeResolver, 'RELEASE_LOCK') || !str_contains($attributeResolver, "')\", false);")) {
     $fail('attribute resolver lock release must bypass Db query cache');
 }
 if (!str_contains($attributeMapping, '), false);')) {
     $fail('supplier attribute mapping resolution must bypass Db query cache');
+}
+
+if (!str_contains($categoryAuto, "'lpimp:cat:'")) {
+    $fail('category auto-create must use shared cross-import advisory locks');
+}
+if (!str_contains($categoryAuto, 'unset($this->childMap[$shopId][$lockedParentId])')) {
+    $fail('category auto-create must invalidate child cache and recheck under lock');
+}
+if (substr_count($categoryAuto, '), true, false)') < 2) {
+    $fail('category path/child reads must bypass Db query cache');
+}
+if (!str_contains($categoryAuto, 'RELEASE_LOCK') || !str_contains($categoryAuto, "')\", false);")) {
+    $fail('category resolver lock release must bypass Db query cache');
+}
+if (!str_contains($categoryMapping, '), true, false)')) {
+    $fail('category mapping preload must bypass Db query cache');
+}
+
+if (!str_contains($snapshots, "WHERE id_run=' . (int) $runId, false)")) {
+    $fail('snapshot run count must bypass Db query cache');
+}
+if (substr_count($snapshots, 'true, false') < 5 || !str_contains($snapshots, "executeS(\$sql, true, false)")) {
+    $fail('snapshot decision and payload-window reads must bypass Db query cache');
+}
+if (!str_contains($snapshots, 'countRemoved') || !str_contains($snapshots, ')), false);')) {
+    $fail('REMOVE count decision must bypass Db query cache');
 }
 
 if (!str_contains($production, 'READ -> IMPORT -> UPDATE -> REMOVE')) { $fail('production stage order missing'); }
