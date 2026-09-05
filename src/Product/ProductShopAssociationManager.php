@@ -32,6 +32,25 @@ final class ProductShopAssociationManager
     {
         return $this->rowExists('SELECT id_product FROM `' . _DB_PREFIX_ . 'product_shop` WHERE id_product=' . $productId . ' AND id_shop=' . $shopId . ' LIMIT 1');
     }
+
+    public function assertExclusiveGlobalOwnership(int $productId, int $shopId): void
+    {
+        if ($productId <= 0 || $shopId <= 0) { throw new \InvalidArgumentException('Product and shop IDs must be positive'); }
+        $rows = \Db::getInstance()->executeS(
+            'SELECT id_shop FROM `' . _DB_PREFIX_ . 'product_shop` WHERE id_product=' . $productId . ' ORDER BY id_shop',
+            true,
+            false
+        ) ?: [];
+        $shops = array_values(array_unique(array_map(static fn(array $row): int => (int) ($row['id_shop'] ?? 0), $rows)));
+        $shops = array_values(array_filter($shops, static fn(int $id): bool => $id > 0));
+        if ($shops !== [$shopId]) {
+            throw new \RuntimeException(
+                'Matterhorn refuses to mutate global product fields for product #' . $productId .
+                ': expected exclusive shop #' . $shopId . ', associations=' . ($shops === [] ? 'none' : implode(',', $shops))
+            );
+        }
+    }
+
     private function rowExists(string $sql): bool { $rows = \Db::getInstance()->executeS($sql, true, false) ?: []; return isset($rows[0]); }
 
     private function copyShopRows(string $table, int $productId, int $sourceShopId, int $targetShopId): void
