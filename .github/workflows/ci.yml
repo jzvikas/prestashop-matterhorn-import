@@ -75,7 +75,9 @@ jobs:
           LP_DB_PASSWORD: root
           LP_DB_NAME: matterhorn_test
           LP_DB_PREFIX: mh_
-        run: php tests/database-lifecycle-check.php
+        run: |
+          php tests/database-lifecycle-check.php
+          php tests/image-placement-mariadb-check.php
 
   prestashop-runtime:
     needs: php84-static
