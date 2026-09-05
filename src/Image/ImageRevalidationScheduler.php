@@ -55,12 +55,38 @@ final class ImageRevalidationScheduler
             }
 
             $rows = $this->snapshots->imageManifestRowsForSourceKeys($runId, $shopId, $source, $keys, $limit);
+            if ($rows === []) {
+                throw new \RuntimeException('Stale image states have no matching latest-run snapshot manifest');
+            }
+
+            // imageManifestRowsForSourceKeys is source-key ordered and can stop early only because
+            // of the bounded payload window. Missing requested keys at or before the returned cursor
+            // are therefore integrity errors, while greater keys are legitimately deferred.
+            $returnedKeys = [];
+            $lastReturnedKey = '';
+            foreach ($rows as $row) {
+                $rowKey = trim((string) ($row['source_key'] ?? ''));
+                if ($rowKey === '') { throw new \RuntimeException('Latest-run image manifest returned an empty source key'); }
+                $returnedKeys[$rowKey] = true;
+                $lastReturnedKey = $rowKey;
+            }
+            $sortedKeys = $keys;
+            sort($sortedKeys, SORT_STRING);
+            foreach ($sortedKeys as $key) {
+                if (strcmp($key, $lastReturnedKey) > 0) { break; }
+                if (!isset($returnedKeys[$key])) {
+                    throw new \RuntimeException('Stale image state is missing from latest-run snapshot manifest: ' . $key);
+                }
+            }
+
             $jobs = [];
             $scheduledImages = 0;
             foreach ($rows as $row) {
                 $sourceKey = trim((string) ($row['source_key'] ?? ''));
                 $productId = (int) ($row['id_product'] ?? 0);
-                if ($sourceKey === '' || $productId <= 0) { continue; }
+                if ($sourceKey === '' || $productId <= 0) {
+                    throw new \RuntimeException('Latest-run image manifest contains an invalid mapped product row');
+                }
                 $product = ProductData::fromJson((string) ($row['payload'] ?? ''));
                 $urls = array_values(array_unique(array_filter(
                     array_map(static fn(mixed $url): string => trim((string) $url), $product->images),
@@ -75,9 +101,7 @@ final class ImageRevalidationScheduler
                 $scheduledImages += count($urls);
             }
 
-            if ($jobs !== []) {
-                $this->queue->enqueueBatch($runId, $shopId, $source, $jobs);
-            }
+            $this->queue->enqueueBatch($runId, $shopId, $source, $jobs);
 
             return [
                 'run_id'=>$runId,
