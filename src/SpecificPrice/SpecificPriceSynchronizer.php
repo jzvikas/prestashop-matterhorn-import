@@ -22,7 +22,17 @@ final class SpecificPriceSynchronizer
             $ownedRow = $owned[$semanticKey] ?? null;
             $id = $ownedRow ? (int) $ownedRow['id_specific_price'] : 0;
             if ($id <= 0 || $this->fetchLive($id, $productId, $shopId) === null) {
-                if ($ownedRow !== null) { $this->state->delete($shopId, $source, $product->sourceKey, $semanticKey); }
+                if ($ownedRow !== null) {
+                    $this->state->delete(
+                        $shopId,
+                        $source,
+                        $product->sourceKey,
+                        $productId,
+                        $semanticKey,
+                        (int) $ownedRow['id_specific_price'],
+                        (string) $ownedRow['applied_hash']
+                    );
+                }
                 $matches = $this->findSemanticMatches($row, $productId, $shopId);
                 if (count($matches) > 1) { throw new \RuntimeException('Multiple existing specific prices match supplier semantic scope ' . $semanticKey); }
                 if ($matches !== []) {
@@ -44,7 +54,15 @@ final class SpecificPriceSynchronizer
             if ($live !== null && hash_equals((string) $ownedRow['applied_hash'], $this->ruleHash($this->normalizeLiveRule($live)))) {
                 $this->deleteOwnedIfUnchanged($live, $id, $productId, $shopId);
             }
-            $this->state->delete($shopId, $source, $product->sourceKey, (string) $semanticKey);
+            $this->state->delete(
+                $shopId,
+                $source,
+                $product->sourceKey,
+                $productId,
+                (string) $semanticKey,
+                $id,
+                (string) $ownedRow['applied_hash']
+            );
         }
     }
 
