@@ -74,7 +74,7 @@ $checks = [
     [$worker, '$this->transactionGuard->arm($db)', 'worker transaction guard arm'],
     [$worker, '$this->transactionGuard->restoreAfterExternalCommit()', 'nested hook recovery'],
     [$worker, '$this->transactionGuard->recoveryCount()', 'nested recovery metric'],
-    [$worker, 'done($idQueue,', 'completion generation fence'],
+    [$worker, '$finalizedGeneration = $this->queue->done(', 'completion generation fence'],
     [$worker, 'fail($idQueue, $token, $e->getMessage(), $retryable, $expectedRunId)', 'failure generation fence'],
     [$worker, "getValue('SELECT @@session.in_transaction', false)", 'live transaction-state read'],
     [$worker, 'combinationAttributes->resolve', 'Size/combo attribute resolution'],
