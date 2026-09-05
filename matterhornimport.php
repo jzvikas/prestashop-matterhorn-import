@@ -1,16 +1,113 @@
 <?php
 if (!defined('_PS_VERSION_')) { exit; }
-require_once __DIR__ . '/autoload.php'; if (is_file(__DIR__ . '/vendor/autoload.php')) { require_once __DIR__ . '/vendor/autoload.php'; }
+require_once __DIR__ . '/autoload.php';
+if (is_file(__DIR__ . '/vendor/autoload.php')) { require_once __DIR__ . '/vendor/autoload.php'; }
+
+use Lp\MatterhornImport\Config\OperationalSettings;
 use Lp\MatterhornImport\Installer;
+
 class MatterhornImport extends Module
 {
-    public function __construct(){ $this->name='matterhornimport';$this->tab='administration';$this->version='0.1.1';$this->author='LP';$this->need_instance=0;$this->bootstrap=true;parent::__construct();$this->displayName=$this->trans('Matterhorn Wholesale Import',[],'Modules.Matterhornimport.Admin');$this->description=$this->trans('High-throughput Matterhorn Wholesale supplier import for PrestaShop 9.1.x.',[],'Modules.Matterhornimport.Admin');$this->ps_versions_compliancy=['min'=>'9.1.0','max'=>'9.1.99'];}
-    public function install():bool{return parent::install()&&(new Installer())->install();}
-    public function uninstall():bool{return(new Installer())->uninstall()&&parent::uninstall();}
-    public function getContent():string
-    {$shopId=(int)($this->context->shop->id??0);$shopGroupId=(int)($this->context->shop->id_shop_group??0);if($shopId<=0||$shopGroupId<=0){return$this->displayError($this->trans('Select one concrete shop before configuring Matterhorn Import.',[],'Modules.Matterhornimport.Admin'));}$output='';
-        if(\Tools::isSubmit('submitMatterhornImport')){$source=trim((string)\Tools::getValue('MATTERHORNIMPORT_SOURCE_FILE',''));$sizeGroup=trim((string)\Tools::getValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME','Size'));$maxRemoveRaw=trim((string)\Tools::getValue('MATTERHORNIMPORT_MAX_REMOVE_PERCENT','25'));$maxRemove=filter_var($maxRemoveRaw,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
-            if($source!==''&&(!is_file($source)||!is_readable($source))){$output.=$this->displayError($this->trans('Source XML file is not readable.',[],'Modules.Matterhornimport.Admin'));}elseif($sizeGroup===''){$output.=$this->displayError($this->trans('Size attribute group name cannot be empty.',[],'Modules.Matterhornimport.Admin'));}elseif($maxRemove===false){$output.=$this->displayError($this->trans('Maximum REMOVE percentage must be an integer from 1 to 100.',[],'Modules.Matterhornimport.Admin'));}else{$ok=\Configuration::updateValue('MATTERHORNIMPORT_SOURCE_FILE',$source,false,$shopGroupId,$shopId);$ok=\Configuration::updateValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME',$sizeGroup,false,$shopGroupId,$shopId)&&$ok;$ok=\Configuration::updateValue('MATTERHORNIMPORT_MAX_REMOVE_PERCENT',(string)$maxRemove,false,$shopGroupId,$shopId)&&$ok;$output.=$ok?$this->displayConfirmation($this->trans('Matterhorn settings saved.',[],'Modules.Matterhornimport.Admin')):$this->displayError($this->trans('Could not save Matterhorn settings.',[],'Modules.Matterhornimport.Admin'));}}
-        $source=(string)\Configuration::get('MATTERHORNIMPORT_SOURCE_FILE',null,$shopGroupId,$shopId);$sizeGroup=(string)\Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME',null,$shopGroupId,$shopId);if($sizeGroup===''){$sizeGroup='Size';}$maxRemove=(int)\Configuration::get('MATTERHORNIMPORT_MAX_REMOVE_PERCENT',null,$shopGroupId,$shopId);if($maxRemove<1||$maxRemove>100){$maxRemove=25;}
-        $output.='<div class="panel"><h3>'.$this->trans('Matterhorn Wholesale Import',[],'Modules.Matterhornimport.Admin').'</h3><form method="post">';$output.='<div class="form-group"><label>Source XML file</label><input class="form-control" type="text" name="MATTERHORNIMPORT_SOURCE_FILE" value="'.htmlspecialchars($source,ENT_QUOTES,'UTF-8').'"></div>';$output.='<div class="form-group"><label>Size attribute group</label><input class="form-control" type="text" name="MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME" value="'.htmlspecialchars($sizeGroup,ENT_QUOTES,'UTF-8').'"></div>';$output.='<div class="form-group"><label>Maximum REMOVE percentage</label><input class="form-control" type="number" min="1" max="100" name="MATTERHORNIMPORT_MAX_REMOVE_PERCENT" value="'.$maxRemove.'"><p class="help-block">REMOVE is blocked when missing feed products exceed this share of currently in-feed mapped products.</p></div>';$output.='<button class="btn btn-primary" type="submit" name="submitMatterhornImport">'.$this->trans('Save',[],'Modules.Matterhornimport.Admin').'</button></form></div>';return$output;}
+    public function __construct()
+    {
+        $this->name = 'matterhornimport';
+        $this->tab = 'administration';
+        $this->version = '0.1.1';
+        $this->author = 'LP';
+        $this->need_instance = 0;
+        $this->bootstrap = true;
+        parent::__construct();
+        $this->displayName = $this->trans('Matterhorn Wholesale Import', [], 'Modules.Matterhornimport.Admin');
+        $this->description = $this->trans('High-throughput Matterhorn Wholesale supplier import for PrestaShop 9.1.x.', [], 'Modules.Matterhornimport.Admin');
+        $this->ps_versions_compliancy = ['min' => '9.1.0', 'max' => '9.1.99'];
+    }
+
+    public function install(): bool { return parent::install() && (new Installer())->install(); }
+    public function uninstall(): bool { return (new Installer())->uninstall() && parent::uninstall(); }
+
+    public function getContent(): string
+    {
+        $shopId = (int) ($this->context->shop->id ?? 0);
+        $shopGroupId = (int) ($this->context->shop->id_shop_group ?? 0);
+        if ($shopId <= 0 || $shopGroupId <= 0) {
+            return $this->displayError($this->trans('Select one concrete shop before configuring Matterhorn Import.', [], 'Modules.Matterhornimport.Admin'));
+        }
+
+        $settings = new OperationalSettings();
+        $output = '';
+        if (\Tools::isSubmit('submitMatterhornImport')) {
+            try {
+                $source = trim((string) \Tools::getValue('MATTERHORNIMPORT_SOURCE_FILE', ''));
+                $sizeGroup = trim((string) \Tools::getValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', 'Size'));
+                $maxRemove = filter_var(trim((string) \Tools::getValue('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', '25')), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 100]]);
+                if ($source !== '' && (!is_file($source) || !is_readable($source))) { throw new \InvalidArgumentException('Source XML file is not readable.'); }
+                if ($sizeGroup === '') { throw new \InvalidArgumentException('Size attribute group name cannot be empty.'); }
+                if ($maxRemove === false) { throw new \InvalidArgumentException('Maximum REMOVE percentage must be an integer from 1 to 100.'); }
+
+                $rawOperational = [];
+                foreach ($settings->values($shopId) as $key => $_value) { $rawOperational[$key] = \Tools::getValue($key); }
+                $validatedOperational = $settings->validate($rawOperational);
+
+                $ok = \Configuration::updateValue('MATTERHORNIMPORT_SOURCE_FILE', $source, false, $shopGroupId, $shopId);
+                $ok = \Configuration::updateValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', $sizeGroup, false, $shopGroupId, $shopId) && $ok;
+                $ok = \Configuration::updateValue('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', (string) $maxRemove, false, $shopGroupId, $shopId) && $ok;
+                if (!$ok) { throw new \RuntimeException('Could not save core Matterhorn settings.'); }
+                $settings->save($shopId, $shopGroupId, $validatedOperational);
+                $output .= $this->displayConfirmation($this->trans('Matterhorn settings saved for this shop.', [], 'Modules.Matterhornimport.Admin'));
+            } catch (\Throwable $e) {
+                $output .= $this->displayError(htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8'));
+            }
+        }
+
+        $source = (string) \Configuration::get('MATTERHORNIMPORT_SOURCE_FILE', null, $shopGroupId, $shopId);
+        $sizeGroup = (string) \Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', null, $shopGroupId, $shopId);
+        if ($sizeGroup === '') { $sizeGroup = 'Size'; }
+        $maxRemove = (int) \Configuration::get('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', null, $shopGroupId, $shopId);
+        if ($maxRemove < 1 || $maxRemove > 100) { $maxRemove = 25; }
+        $operational = $settings->values($shopId);
+
+        $output .= $this->renderStatus($shopId);
+        $output .= '<div class="panel"><h3>' . $this->trans('Matterhorn Wholesale Import settings', [], 'Modules.Matterhornimport.Admin') . '</h3><form method="post">';
+        $output .= $this->field('MATTERHORNIMPORT_SOURCE_FILE', 'Source XML file', $source, 'text');
+        $output .= $this->field('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', 'Size attribute group', $sizeGroup, 'text');
+        $output .= $this->field('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', 'Maximum REMOVE percentage', (string) $maxRemove, 'number', 1, 100, 'REMOVE is blocked when missing feed products exceed this percentage of currently in-feed mapped products.');
+        $output .= '<hr><h4>Operational limits</h4>';
+        $labels = [
+            OperationalSettings::BATCH_SIZE => ['Stage batch size', 1, 10000],
+            OperationalSettings::MAX_ITEMS => ['Maximum items per stage (0 = unlimited)', 0, 1000000000],
+            OperationalSettings::TIME_LIMIT => ['Stage time limit seconds (0 = unlimited)', 0, 86400],
+            OperationalSettings::IMAGE_WORKER_LIMIT => ['Image jobs per tick', 1, 500],
+            OperationalSettings::IMAGE_WORKER_RUNTIME => ['Image worker runtime seconds (0 = one tick)', 0, 86400],
+            OperationalSettings::NEW_PRODUCT_WORKER_LIMIT => ['New-product jobs per tick', 1, 200],
+            OperationalSettings::NEW_PRODUCT_WORKER_RUNTIME => ['New-product worker runtime seconds (0 = one tick)', 0, 86400],
+            OperationalSettings::RETRY_LIMIT => ['Retry reset limit per domain', 1, 100000],
+        ];
+        foreach ($labels as $key => [$label, $min, $max]) { $output .= $this->field($key, $label, (string) $operational[$key], 'number', $min, $max); }
+        $output .= '<button class="btn btn-primary" type="submit" name="submitMatterhornImport">' . $this->trans('Save', [], 'Modules.Matterhornimport.Admin') . '</button></form></div>';
+        $output .= '<div class="panel"><h3>Recommended CLI</h3><pre>' . htmlspecialchars("php bin/console matterhornimport:doctor --shop={$shopId}\nphp bin/console matterhornimport:status --shop={$shopId}\nphp bin/console matterhornimport:images --shop={$shopId}\nphp bin/console matterhornimport:new-products --shop={$shopId}", ENT_QUOTES, 'UTF-8') . '</pre></div>';
+        return $output;
+    }
+
+    private function renderStatus(int $shopId): string
+    {
+        $db = \Db::getInstance();
+        $run = $db->getRow("SELECT id_run,status,read_status,import_status,update_status,remove_status,started_at,finished_at FROM `" . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='matterhorn' ORDER BY id_run DESC");
+        $queue = [];
+        foreach (['images' => 'li_matterhornim_99dfbf_image_queue', 'new products' => 'li_matterhornim_99dfbf_new_product_queue'] as $label => $table) {
+            $rows = $db->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . $table . '` WHERE id_shop=' . $shopId . ' GROUP BY status') ?: [];
+            $counts = [];
+            foreach ($rows as $row) { $counts[(string) $row['status']] = (int) $row['qty']; }
+            $queue[] = $label . ': pending=' . ($counts['pending'] ?? 0) . ', processing=' . ($counts['processing'] ?? 0) . ', failed=' . ($counts['failed'] ?? 0) . ', done=' . ($counts['done'] ?? 0);
+        }
+        $runText = !$run ? 'No import run yet.' : sprintf('#%d %s — READ %s / IMPORT %s / UPDATE %s / REMOVE %s', (int) $run['id_run'], (string) $run['status'], (string) $run['read_status'], (string) $run['import_status'], (string) $run['update_status'], (string) $run['remove_status']);
+        return '<div class="panel"><h3>Current shop status</h3><p><strong>' . htmlspecialchars($runText, ENT_QUOTES, 'UTF-8') . '</strong></p><p>' . htmlspecialchars(implode(' | ', $queue), ENT_QUOTES, 'UTF-8') . '</p></div>';
+    }
+
+    private function field(string $name, string $label, string $value, string $type, ?int $min = null, ?int $max = null, string $help = ''): string
+    {
+        $limits = ($min === null ? '' : ' min="' . $min . '"') . ($max === null ? '' : ' max="' . $max . '"');
+        $html = '<div class="form-group"><label>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</label><input class="form-control" type="' . $type . '" name="' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '"' . $limits . '></div>';
+        if ($help !== '') { $html .= '<p class="help-block">' . htmlspecialchars($help, ENT_QUOTES, 'UTF-8') . '</p>'; }
+        return $html;
+    }
 }
