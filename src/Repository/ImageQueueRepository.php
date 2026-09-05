@@ -35,7 +35,7 @@ final class ImageQueueRepository
         if (!\Db::getInstance()->execute(sprintf("UPDATE `%s%s` SET status='processing',locked_by='%s',locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),available_at=NULL,attempts=attempts+1,updated_at=NOW() WHERE ((status='pending' AND (available_at IS NULL OR available_at<=NOW())) OR (status='processing' AND locked_until<=NOW())) AND attempts<%d%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), self::LEASE_MINUTES, self::MAX_ATTEMPTS, $shopWhere, $limit))) {
             throw new \RuntimeException('Matterhorn image queue claim failed');
         }
-        return \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), $shopWhere, $limit)) ?: [];
+        return \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), $shopWhere, $limit), true, false) ?: [];
     }
 
     public function renew(int $id, string $token): bool
@@ -54,7 +54,7 @@ final class ImageQueueRepository
         $row = \Db::getInstance()->getRow(sprintf(
             "SELECT * FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW() FOR UPDATE",
             _DB_PREFIX_, self::TABLE, $id, pSQL($token)
-        ));
+        ), false);
         if (!is_array($row) || $row === []) {
             throw new \RuntimeException('Matterhorn image queue ownership lost before locked persistence');
         }
@@ -94,7 +94,7 @@ final class ImageQueueRepository
     {
         $where = "status='failed'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
         $db = \Db::getInstance();
-        $ids = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . max(1, $limit)) ?: [];
+        $ids = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . max(1, $limit), true, false) ?: [];
         if ($ids === []) { return 0; }
         $list = implode(',', array_map(static fn(array $row): int => (int) $row['id_queue'], $ids));
         // Revalidate the mutable status in the UPDATE itself. Another retry process may have
@@ -109,13 +109,13 @@ final class ImageQueueRepository
     public function status(int $idQueue): ?string
     {
         if ($idQueue <= 0) { return null; }
-        $value = \Db::getInstance()->getValue(sprintf('SELECT status FROM `%s%s` WHERE id_queue=%d', _DB_PREFIX_, self::TABLE, $idQueue));
+        $value = \Db::getInstance()->getValue(sprintf('SELECT status FROM `%s%s` WHERE id_queue=%d', _DB_PREFIX_, self::TABLE, $idQueue), false);
         return $value === false || $value === null ? null : (string) $value;
     }
 
     public function unresolvedForRun(int $runId, int $shopId): int
     {
-        return (int) \Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` WHERE id_run=%d AND id_shop=%d AND status<>'done'", _DB_PREFIX_, self::TABLE, $runId, $shopId));
+        return (int) \Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` WHERE id_run=%d AND id_shop=%d AND status<>'done'", _DB_PREFIX_, self::TABLE, $runId, $shopId), false);
     }
 
     public function unresolvedForSource(int $shopId, string $source): int
@@ -124,7 +124,7 @@ final class ImageQueueRepository
         return (int) \Db::getInstance()->getValue(sprintf(
             "SELECT COUNT(*) FROM `%s%s` WHERE id_shop=%d AND source='%s' AND status<>'done'",
             _DB_PREFIX_, self::TABLE, $shopId, pSQL($source)
-        ));
+        ), false);
     }
 
     public function gc(int $days = 2): int
@@ -135,12 +135,12 @@ final class ImageQueueRepository
     public function counts(?int $shopId = null): array
     {
         $where = $shopId === null ? '' : ' WHERE id_shop=' . (int) $shopId;
-        return \Db::getInstance()->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . self::TABLE . '`' . $where . ' GROUP BY status') ?: [];
+        return \Db::getInstance()->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . self::TABLE . '`' . $where . ' GROUP BY status', true, false) ?: [];
     }
 
     private function ownsActiveLease(int $id, string $token): bool
     {
-        return (bool) \Db::getInstance()->getValue(sprintf("SELECT 1 FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $id, pSQL($token)));
+        return (bool) \Db::getInstance()->getValue(sprintf("SELECT 1 FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $id, pSQL($token)), false);
     }
 
     private function claimToken(string $worker): string
