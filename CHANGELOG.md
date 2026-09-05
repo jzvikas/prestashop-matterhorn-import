@@ -29,6 +29,7 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Bounded specific-price semantic adoption lookup to the exact SQL identity and at most two IDs instead of materializing every product specific-price row.
 - Made multishop image detach atomic with one guarded `DELETE ... INNER JOIN` statement instead of a racy pre-delete shop-count check.
 - Revalidated live image ownership immediately before destructive cleanup and made image-state GC recheck current references at delete time.
+- Scoped stale image revalidation's unresolved-queue fence to the complete `shop/source/source_key/product` owner identity so stale jobs from another source cannot indefinitely suppress Matterhorn revalidation.
 - Corrected image-orphan retry backoff to MySQL/MariaDB left-to-right assignment semantics and bounded orphan GC pages independently of the caller chunk size.
 - Rejected image URLs above 16 KiB before `parse_url`, DNS lookup or network access.
 - Failed closed when an HTTP `304 Not Modified` response races with stale or missing image-state ownership instead of accepting an unverifiable cached asset.
@@ -36,7 +37,7 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Removed the UPDATE fallback that routed payload-only metadata changes into unnecessary product core writes.
 - Canonicalized supplier warning ordering so semantically identical option reordering does not churn snapshot payload hashes.
 - Preserved Matterhorn `avaible_in` and `creation_date` as supplier metadata without assigning stock/delivery/date-add semantics or dirtying catalog domain hashes.
-- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, item-transaction recovery, exact REMOVE ownership, partial language recovery, live/source-scoped observability, single-pass combination hashing, bounded specific-price lookup, shared resolver locks, category path concurrency, feature concurrent changes, atomic combination/image detach, specific-price optimistic deletion, image URL bounds, stale-304 handling and ownership schema safety.
+- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, item-transaction recovery, exact REMOVE ownership, partial language recovery, live/source-scoped observability, single-pass combination hashing, bounded specific-price lookup, shared resolver locks, category path concurrency, feature concurrent changes, atomic combination/image detach, specific-price optimistic deletion, source-owner image revalidation fencing, image URL bounds, stale-304 handling and ownership schema safety.
 - Made the GitHub Actions release workflow manually dispatchable when push-trigger execution is unavailable.
 
 ## 0.1.6
