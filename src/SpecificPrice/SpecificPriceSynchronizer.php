@@ -152,27 +152,37 @@ final class SpecificPriceSynchronizer
         return is_array($row) && $row !== [] ? $row : null;
     }
 
+    /** @param array<string,mixed> $desired @return list<int> */
     private function findSemanticMatches(array $desired, int $productId, int $shopId): array
     {
-        $rows = \Db::getInstance()->executeS(
-            'SELECT * FROM `' . _DB_PREFIX_ . 'specific_price` WHERE id_product=' . $productId . ' AND id_shop=' . $shopId . ' AND id_specific_price_rule=0 AND id_cart=0',
-            true,
-            false
-        ) ?: [];
-        $matches = [];
-        foreach ($rows as $row) { if ($this->sameIdentity($desired, $this->normalizeLiveRule($row))) { $matches[] = (int) $row['id_specific_price']; } }
-        return $matches;
+        $rows = \Db::getInstance()->executeS(sprintf(
+            "SELECT id_specific_price FROM `%sspecific_price` " .
+            "WHERE id_product=%d AND id_shop=%d AND id_specific_price_rule=0 AND id_cart=0 " .
+            "AND id_product_attribute=%d AND id_currency=%d AND id_country=%d AND id_group=%d " .
+            "AND id_customer=%d AND from_quantity=%d AND `from`='%s' AND `to`='%s' " .
+            "ORDER BY id_specific_price LIMIT 2",
+            _DB_PREFIX_,
+            $productId,
+            $shopId,
+            (int) $desired['id_product_attribute'],
+            (int) $desired['id_currency'],
+            (int) $desired['id_country'],
+            (int) $desired['id_group'],
+            (int) $desired['id_customer'],
+            (int) $desired['from_quantity'],
+            pSQL((string) $desired['from']),
+            pSQL((string) $desired['to'])
+        ), true, false) ?: [];
+
+        return array_map(
+            static fn(array $row): int => (int) ($row['id_specific_price'] ?? 0),
+            $rows
+        );
     }
 
     private function normalizeLiveRule(array $row): array
     {
         return ['id_product_attribute'=>(int)($row['id_product_attribute']??0),'id_currency'=>(int)($row['id_currency']??0),'id_country'=>(int)($row['id_country']??0),'id_group'=>(int)($row['id_group']??0),'id_customer'=>(int)($row['id_customer']??0),'from_quantity'=>max(1,(int)($row['from_quantity']??1)),'from'=>(string)($row['from']??'0000-00-00 00:00:00'),'to'=>(string)($row['to']??'0000-00-00 00:00:00'),'price'=>(float)($row['price']??-1.0),'reduction'=>(float)($row['reduction']??0.0),'reduction_tax'=>(int)($row['reduction_tax']??0),'reduction_type'=>(string)($row['reduction_type']??'amount')];
-    }
-
-    private function sameIdentity(array $a, array $b): bool
-    {
-        foreach (['id_product_attribute','id_currency','id_country','id_group','id_customer','from_quantity','from','to'] as $key) { if ((string)$a[$key] !== (string)$b[$key]) { return false; } }
-        return true;
     }
 
     private function ruleHash(array $row): string
