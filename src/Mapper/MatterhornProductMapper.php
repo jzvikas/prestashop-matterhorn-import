@@ -12,6 +12,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
 {
     private const MAX_IMAGE_URL_BYTES = 16384;
     private const MAX_PRESTASHOP_REFERENCE_BYTES = 64;
+    private const MAX_PRESTASHOP_STOCK = 2147483647;
     private const MAX_MANUFACTURER_NAME_CHARS = 64;
     private const MAX_CATEGORY_NAME_CHARS = 128;
     private const MAX_FEATURE_VALUE_CHARS = 255;
@@ -162,6 +163,12 @@ final class MatterhornProductMapper implements ProductMapperInterface
             $stockRaw = trim((string) ($option['stock'] ?? '0'));
             $stock = filter_var($stockRaw, FILTER_VALIDATE_INT);
             if ($stock === false) { throw new \InvalidArgumentException('Matterhorn option ' . $optionId . ' has invalid stock for product ' . $sourceKey); }
+            if ((int) $stock > self::MAX_PRESTASHOP_STOCK) {
+                throw new \InvalidArgumentException(
+                    'Matterhorn option ' . $optionId . ' stock exceeds PrestaShop maximum of ' .
+                    self::MAX_PRESTASHOP_STOCK . ' for product ' . $sourceKey
+                );
+            }
             if ((int) $stock < 0) {
                 $warnings[] = 'option ' . $optionId . ' negative stock ' . (int) $stock . ' normalized to 0';
             }
