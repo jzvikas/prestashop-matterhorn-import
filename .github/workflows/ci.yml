@@ -78,6 +78,7 @@ jobs:
         run: |
           php tests/database-lifecycle-check.php
           php tests/image-placement-mariadb-check.php
+          php tests/image-authoritative-manifest-mariadb-check.php
 
   prestashop-runtime:
     needs: php84-static
