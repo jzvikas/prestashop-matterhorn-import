@@ -64,7 +64,6 @@ for attempt in $(seq 1 120); do
 done
 [[ "$ready" -eq 1 ]] || { docker logs "$PS_CONTAINER" >&2 || true; echo 'PrestaShop did not become ready' >&2; exit 3; }
 
-# Copy the exact checked-out module under test into PrestaShop.
 docker exec "$PS_CONTAINER" rm -rf /var/www/html/modules/matterhornimport
 docker exec "$PS_CONTAINER" mkdir -p /var/www/html/modules/matterhornimport
 docker cp "$ROOT/." "$PS_CONTAINER:/var/www/html/modules/matterhornimport/"
@@ -72,11 +71,9 @@ docker exec "$PS_CONTAINER" chown -R www-data:www-data /var/www/html/modules/mat
 
 bootstrap_action install
 
-# All module tables must exist after a real PrestaShop install.
 table_count="$(docker exec "$DB_CONTAINER" mariadb -N -uroot -proot prestashop -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='prestashop' AND table_name LIKE 'ps_li_matterhornim_99dfbf_%'" )"
-[[ "$table_count" -eq 15 ]] || { echo "Expected 15 module tables, got $table_count" >&2; exit 4; }
+[[ "$table_count" -eq 16 ]] || { echo "Expected 16 module tables, got $table_count" >&2; exit 4; }
 
-# Symfony container must expose the complete command surface.
 commands="$(docker exec "$PS_CONTAINER" sh -lc 'cd /var/www/html && APP_ENV=prod APP_DEBUG=0 php -d memory_limit=512M bin/console list matterhornimport --raw')"
 for command in \
   matterhornimport:doctor matterhornimport:run matterhornimport:read matterhornimport:import matterhornimport:update matterhornimport:remove \
@@ -85,7 +82,6 @@ for command in \
   grep -q "^${command}\b" <<<"$commands" || { echo "Missing console command: $command" >&2; exit 5; }
 done
 
-# Create a second shop and prove shop-scoped operational configuration plus association recovery.
 docker exec "$PS_CONTAINER" php -d memory_limit=512M -r '
   chdir("/var/www/html");
   require "config/config.inc.php";
@@ -142,14 +138,12 @@ docker exec "$PS_CONTAINER" php -d memory_limit=512M -r '
   echo "MULTISHOP_OK shop2={$shop2Id} product={$idProduct}\n";
 '
 
-# Default uninstall policy retains module data but must remove configuration.
 bootstrap_action uninstall
 retained="$(docker exec "$DB_CONTAINER" mariadb -N -uroot -proot prestashop -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='prestashop' AND table_name LIKE 'ps_li_matterhornim_99dfbf_%'")"
-[[ "$retained" -eq 15 ]] || { echo 'Default uninstall did not retain module tables' >&2; exit 6; }
+[[ "$retained" -eq 16 ]] || { echo 'Default uninstall did not retain all 16 module tables' >&2; exit 6; }
 config_left="$(docker exec "$DB_CONTAINER" mariadb -N -uroot -proot prestashop -e "SELECT COUNT(*) FROM ps_configuration WHERE name LIKE 'MATTERHORNIMPORT_%'")"
 [[ "$config_left" -eq 0 ]] || { echo "Uninstall left $config_left Matterhorn configuration rows" >&2; exit 7; }
 
-# Reinstall over retained tables must work; explicit retain=0 must then drop all module tables.
 bootstrap_action install
 docker exec "$PS_CONTAINER" php -r 'chdir("/var/www/html"); require "config/config.inc.php"; if (!Configuration::updateValue("MATTERHORNIMPORT_RETAIN_DATA_ON_UNINSTALL", "0", false, 0, 0)) { exit(8); }'
 bootstrap_action uninstall
