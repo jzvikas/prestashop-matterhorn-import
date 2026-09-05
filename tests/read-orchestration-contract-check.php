@@ -21,7 +21,7 @@ $checks = [
     [$read, 'MAX_PRODUCT_PAYLOAD_BYTES'],
     [$read, "['supplier_warnings']"],
     [$read, '$batchWarnings'],
-    [$read, "'WARNING: ' . $item['message']"],
+    [$read, "'WARNING: ' . \$item['message']"],
     [$run, 'read_checkpoint'],
     [$run, 'source_fingerprint'],
     [$run, 'source_policy_hash'],
