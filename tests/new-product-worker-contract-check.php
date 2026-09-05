@@ -99,9 +99,14 @@ foreach ($checks as [$haystack, $needle, $label]) {
     }
 }
 
-if (!preg_match(
-    '/public function latestCompletedReadId\([^}]+?getValue\(\s*[^;]*?read_status=\'completed\'[^;]*?,\s*false\s*\)\s*;/s',
-    $runs
+$latestMethodStart = strpos($runs, 'public function latestCompletedReadId');
+$latestMethodEnd = $latestMethodStart === false ? false : strpos($runs, "\n    public function ", $latestMethodStart + 1);
+$latestMethod = $latestMethodStart === false
+    ? ''
+    : substr($runs, $latestMethodStart, $latestMethodEnd === false ? null : $latestMethodEnd - $latestMethodStart);
+if ($latestMethod === '' || !preg_match(
+    '/getValue\(\s*[^;]*?read_status=\'completed\'[^;]*?,\s*false\s*\)\s*;/s',
+    $latestMethod
 )) {
     fwrite(STDERR, "FAIL: latest completed READ lookup must bypass Db query cache\n");
     exit(1);
