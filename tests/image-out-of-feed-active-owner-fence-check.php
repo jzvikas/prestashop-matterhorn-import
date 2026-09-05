@@ -18,13 +18,22 @@ $checks = [
     [$reconciler, 'm.id_shop=q.id_shop AND m.source=q.source', 'queue/mapping shop/source identity join'],
     [$reconciler, 'm.source_key=q.source_key AND m.id_product=q.id_product AND m.out_of_feed=0', 'queue/mapping exact active-owner join'],
     [$reconciler, "q.status<>'done'", 'only unresolved active jobs block reconciliation'],
-    [$reconciler, 'false\n        );', 'active queue readiness lookup must bypass PrestaShop query cache'],
 ];
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!str_contains($haystack, $needle)) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+
+$methodStart = strpos($reconciler, 'private function unresolvedForActiveMappings(');
+$methodEnd = $methodStart === false ? false : strpos($reconciler, "\n    /**", $methodStart + 1);
+$method = $methodStart === false
+    ? ''
+    : substr($reconciler, $methodStart, $methodEnd === false ? null : $methodEnd - $methodStart);
+if ($method === '' || !preg_match('/getValue\(\s*.*?,\s*false\s*\)\s*;/s', $method)) {
+    fwrite(STDERR, "FAIL: active queue readiness lookup must bypass PrestaShop query cache\n");
+    exit(1);
 }
 
 $initialFence = strpos($worker, 'if (!$this->mappingMatches($row))');
