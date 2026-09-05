@@ -22,6 +22,8 @@ persistenceCheck(!str_contains($writer, 'foreach (\\Language::getLanguages') || 
 persistenceCheck(str_contains($writer, "array_intersect(\$domains, ['stock','category'])"), 'Matterhorn writer must delegate generic stock/category domains');
 persistenceCheck(str_contains($writer, 'assertExclusiveGlobalOwnership($productId, $shopId)'), 'Matterhorn core writes must fail closed for shared products');
 persistenceCheck(str_contains($base, 'StockAvailable::setQuantity'), 'base writer must own shop-aware product stock writes');
+persistenceCheck(str_contains($base, 'Product::getProductAttributesIds($productId)'), 'out-of-feed disable must enumerate product combinations');
+persistenceCheck(substr_count($base, 'StockAvailable::setQuantity($productId, $attributeId, 0, $shopId)') === 1, 'out-of-feed disable must zero each combination stock row');
 persistenceCheck(str_contains($associations, 'assertExclusiveGlobalOwnership'), 'association manager must expose global-field ownership guard');
 persistenceCheck(str_contains($category, 'li_matterhornim_99dfbf_category_mapping'), 'category runtime must use generated module mapping table');
 persistenceCheck(!str_contains($category, 'lp_import_category_mapping'), 'generic category table token must not leak into standalone module');
