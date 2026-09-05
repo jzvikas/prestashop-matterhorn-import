@@ -6,6 +6,7 @@ final class Installer
     private const RETAIN_DATA_KEY = 'MATTERHORNIMPORT_RETAIN_DATA_ON_UNINSTALL';
     private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';
     private const RUN_TABLE = 'li_matterhornim_99dfbf_run';
+    private const IMAGE_QUEUE_TABLE = 'li_matterhornim_99dfbf_image_queue';
     private const CONFIG_KEYS = [
         'MATTERHORNIMPORT_SOURCE_FILE',
         'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID',
@@ -29,8 +30,6 @@ final class Installer
     public function install(): bool
     {
         $defaults = [];
-        // Fail closed on cleanup: if schema existence cannot be determined, assume data may
-        // already exist and never drop it from the install failure path.
         $schemaPreExisted = true;
         try {
             $schemaPreExisted = $this->tableExists(self::RUN_TABLE);
@@ -46,6 +45,9 @@ final class Installer
             }
             if (!$this->ensureRunPolicySchema()) {
                 throw new \RuntimeException('Could not initialize Matterhorn run policy schema');
+            }
+            if (!$this->ensureImageReconcileSchema()) {
+                throw new \RuntimeException('Could not initialize resumable image reconciliation schema');
             }
             if (!$this->ensurePerformanceIndexes()) {
                 throw new \RuntimeException('Could not initialize Matterhorn performance indexes');
@@ -116,6 +118,46 @@ final class Installer
             return true;
         } catch (\Throwable $e) {
             error_log('[matterhornimport] run-policy schema upgrade failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    public function ensureImageReconcileSchema(): bool
+    {
+        $columns = [
+            'image_reconcile_status' => "VARCHAR(16) NOT NULL DEFAULT 'pending' AFTER `remove_status`",
+            'image_reconcile_checkpoint' => 'VARCHAR(191) NULL AFTER `read_checkpoint`',
+            'image_reconcile_done' => 'BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER `remove_failed`',
+        ];
+        try {
+            $db = \Db::getInstance();
+            $runTable = _DB_PREFIX_ . self::RUN_TABLE;
+            foreach ($columns as $column => $definition) {
+                $exists = (bool) $db->getValue(
+                    "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
+                    "AND TABLE_NAME='" . pSQL($runTable) . "' AND COLUMN_NAME='" . pSQL($column) . "' LIMIT 1"
+                );
+                if (!$exists && !$db->execute(
+                    'ALTER TABLE `' . bqSQL($runTable) . '` ADD COLUMN `' . bqSQL($column) . '` ' . $definition
+                )) {
+                    throw new \RuntimeException('Could not add Matterhorn run column ' . $column . ': ' . $db->getMsgError());
+                }
+            }
+
+            $queueTable = _DB_PREFIX_ . self::IMAGE_QUEUE_TABLE;
+            $index = 'idx_shop_source_status';
+            $indexExists = (bool) $db->getValue(
+                "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
+                "AND TABLE_NAME='" . pSQL($queueTable) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1"
+            );
+            if (!$indexExists && !$db->execute(
+                'ALTER TABLE `' . bqSQL($queueTable) . '` ADD KEY `' . $index . '` (`id_shop`,`source`,`status`,`id_queue`)'
+            )) {
+                throw new \RuntimeException('Could not add Matterhorn image source-status index: ' . $db->getMsgError());
+            }
+            return true;
+        } catch (\Throwable $e) {
+            error_log('[matterhornimport] image reconciliation schema upgrade failed: ' . $e->getMessage());
             return false;
         }
     }
