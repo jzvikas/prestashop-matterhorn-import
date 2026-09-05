@@ -10,5 +10,6 @@ while IFS= read -r -d '' file; do
 done < <(find . -path './vendor' -prune -o -name '*.php' -print0)
 
 php tests/matterhorn-parser-mapper-check.php
+php tests/attribute-resolution-contract-check.php
 
 echo "Static release checks: OK"
