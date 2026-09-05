@@ -20,15 +20,17 @@ final class NewProductQueueRepository
         return count($rows);
     }
 
-    public function claim(string $worker, int $limit = 20, ?int $shopId = null): array
+    public function claim(string $worker, string $source, int $limit = 20, ?int $shopId = null): array
     {
+        $source = trim($source);
+        if ($source === '') { throw new \InvalidArgumentException('New-product queue claim requires source'); }
         $limit = max(1, min(200, $limit));
-        $shopWhere = $shopId === null ? '' : ' AND id_shop=' . (int) $shopId;
+        $scopeWhere = " AND source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
         $token = $this->claimToken($worker);
-        if (!\Db::getInstance()->execute(sprintf("UPDATE `%s%s` SET status='processing',locked_by='%s',locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),available_at=NULL,attempts=attempts+1,updated_at=NOW() WHERE ((status='pending' AND (available_at IS NULL OR available_at<=NOW())) OR (status='processing' AND locked_until<=NOW())) AND attempts<%d%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), self::LEASE_MINUTES, self::MAX_ATTEMPTS, $shopWhere, $limit))) {
+        if (!\Db::getInstance()->execute(sprintf("UPDATE `%s%s` SET status='processing',locked_by='%s',locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),available_at=NULL,attempts=attempts+1,updated_at=NOW() WHERE ((status='pending' AND (available_at IS NULL OR available_at<=NOW())) OR (status='processing' AND locked_until<=NOW())) AND attempts<%d%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), self::LEASE_MINUTES, self::MAX_ATTEMPTS, $scopeWhere, $limit))) {
             throw new \RuntimeException('Matterhorn new-product queue claim failed');
         }
-        return \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), $shopWhere, $limit), true, false) ?: [];
+        return \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), $scopeWhere, $limit), true, false) ?: [];
     }
 
     public function renew(int $id, string $token): bool
@@ -67,15 +69,17 @@ final class NewProductQueueRepository
         throw new \RuntimeException('Matterhorn new-product queue ownership lost before failure update');
     }
 
-    public function retryFailed(?int $shopId = null, int $limit = 1000): int
+    public function retryFailed(string $source, ?int $shopId = null, int $limit = 1000): int
     {
+        $source = trim($source);
+        if ($source === '') { throw new \InvalidArgumentException('New-product retry requires source'); }
         $limit = max(1, min(100000, $limit));
-        $where = "status='failed'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
+        $where = "status='failed' AND source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
         $db = \Db::getInstance();
         $rows = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . $limit, true, false) ?: [];
         if ($rows === []) { return 0; }
         $ids = implode(',', array_map(static fn(array $row): int => (int) $row['id_queue'], $rows));
-        if (!$db->execute("UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE status='failed' AND id_queue IN (" . $ids . ')')) {
+        if (!$db->execute("UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE status='failed' AND source='" . pSQL($source) . "' AND id_queue IN (" . $ids . ')')) {
             throw new \RuntimeException('Matterhorn new-product queue retry reset failed');
         }
         return (int) $db->Affected_Rows();
