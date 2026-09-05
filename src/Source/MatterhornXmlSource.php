@@ -6,6 +6,11 @@ use Lp\MatterhornImport\Contract\CheckpointableSourceInterface;
 final class MatterhornXmlSource implements CheckpointableSourceInterface
 {
     private const FINGERPRINT_WINDOW = 65536;
+    private const MAX_SOURCE_RECORD_BYTES = 4194304; // 4 MiB decoded text per product
+    private const MAX_SOURCE_FIELD_BYTES = 2097152; // 2 MiB per scalar field
+    private const MAX_IMAGE_URL_BYTES = 16384;
+    private const MAX_IMAGES_PER_PRODUCT = 1000;
+    private const MAX_OPTIONS_PER_PRODUCT = 5000;
 
     public function __construct(private readonly ?string $explicitPath = null)
     {
@@ -80,17 +85,10 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
                 }
                 $seen++;
                 if ($seen <= $offset) {
+                    $this->skipCurrentElement($reader);
                     continue;
                 }
-                $xml = $reader->readOuterXML();
-                if ($xml === '') {
-                    continue;
-                }
-                $node = simplexml_load_string($xml, \SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOCDATA);
-                if ($node === false) {
-                    throw new \RuntimeException('Invalid Matterhorn <product> at source record ' . $seen);
-                }
-                yield $this->parseProduct($node);
+                yield $this->readProduct($reader, $seen);
             }
             foreach (libxml_get_errors() as $error) {
                 if ($error->level >= LIBXML_ERR_ERROR) {
@@ -104,52 +102,301 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
         }
     }
 
-    private function parseProduct(\SimpleXMLElement $node): array
+    /** @return array<string,mixed> */
+    private function readProduct(\XMLReader $reader, int $record): array
     {
-        $images = [];
-        $seenImages = [];
-        if (isset($node->images)) {
-            foreach ($node->images->image_url as $imageNode) {
-                $url = trim((string) $imageNode);
-                if ($url === '' || isset($seenImages[$url])) {
-                    continue;
-                }
-                $seenImages[$url] = true;
-                $images[] = $url;
-            }
-        }
-
-        $options = [];
-        if (isset($node->options)) {
-            foreach ($node->options->option as $option) {
-                $availableRaw = trim((string) ($option->avaible_in ?? ''));
-                $options[] = [
-                    'id' => trim((string) ($option['id'] ?? '')),
-                    'name' => trim((string) ($option->option_name ?? '')),
-                    'stock' => trim((string) ($option->STOCK ?? '')),
-                    'available_in' => $availableRaw,
-                    'ean' => trim((string) ($option->ean ?? '')),
-                ];
-            }
-        }
-
-        return [
-            'id' => trim((string) ($node['id'] ?? '')),
-            'name' => trim((string) ($node->name ?? '')),
-            'creation_date' => trim((string) ($node->creation_date ?? '')),
-            'brand' => trim((string) ($node->brand ?? '')),
-            'category_path' => trim((string) ($node->category_path ?? '')),
-            'category' => [
-                'id' => isset($node->category) ? trim((string) ($node->category['id'] ?? '')) : '',
-                'name' => isset($node->category) ? trim((string) $node->category) : '',
-            ],
-            'color' => trim((string) ($node->color ?? '')),
-            'type' => trim((string) ($node->type ?? '')),
-            'images' => $images,
-            'price' => trim((string) ($node->price ?? '')),
-            'description' => trim((string) ($node->description ?? '')),
-            'options' => $options,
+        $productId = trim((string) $reader->getAttribute('id'));
+        $row = [
+            'id' => $productId,
+            'name' => '',
+            'creation_date' => '',
+            'brand' => '',
+            'category_path' => '',
+            'category' => ['id' => '', 'name' => ''],
+            'color' => '',
+            'type' => '',
+            'images' => [],
+            'price' => '',
+            'description' => '',
+            'options' => [],
         ];
+        if ($reader->isEmptyElement) {
+            return $row;
+        }
+
+        $productDepth = $reader->depth;
+        $recordBytes = 0;
+        while ($reader->read()) {
+            if (
+                $reader->nodeType === \XMLReader::END_ELEMENT
+                && $reader->depth === $productDepth
+                && $reader->localName === 'product'
+            ) {
+                return $row;
+            }
+            if ($reader->nodeType !== \XMLReader::ELEMENT || $reader->depth !== $productDepth + 1) {
+                continue;
+            }
+
+            $field = $reader->localName;
+            if ($field === 'images') {
+                $row['images'] = $this->readImages($reader, $record, $recordBytes);
+                continue;
+            }
+            if ($field === 'options') {
+                $row['options'] = $this->readOptions($reader, $record, $recordBytes);
+                continue;
+            }
+            if ($field === 'category') {
+                $categoryId = trim((string) $reader->getAttribute('id'));
+                $row['category'] = [
+                    'id' => $categoryId,
+                    'name' => trim($this->readScalarElement(
+                        $reader,
+                        $record,
+                        'category',
+                        self::MAX_SOURCE_FIELD_BYTES,
+                        $recordBytes
+                    )),
+                ];
+                continue;
+            }
+            if (in_array($field, [
+                'name', 'creation_date', 'brand', 'category_path', 'color', 'type', 'price', 'description',
+            ], true)) {
+                $row[$field] = trim($this->readScalarElement(
+                    $reader,
+                    $record,
+                    $field,
+                    self::MAX_SOURCE_FIELD_BYTES,
+                    $recordBytes
+                ));
+                continue;
+            }
+
+            $this->skipCurrentElementCounting($reader, $record, $field, $recordBytes);
+        }
+
+        throw new \RuntimeException('Unexpected EOF inside Matterhorn <product> at source record ' . $record);
+    }
+
+    /** @return list<string> */
+    private function readImages(\XMLReader $reader, int $record, int &$recordBytes): array
+    {
+        if ($reader->isEmptyElement) {
+            return [];
+        }
+        $depth = $reader->depth;
+        $images = [];
+        $seen = [];
+        while ($reader->read()) {
+            if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === 'images') {
+                return $images;
+            }
+            if ($reader->nodeType !== \XMLReader::ELEMENT || $reader->depth !== $depth + 1) {
+                continue;
+            }
+            if ($reader->localName !== 'image_url') {
+                $this->skipCurrentElementCounting($reader, $record, 'images/' . $reader->localName, $recordBytes);
+                continue;
+            }
+            if (count($images) >= self::MAX_IMAGES_PER_PRODUCT) {
+                throw new \RuntimeException(
+                    'Matterhorn product image count exceeds limit of ' . self::MAX_IMAGES_PER_PRODUCT .
+                    ' at source record ' . $record
+                );
+            }
+            $url = trim($this->readScalarElement(
+                $reader,
+                $record,
+                'images/image_url',
+                self::MAX_IMAGE_URL_BYTES,
+                $recordBytes
+            ));
+            if ($url === '' || isset($seen[$url])) {
+                continue;
+            }
+            $seen[$url] = true;
+            $images[] = $url;
+        }
+        throw new \RuntimeException('Unexpected EOF inside Matterhorn <images> at source record ' . $record);
+    }
+
+    /** @return list<array<string,string>> */
+    private function readOptions(\XMLReader $reader, int $record, int &$recordBytes): array
+    {
+        if ($reader->isEmptyElement) {
+            return [];
+        }
+        $depth = $reader->depth;
+        $options = [];
+        while ($reader->read()) {
+            if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === 'options') {
+                return $options;
+            }
+            if ($reader->nodeType !== \XMLReader::ELEMENT || $reader->depth !== $depth + 1) {
+                continue;
+            }
+            if ($reader->localName !== 'option') {
+                $this->skipCurrentElementCounting($reader, $record, 'options/' . $reader->localName, $recordBytes);
+                continue;
+            }
+            if (count($options) >= self::MAX_OPTIONS_PER_PRODUCT) {
+                throw new \RuntimeException(
+                    'Matterhorn product option count exceeds limit of ' . self::MAX_OPTIONS_PER_PRODUCT .
+                    ' at source record ' . $record
+                );
+            }
+            $options[] = $this->readOption($reader, $record, $recordBytes);
+        }
+        throw new \RuntimeException('Unexpected EOF inside Matterhorn <options> at source record ' . $record);
+    }
+
+    /** @return array<string,string> */
+    private function readOption(\XMLReader $reader, int $record, int &$recordBytes): array
+    {
+        $option = [
+            'id' => trim((string) $reader->getAttribute('id')),
+            'name' => '',
+            'stock' => '',
+            'available_in' => '',
+            'ean' => '',
+        ];
+        if ($reader->isEmptyElement) {
+            return $option;
+        }
+        $depth = $reader->depth;
+        $fieldMap = [
+            'option_name' => 'name',
+            'STOCK' => 'stock',
+            'avaible_in' => 'available_in',
+            'ean' => 'ean',
+        ];
+        while ($reader->read()) {
+            if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === 'option') {
+                return $option;
+            }
+            if ($reader->nodeType !== \XMLReader::ELEMENT || $reader->depth !== $depth + 1) {
+                continue;
+            }
+            $rawField = $reader->localName;
+            if (!isset($fieldMap[$rawField])) {
+                $this->skipCurrentElementCounting($reader, $record, 'options/option/' . $rawField, $recordBytes);
+                continue;
+            }
+            $option[$fieldMap[$rawField]] = trim($this->readScalarElement(
+                $reader,
+                $record,
+                'options/option/' . $rawField,
+                self::MAX_SOURCE_FIELD_BYTES,
+                $recordBytes
+            ));
+        }
+        throw new \RuntimeException('Unexpected EOF inside Matterhorn <option> at source record ' . $record);
+    }
+
+    private function readScalarElement(
+        \XMLReader $reader,
+        int $record,
+        string $field,
+        int $fieldLimit,
+        int &$recordBytes
+    ): string {
+        if ($reader->isEmptyElement) {
+            return '';
+        }
+        $depth = $reader->depth;
+        $name = $reader->localName;
+        $value = '';
+        $fieldBytes = 0;
+        while ($reader->read()) {
+            if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === $name) {
+                return $value;
+            }
+            if ($reader->nodeType === \XMLReader::ELEMENT) {
+                throw new \RuntimeException(
+                    'Matterhorn scalar field ' . $field . ' contains nested element <' . $reader->localName .
+                    '> at source record ' . $record
+                );
+            }
+            if (!in_array($reader->nodeType, [
+                \XMLReader::TEXT,
+                \XMLReader::CDATA,
+                \XMLReader::WHITESPACE,
+                \XMLReader::SIGNIFICANT_WHITESPACE,
+            ], true)) {
+                continue;
+            }
+            $chunk = $reader->value;
+            $chunkBytes = strlen($chunk);
+            $fieldBytes += $chunkBytes;
+            $recordBytes += $chunkBytes;
+            if ($fieldBytes > $fieldLimit) {
+                throw new \RuntimeException(
+                    'Matterhorn source field ' . $field . ' exceeds limit of ' . $fieldLimit .
+                    ' bytes at source record ' . $record
+                );
+            }
+            $this->assertRecordBytes($recordBytes, $record);
+            $value .= $chunk;
+        }
+        throw new \RuntimeException(
+            'Unexpected EOF inside Matterhorn <' . $name . '> at source record ' . $record
+        );
+    }
+
+    private function skipCurrentElementCounting(
+        \XMLReader $reader,
+        int $record,
+        string $field,
+        int &$recordBytes
+    ): void {
+        if ($reader->isEmptyElement) {
+            return;
+        }
+        $depth = $reader->depth;
+        $name = $reader->localName;
+        while ($reader->read()) {
+            if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === $name) {
+                return;
+            }
+            if (in_array($reader->nodeType, [
+                \XMLReader::TEXT,
+                \XMLReader::CDATA,
+                \XMLReader::WHITESPACE,
+                \XMLReader::SIGNIFICANT_WHITESPACE,
+            ], true)) {
+                $recordBytes += strlen($reader->value);
+                $this->assertRecordBytes($recordBytes, $record);
+            }
+        }
+        throw new \RuntimeException(
+            'Unexpected EOF inside ignored Matterhorn field ' . $field . ' at source record ' . $record
+        );
+    }
+
+    private function assertRecordBytes(int $recordBytes, int $record): void
+    {
+        if ($recordBytes > self::MAX_SOURCE_RECORD_BYTES) {
+            throw new \RuntimeException(
+                'Matterhorn source product text exceeds limit of ' . self::MAX_SOURCE_RECORD_BYTES .
+                ' bytes at source record ' . $record
+            );
+        }
+    }
+
+    private function skipCurrentElement(\XMLReader $reader): void
+    {
+        if ($reader->isEmptyElement) {
+            return;
+        }
+        $depth = $reader->depth;
+        $name = $reader->localName;
+        while ($reader->read()) {
+            if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === $name) {
+                return;
+            }
+        }
     }
 
     private function path(): string
