@@ -78,6 +78,13 @@ final class ImageQueueRepository
         return count($ids);
     }
 
+    public function status(int $idQueue): ?string
+    {
+        if ($idQueue <= 0) { return null; }
+        $value = \Db::getInstance()->getValue(sprintf('SELECT status FROM `%s%s` WHERE id_queue=%d', _DB_PREFIX_, self::TABLE, $idQueue));
+        return $value === false || $value === null ? null : (string) $value;
+    }
+
     public function unresolvedForRun(int $runId, int $shopId): int
     {
         return (int) \Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` WHERE id_run=%d AND id_shop=%d AND status<>'done'", _DB_PREFIX_, self::TABLE, $runId, $shopId));
