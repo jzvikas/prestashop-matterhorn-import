@@ -27,15 +27,15 @@ featureCheck(str_contains($sync, 'not exclusive to target shop'), 'non-exclusive
 featureCheck(str_contains($sync, 'assertExclusiveTargetShop($productId, $shopId)'), 'feature mutations must revalidate target-shop exclusivity');
 featureCheck(str_contains($sync, '$latestActual = $this->actual($productId)'), 'feature sync must refresh live state before mutation');
 featureCheck(str_contains($sync, 'state changed concurrently before synchronization'), 'feature sync must fail closed on pre-mutation concurrent change');
-featureCheck(str_contains($sync, "' AND id_feature_value=' . (int) $valueId"), 'feature delete must fence the exact previously observed value');
+featureCheck(str_contains($sync, "' AND id_feature_value=' . (int) \$valueId"), 'feature delete must fence the exact previously observed value');
 featureCheck(str_contains($sync, '$db->Affected_Rows() !== 1'), 'feature delete must detect concurrent row replacement/removal');
 featureCheck(str_contains($sync, "executeS(\n            'SELECT id_feature,id_feature_value") && str_contains($sync, "true,\n            false"), 'feature live state reads must bypass Db query cache');
 featureCheck(str_contains($sync, 'target_shop_count'), 'feature mutation ownership proof must include target-shop membership');
 
 featureCheck(str_contains($resolver, 'LOCK_TIMEOUT_SECONDS = 10'), 'feature resolver must bound advisory-lock wait');
 featureCheck(str_contains($resolver, "'lpimp:feat:'"), 'feature resolver must share lock namespace across import modules');
-featureCheck(str_contains($resolver, "'feature:' . $shopId"), 'feature creation lock must be target-shop/name scoped');
-featureCheck(str_contains($resolver, "'value:' . $featureId"), 'feature-value creation lock must be global feature/value scoped');
+featureCheck(str_contains($resolver, "'feature:' . \$shopId"), 'feature creation lock must be target-shop/name scoped');
+featureCheck(str_contains($resolver, "'value:' . \$featureId"), 'feature-value creation lock must be global feature/value scoped');
 featureCheck(substr_count($resolver, '), true, false)') >= 2, 'feature/value exact reads must bypass Db query cache');
 featureCheck(str_contains($resolver, 'GET_LOCK') && str_contains($resolver, 'RELEASE_LOCK'), 'feature resolver must acquire and release advisory locks');
 featureCheck(!str_contains($resolver, 'featureShopCount'), 'shared feature must be reused instead of creating duplicate same-name feature for a missing value');

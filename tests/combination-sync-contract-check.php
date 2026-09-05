@@ -50,8 +50,10 @@ combinationCheck(str_contains($sync, '$affected = (int) $db->Affected_Rows()'), 
 combinationCheck(str_contains($sync, '$this->deleteExclusiveCombination($productId, $id, $shopId)'), 'topology race must re-enter independently fenced exclusive delete');
 combinationCheck(str_contains($sync, 'target_shop_count'), 'exclusive delete must prove exact target-shop ownership');
 combinationCheck(str_contains($sync, 'shared or ambiguously associated combination'), 'exclusive delete must fail closed on shared/ambiguous topology');
-combinationCheck(substr_count($sync, '), false);') >= 4, 'live combination ownership/default reads must bypass Db query cache');
 combinationCheck(str_contains($sync, "executeS(sprintf(\n            \"SELECT pa.id_product_attribute") && str_contains($sync, '), true, false) ?: []'), 'semantic combination inventory must bypass Db query cache');
+combinationCheck(str_contains($sync, "getRow(sprintf(\n            \"SELECT pa.id_product,COUNT(pas.id_shop)") && str_contains($sync, '), false);'), 'exclusive-delete topology read must bypass Db query cache');
+combinationCheck(str_contains($sync, "'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product_attribute_shop`") && str_contains($sync, "false\n        );"), 'shop-association count must bypass Db query cache');
+combinationCheck(str_contains($sync, "SELECT 1 FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas") && substr_count($sync, '), false);') >= 3, 'target-shop ownership/default reads must bypass Db query cache');
 combinationCheck(str_contains($sync, "'cart_product'"), 'shared detach must clean target-shop cart rows after successful detach');
 
 $product = new ProductData('206161', 'MH-206161', ['default' => 'Panties'], 14.9, 0, true, [], [
