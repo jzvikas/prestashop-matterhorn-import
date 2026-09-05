@@ -24,5 +24,7 @@ specificPriceStateCheck(str_contains($sync, '$this->update($id, $row, $productId
 specificPriceStateCheck(str_contains($sync, 'private function assertAppliedRule(') && str_contains($sync, '$live = $this->fetchLive($id, $productId, $shopId);'), 'specific-price post-write verification must use the fresh exact live-row read');
 specificPriceStateCheck(str_contains($sync, "['id_specific_price_rule'] ?? -1") && str_contains($sync, "['id_cart'] ?? -1") && str_contains($sync, "['id_shop_group'] ?? -1"), 'specific-price post-write verification must reject unexpected PrestaShop rule/cart/shop-group ownership');
 specificPriceStateCheck(str_contains($sync, "hash_equals(\$this->ruleHash(\$row), \$this->ruleHash(\$this->normalizeLiveRule(\$live)))"), 'specific-price post-write verification must compare the full applied supplier rule before claiming ownership state');
+specificPriceStateCheck(str_contains($sync, '$affected = (int) $db->Affected_Rows();') && str_contains($sync, '$affected === 0 && $this->fetchLive($id, $productId, $shopId) !== null'), 'authoritative specific-price cleanup must distinguish an already-removed row from a concurrently changed live row');
+specificPriceStateCheck(str_contains($sync, 'Specific price changed concurrently during authoritative cleanup'), 'concurrent specific-price cleanup mutation must fail closed before ownership state is discarded');
 
 echo "Specific-price state contract checks: OK\n";
