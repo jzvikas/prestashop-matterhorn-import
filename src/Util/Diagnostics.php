@@ -30,11 +30,11 @@ final class Diagnostics
         $psVersion = defined('_PS_VERSION_') ? (string)_PS_VERSION_ : '';
         $psOk = $psVersion !== '' && version_compare($psVersion, '9.1.0', '>=') && version_compare($psVersion, '9.2.0', '<');
         $checks[] = $this->check('prestashop', $psOk ? 'ok' : 'error', $psVersion !== '' ? $psVersion : 'unknown');
-        try { $this->databaseSafety->assertTransactionalCore(); $checks[] = $this->check('core-db-engine','ok','critical tables are InnoDB'); }
+        try { $this->databaseSafety->assertTransactionalCore(); $checks[] = $this->check('core-db-engine','ok','critical tables are InnoDB and ownership schema is valid'); }
         catch (\Throwable $e) { $checks[] = $this->check('core-db-engine','error',$e->getMessage()); }
 
         foreach (self::MODULE_TABLES as $table) {
-            $engine = $db->getValue("SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . $table) . "'");
+            $engine = $db->getValue("SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . $table) . "'", false);
             $checks[] = $this->check('table:' . $table, strtoupper((string)$engine) === 'INNODB' ? 'ok' : 'error', $engine ? (string)$engine : 'missing');
         }
 
@@ -48,7 +48,9 @@ final class Diagnostics
             'li_matterhornim_99dfbf_new_product_queue' => ['id_run','id_product','available_at','locked_by','locked_until'],
         ] as $table => $requiredColumns) {
             $columns = $db->executeS(
-                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . $table) . "'"
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . $table) . "'",
+                true,
+                false
             ) ?: [];
             $present = array_fill_keys(array_map(static fn(array $row): string => (string)($row['COLUMN_NAME'] ?? ''), $columns), true);
             $missing = array_values(array_filter($requiredColumns, static fn(string $column): bool => !isset($present[$column])));
@@ -59,10 +61,32 @@ final class Diagnostics
             );
         }
 
+        $ownerIndexRows = $db->executeS(
+            "SELECT COLUMN_NAME,SEQ_IN_INDEX,NON_UNIQUE FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
+            "AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . 'li_matterhornim_99dfbf_mapping') . "' " .
+            "AND INDEX_NAME='uq_shop_product_owner' ORDER BY SEQ_IN_INDEX",
+            true,
+            false
+        ) ?: [];
+        $ownerIndex = array_map(static fn(array $row): string => (string)($row['COLUMN_NAME'] ?? ''), $ownerIndexRows);
+        $ownerUnique = $ownerIndexRows !== [];
+        foreach ($ownerIndexRows as $row) { $ownerUnique = $ownerUnique && (int)($row['NON_UNIQUE'] ?? 1) === 0; }
+        $expectedOwnerIndex = ['id_shop','id_product'];
+        $ownerOk = $ownerIndex === $expectedOwnerIndex && $ownerUnique;
+        $checks[] = $this->check(
+            'product-ownership-index',
+            $ownerOk ? 'ok' : 'error',
+            $ownerOk
+                ? 'unique ' . implode(',', $expectedOwnerIndex)
+                : 'expected unique=' . implode(',', $expectedOwnerIndex) . ' actual=' . implode(',', $ownerIndex)
+        );
+
         $queueIndexRows = $db->executeS(
             "SELECT COLUMN_NAME,SEQ_IN_INDEX FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
             "AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . 'li_matterhornim_99dfbf_image_queue') . "' " .
-            "AND INDEX_NAME='idx_shop_source_status' ORDER BY SEQ_IN_INDEX"
+            "AND INDEX_NAME='idx_shop_source_status' ORDER BY SEQ_IN_INDEX",
+            true,
+            false
         ) ?: [];
         $queueIndex = array_map(static fn(array $row): string => (string)($row['COLUMN_NAME'] ?? ''), $queueIndexRows);
         $expectedIndex = ['id_shop','source','status','id_queue'];
@@ -75,7 +99,9 @@ final class Diagnostics
         $revalidateIndexRows = $db->executeS(
             "SELECT COLUMN_NAME,SEQ_IN_INDEX FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
             "AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . 'li_matterhornim_99dfbf_image_state') . "' " .
-            "AND INDEX_NAME='idx_revalidate' ORDER BY SEQ_IN_INDEX"
+            "AND INDEX_NAME='idx_revalidate' ORDER BY SEQ_IN_INDEX",
+            true,
+            false
         ) ?: [];
         $revalidateIndex = array_map(static fn(array $row): string => (string)($row['COLUMN_NAME'] ?? ''), $revalidateIndexRows);
         $expectedRevalidateIndex = ['id_shop','source','updated_at','source_key'];
@@ -89,7 +115,8 @@ final class Diagnostics
             'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_attribute_group_mapping` m ' .
             'LEFT JOIN `' . _DB_PREFIX_ . 'attribute_group` ag ON ag.id_attribute_group=m.id_attribute_group ' .
             'LEFT JOIN `' . _DB_PREFIX_ . 'attribute_group_shop` ags ON ags.id_attribute_group=m.id_attribute_group AND ags.id_shop=m.id_shop ' .
-            'WHERE m.id_shop=' . $shopId . ' AND (ag.id_attribute_group IS NULL OR ags.id_attribute_group IS NULL)'
+            'WHERE m.id_shop=' . $shopId . ' AND (ag.id_attribute_group IS NULL OR ags.id_attribute_group IS NULL)',
+            false
         );
         $checks[] = $this->check('size-group-mappings', $brokenGroups === 0 ? 'ok' : 'error', 'broken=' . $brokenGroups);
 
@@ -97,11 +124,12 @@ final class Diagnostics
             'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_attribute_value_mapping` m ' .
             'LEFT JOIN `' . _DB_PREFIX_ . 'attribute` a ON a.id_attribute=m.id_attribute ' .
             'LEFT JOIN `' . _DB_PREFIX_ . 'attribute_shop` ash ON ash.id_attribute=m.id_attribute AND ash.id_shop=m.id_shop ' .
-            'WHERE m.id_shop=' . $shopId . ' AND (a.id_attribute IS NULL OR ash.id_attribute IS NULL OR a.id_attribute_group<>m.id_attribute_group)'
+            'WHERE m.id_shop=' . $shopId . ' AND (a.id_attribute IS NULL OR ash.id_attribute IS NULL OR a.id_attribute_group<>m.id_attribute_group)',
+            false
         );
         $checks[] = $this->check('size-value-mappings', $brokenValues === 0 ? 'ok' : 'error', 'broken=' . $brokenValues);
 
-        $packet = (int)$db->getValue('SELECT @@max_allowed_packet');
+        $packet = (int)$db->getValue('SELECT @@max_allowed_packet', false);
         $checks[] = $this->check('db:max-allowed-packet', $packet >= 16 * 1024 * 1024 ? 'ok' : 'warning', $packet > 0 ? round($packet / 1048576, 1) . ' MiB' : 'unknown');
         foreach ($this->settings->inspect($shopId) as $key => $setting) {
             $message = 'effective=' . $setting['effective'] . ' allowed=' . $setting['min'] . '..' . $setting['max'];
@@ -119,17 +147,17 @@ final class Diagnostics
             else { $checks[] = $this->check('source','warning',$this->source->name() . ' has no fingerprint check'); }
         } catch (\Throwable $e) { $checks[] = $this->check('source','error',$e->getMessage()); }
         foreach (['image'=>'li_matterhornim_99dfbf_image_queue','new-product'=>'li_matterhornim_99dfbf_new_product_queue'] as $domain => $table) {
-            $row = $db->getRow("SELECT COUNT(*) total,SUM(status='pending') pending,SUM(status='processing') processing,SUM(status='failed') failed,SUM(status='processing' AND locked_until IS NOT NULL AND locked_until<=NOW()) expired FROM `" . _DB_PREFIX_ . $table . '` WHERE id_shop=' . $shopId);
+            $row = $db->getRow("SELECT COUNT(*) total,SUM(status='pending') pending,SUM(status='processing') processing,SUM(status='failed') failed,SUM(status='processing' AND locked_until IS NOT NULL AND locked_until<=NOW()) expired FROM `" . _DB_PREFIX_ . $table . '` WHERE id_shop=' . $shopId, false);
             $row = is_array($row) ? $row : [];
             $failed=(int)($row['failed']??0); $expired=(int)($row['expired']??0);
             $checks[]=$this->check($domain . '-queue',$failed>0||$expired>0?'warning':'ok',sprintf('total=%d pending=%d processing=%d failed=%d expired=%d',(int)($row['total']??0),(int)($row['pending']??0),(int)($row['processing']??0),$failed,$expired));
         }
-        $orphanRow = $db->getRow('SELECT COUNT(*) total,SUM(available_at IS NULL OR available_at<=NOW()) due FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_orphan` WHERE id_shop=' . $shopId);
+        $orphanRow = $db->getRow('SELECT COUNT(*) total,SUM(available_at IS NULL OR available_at<=NOW()) due FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_orphan` WHERE id_shop=' . $shopId, false);
         $orphanRow = is_array($orphanRow) ? $orphanRow : [];
         $orphanTotal = (int)($orphanRow['total'] ?? 0);
         $checks[] = $this->check('image-orphans', $orphanTotal > 0 ? 'warning' : 'ok', sprintf('total=%d due=%d', $orphanTotal, (int)($orphanRow['due'] ?? 0)));
 
-        $latest=$db->getRow('SELECT id_run,status,read_status,import_status,update_status,remove_status,image_reconcile_status,image_reconcile_checkpoint,image_reconcile_done FROM `' . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='" . pSQL($this->source->name()) . "' ORDER BY id_run DESC");
+        $latest=$db->getRow('SELECT id_run,status,read_status,import_status,update_status,remove_status,image_reconcile_status,image_reconcile_checkpoint,image_reconcile_done FROM `' . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='" . pSQL($this->source->name()) . "' ORDER BY id_run DESC", false);
         $checks[] = !$latest ? $this->check('latest-run','warning','no runs yet') : $this->check(
             'latest-run',
             (string)$latest['status']==='failed' || (string)($latest['image_reconcile_status'] ?? '')==='failed' ? 'warning' : 'ok',
