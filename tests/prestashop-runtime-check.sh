@@ -82,6 +82,10 @@ for command in \
   grep -q "^${command}\b" <<<"$commands" || { echo "Missing console command: $command" >&2; exit 5; }
 done
 
+echo 'MATTERHORN_RUNTIME_STAGE domain_lifecycle_start'
+docker exec "$PS_CONTAINER" php -d memory_limit=512M /var/www/html/modules/matterhornimport/tests/prestashop-domain-runtime.php
+echo 'MATTERHORN_RUNTIME_STAGE domain_lifecycle_done'
+
 docker exec "$PS_CONTAINER" php -d memory_limit=512M -r '
   chdir("/var/www/html");
   require "config/config.inc.php";
