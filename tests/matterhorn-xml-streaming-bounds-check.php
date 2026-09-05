@@ -44,11 +44,13 @@ streamingCheck(!str_contains($sourceCode, 'simplexml_load_string'), 'Matterhorn 
 foreach ([
     'MAX_SOURCE_RECORD_BYTES = 4194304',
     'MAX_SOURCE_FIELD_BYTES = 2097152',
+    'MAX_SOURCE_ATTRIBUTE_BYTES = 191',
     'MAX_IMAGE_URL_BYTES = 16384',
     'MAX_IMAGES_PER_PRODUCT = 1000',
     'MAX_OPTIONS_PER_PRODUCT = 5000',
     'skipCurrentElementCounting',
     'readImageUrlElement',
+    'readBoundedAttribute',
 ] as $token) {
     streamingCheck(str_contains($sourceCode, $token), 'missing streaming bound: ' . $token);
 }
@@ -109,6 +111,20 @@ for ($i = 0; $i < 5001; $i++) {
 expectStreamFailure(
     '<product id="4"><name>Too many options</name><price>1</price><options>' . $options . '</options></product>',
     'option count exceeds limit of 5000'
+);
+
+$longAttribute = str_repeat('A', 192);
+expectStreamFailure(
+    '<product id="' . $longAttribute . '"><name>Long product id</name><price>1</price></product>',
+    'source attribute product/@id exceeds limit of 191 bytes'
+);
+expectStreamFailure(
+    '<product id="5"><name>Long category id</name><price>1</price><category id="' . $longAttribute . '">Category</category></product>',
+    'source attribute category/@id exceeds limit of 191 bytes'
+);
+expectStreamFailure(
+    '<product id="6"><name>Long option id</name><price>1</price><options><option id="' . $longAttribute . '"><option_name>S</option_name><STOCK>1</STOCK></option></options></product>',
+    'source attribute options/option/@id exceeds limit of 191 bytes'
 );
 
 echo "Matterhorn XML streaming bounds: OK\n";
