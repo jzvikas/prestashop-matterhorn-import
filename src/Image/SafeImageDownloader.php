@@ -3,6 +3,7 @@ namespace Lp\MatterhornImport\Image;
 
 final class SafeImageDownloader
 {
+    private const MAX_URL_BYTES = 16384;
     private const MAX_BYTES = 26214400;
     private const MAX_PIXELS = 80000000;
 
@@ -159,6 +160,11 @@ final class SafeImageDownloader
     /** @return array{0:string,1:int,2:string,3:bool} */
     private function validatedEndpoint(string $url): array
     {
+        if (strlen($url) > self::MAX_URL_BYTES) {
+            throw new \InvalidArgumentException(
+                'Image URL exceeds operational limit of ' . self::MAX_URL_BYTES . ' bytes'
+            );
+        }
         $parts = parse_url($url);
         if (!$parts || !isset($parts['scheme'], $parts['host']) || !in_array(strtolower((string) $parts['scheme']), ['http', 'https'], true)) {
             throw new \InvalidArgumentException('Only HTTP(S) image URLs allowed');
