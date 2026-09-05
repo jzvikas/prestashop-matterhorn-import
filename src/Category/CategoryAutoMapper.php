@@ -7,8 +7,13 @@ use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class CategoryAutoMapper
 {
+    private const LOCK_TIMEOUT_SECONDS = 10;
+    private const MAX_PATH_DEPTH = 32;
+
     /** @var array<int,array<string,int>> */
     private array $pathMap = [];
+    /** @var array<int,array<int,array<string,int>>> */
+    private array $childMap = [];
     /** @var array<int,array<string,string>> */
     private array $preparedMetadata = [];
     /** @var array<string,bool> */
@@ -74,7 +79,7 @@ final class CategoryAutoMapper
             "INNER JOIN `%scategory_lang` parent_lang ON parent_lang.id_category=parent.id_category AND parent_lang.id_lang=%d AND parent_lang.id_shop=%d " .
             "WHERE parent.id_category NOT IN (%d,%d) GROUP BY leaf.id_category",
             _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $langId, $shopId, $rootId, $homeId
-        )) ?: [];
+        ), true, false) ?: [];
         $map = [];
         foreach ($rows as $row) {
             $path = $this->normalizePath((string) ($row['category_path'] ?? ''));
@@ -91,6 +96,7 @@ final class CategoryAutoMapper
     {
         $parts = $this->splitPath($path);
         if ($parts === []) { return 0; }
+        $db = \Db::getInstance();
         $parentId = $this->homeCategoryId($shopId);
         $built = [];
         foreach ($parts as $part) {
@@ -105,40 +111,73 @@ final class CategoryAutoMapper
                 $this->availabilityCache[$this->availabilityKey($shopId, $existing)] = true;
                 continue;
             }
-            $category = new \Category();
-            $category->id_parent = $parentId;
-            $category->id_shop_default = $shopId;
-            $category->id_shop_list = [$shopId];
-            $category->active = true;
-            $category->is_root_category = false;
-            $rewrite = trim((string) \Tools::str2url($part));
-            if ($rewrite === '') { $rewrite = 'category-' . substr(hash('sha256', $parentId . '|' . $part), 0, 12); }
-            foreach (\Language::getLanguages(false, $shopId) as $language) {
-                $idLang = (int) ($language['id_lang'] ?? 0);
-                if ($idLang <= 0) { continue; }
-                $category->name[$idLang] = mb_substr($part, 0, 128, 'UTF-8');
-                $category->link_rewrite[$idLang] = $rewrite;
+
+            $lockedParentId = $parentId;
+            $lock = $this->acquireLock($db, $shopId, $lockedParentId, $part);
+            try {
+                unset($this->childMap[$shopId][$lockedParentId]);
+                $existing = $this->findChildCategoryId($lockedParentId, $part, $shopId);
+                if ($existing > 0) {
+                    $parentId = $existing;
+                    $this->pathMap[$shopId][$normalized] = $existing;
+                    $this->availabilityCache[$this->availabilityKey($shopId, $existing)] = true;
+                    continue;
+                }
+
+                $category = new \Category();
+                $category->id_parent = $lockedParentId;
+                $category->id_shop_default = $shopId;
+                $category->id_shop_list = [$shopId];
+                $category->active = true;
+                $category->is_root_category = false;
+                $rewrite = trim((string) \Tools::str2url($part));
+                if ($rewrite === '') { $rewrite = 'category-' . substr(hash('sha256', $lockedParentId . '|' . $part), 0, 12); }
+                foreach (\Language::getLanguages(false, $shopId) as $language) {
+                    $idLang = (int) ($language['id_lang'] ?? 0);
+                    if ($idLang <= 0) { continue; }
+                    $category->name[$idLang] = mb_substr($part, 0, 128, 'UTF-8');
+                    $category->link_rewrite[$idLang] = $rewrite;
+                }
+                if (!$category->add() || (int) $category->id <= 0) { throw new \RuntimeException('Could not create category path segment: ' . $part); }
+                $parentId = (int) $category->id;
+                $this->pathMap[$shopId][$normalized] = $parentId;
+                $this->availabilityCache[$this->availabilityKey($shopId, $parentId)] = true;
+                $this->childMap[$shopId][$lockedParentId][$this->normalizeSegment($part)] = $parentId;
+            } finally {
+                $this->releaseLock($db, $lock);
             }
-            if (!$category->add() || (int) $category->id <= 0) { throw new \RuntimeException('Could not create category path segment: ' . $part); }
-            $parentId = (int) $category->id;
-            $this->pathMap[$shopId][$normalized] = $parentId;
-            $this->availabilityCache[$this->availabilityKey($shopId, $parentId)] = true;
         }
         return $parentId;
     }
 
     private function findChildCategoryId(int $parentId, string $name, int $shopId): int
     {
-        $rows = \Db::getInstance()->executeS(sprintf(
-            "SELECT c.id_category,cl.name FROM `%scategory` c INNER JOIN `%scategory_shop` cs ON cs.id_category=c.id_category AND cs.id_shop=%d " .
-            "INNER JOIN `%scategory_lang` cl ON cl.id_category=c.id_category AND cl.id_lang=%d AND cl.id_shop=%d WHERE c.id_parent=%d",
-            _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $this->languageId($shopId), $shopId, $parentId
-        )) ?: [];
         $normalized = $this->normalizeSegment($name);
-        foreach ($rows as $row) {
-            if ($this->normalizeSegment((string) ($row['name'] ?? '')) === $normalized) { return (int) ($row['id_category'] ?? 0); }
+        if ($normalized === '') { return 0; }
+        if (!isset($this->childMap[$shopId][$parentId])) {
+            $rows = \Db::getInstance()->executeS(sprintf(
+                "SELECT c.id_category,cl.name FROM `%scategory` c INNER JOIN `%scategory_shop` cs ON cs.id_category=c.id_category AND cs.id_shop=%d " .
+                "INNER JOIN `%scategory_lang` cl ON cl.id_category=c.id_category AND cl.id_lang=%d AND cl.id_shop=%d WHERE c.id_parent=%d ORDER BY c.id_category",
+                _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $this->languageId($shopId), $shopId, $parentId
+            ), true, false) ?: [];
+            $children = [];
+            foreach ($rows as $row) {
+                $childName = $this->normalizeSegment((string) ($row['name'] ?? ''));
+                $childId = (int) ($row['id_category'] ?? 0);
+                if ($childName === '' || $childId <= 0) { continue; }
+                if (isset($children[$childName]) && $children[$childName] !== $childId) {
+                    $children[$childName] = -1;
+                    continue;
+                }
+                $children[$childName] = $childId;
+            }
+            $this->childMap[$shopId][$parentId] = $children;
         }
-        return 0;
+        $id = $this->childMap[$shopId][$parentId][$normalized] ?? 0;
+        if ($id < 0) {
+            throw new \RuntimeException('Ambiguous exact category child name under parent #' . $parentId . ': ' . $name);
+        }
+        return $id;
     }
 
     private function categoryExistsInShop(int $categoryId, int $shopId): bool
@@ -180,11 +219,33 @@ final class CategoryAutoMapper
         return $id;
     }
 
+    private function acquireLock(\Db $db, int $shopId, int $parentId, string $name): string
+    {
+        $scope = $shopId . ':' . $parentId . ':' . $this->normalizeSegment($name);
+        $lock = 'matterhorn:cat:' . substr(hash('sha256', $scope), 0, 40);
+        if ((int) $db->getValue(
+            "SELECT GET_LOCK('" . pSQL($lock) . "'," . self::LOCK_TIMEOUT_SECONDS . ')',
+            false
+        ) !== 1) {
+            throw new \RuntimeException('Could not acquire category path resolver lock');
+        }
+        return $lock;
+    }
+
+    private function releaseLock(\Db $db, string $lock): void
+    {
+        try { $db->getValue("SELECT RELEASE_LOCK('" . pSQL($lock) . "')", false); } catch (\Throwable) {}
+    }
+
     /** @return list<string> */
     private function splitPath(string $path): array
     {
         $parts = preg_split('/\s*>\s*/u', trim($path)) ?: [];
-        return array_values(array_filter(array_map(static fn(string $part): string => trim(ltrim(trim($part), '@')), $parts), static fn(string $part): bool => $part !== ''));
+        $parts = array_values(array_filter(array_map(static fn(string $part): string => trim(ltrim(trim($part), '@')), $parts), static fn(string $part): bool => $part !== ''));
+        if (count($parts) > self::MAX_PATH_DEPTH) {
+            throw new \InvalidArgumentException('Category path depth exceeds operational limit of ' . self::MAX_PATH_DEPTH);
+        }
+        return $parts;
     }
     private function normalizePath(string $path): string { return implode(' > ', array_map(fn(string $part): string => $this->normalizeSegment($part), $this->splitPath($path))); }
     private function normalizeSegment(string $value): string
