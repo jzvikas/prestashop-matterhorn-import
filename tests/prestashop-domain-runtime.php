@@ -64,6 +64,15 @@ function copyRuntimeFeed(string $fixture): void
     }
 }
 
+function freshStockQuantity(int $productId, int $attributeId, int $shopId): int
+{
+    // The lifecycle invokes Matterhorn through separate bin/console processes. PrestaShop's
+    // StockAvailable API caches quantities inside the current PHP process, so the parent test
+    // process must invalidate its own stale view before asserting writes made by a child process.
+    Cache::clean('StockAvailable::getQuantityAvailableByProduct_' . $productId . '*');
+    return StockAvailable::getQuantityAvailableByProduct($productId, $attributeId, $shopId);
+}
+
 $db = Db::getInstance();
 Shop::setContext(Shop::CONTEXT_SHOP, 1);
 $shop = new Shop(1);
@@ -108,7 +117,7 @@ $combination = $db->getRow("SELECT pa.id_product_attribute,pa.reference,pa.ean13
 domainAssert(is_array($combination) && (int) $combination['id_product_attribute'] > 0, 'XS combination missing');
 domainAssert((string) $combination['ean13'] === '5902934981668', 'Combination EAN mismatch');
 $combinationId = (int) $combination['id_product_attribute'];
-domainAssert(StockAvailable::getQuantityAvailableByProduct($p206, $combinationId, 1) === 2, 'Initial XS stock mismatch');
+domainAssert(freshStockQuantity($p206, $combinationId, 1) === 2, 'Initial XS stock mismatch');
 $description = (string) $db->getValue("SELECT description FROM `" . _DB_PREFIX_ . "product_lang` WHERE id_product={$p206} AND id_shop=1 AND id_lang={$languageId}", false);
 domainAssert(str_contains($description, 'Charming figs'), 'Matterhorn description missing');
 domainAssert((int) $db->getValue("SELECT COUNT(*) FROM `{$table}image_queue` WHERE id_run={$createRun} AND id_shop=1 AND source='matterhorn' AND source_key='206161'", false) === 4, 'Image manifest queue count mismatch');
@@ -125,7 +134,7 @@ runMatterhornConsole(['matterhornimport:update','--run=' . $updateRun,'--shop=1'
 
 domainAssert((int) $db->getValue("SELECT id_product FROM `{$table}mapping` WHERE id_shop=1 AND source='matterhorn' AND source_key='206161'", false) === $p206, 'Stable product identity changed during UPDATE');
 domainAssert(abs((float) $db->getValue("SELECT price FROM `" . _DB_PREFIX_ . "product_shop` WHERE id_product={$p206} AND id_shop=1", false) - 15.9) < 0.0001, 'Updated price mismatch');
-domainAssert(StockAvailable::getQuantityAvailableByProduct($p206, $combinationId, 1) === 7, 'Updated XS stock mismatch');
+domainAssert(freshStockQuantity($p206, $combinationId, 1) === 7, 'Updated XS stock mismatch');
 $new = $db->getRow("SELECT core_hash,price_hash,feature_hash,category_hash,combination_hash,combination_stock_hash,image_hash FROM `{$table}mapping` WHERE id_shop=1 AND source='matterhorn' AND source_key='206161'", false);
 domainAssert(is_array($new), 'Updated domain hash row missing');
 domainAssert((string) $new['price_hash'] !== (string) $old['price_hash'], 'Price hash did not change');
@@ -141,11 +150,11 @@ domainAssert((int) ($dryRun['candidates'] ?? -1) === 1 && (bool) ($dryRun['safe'
 domainAssert((int) $db->getValue("SELECT active FROM `" . _DB_PREFIX_ . "product_shop` WHERE id_product={$p228} AND id_shop=1", false) === 1, 'REMOVE dry-run mutated product');
 runMatterhornConsole(['matterhornimport:remove','--run=' . $updateRun,'--shop=1','--batch=10','--max-items=100','--time-limit=120','--json']);
 domainAssert((int) $db->getValue("SELECT active FROM `" . _DB_PREFIX_ . "product_shop` WHERE id_product={$p228} AND id_shop=1", false) === 0, 'Out-of-feed product not deactivated');
-domainAssert(StockAvailable::getQuantityAvailableByProduct($p228, 0, 1) === 0, 'Out-of-feed base stock not zero');
+domainAssert(freshStockQuantity($p228, 0, 1) === 0, 'Out-of-feed base stock not zero');
 foreach (Product::getProductAttributesIds($p228) as $attributeRow) {
     $attributeId = (int) ($attributeRow['id_product_attribute'] ?? 0);
     if ($attributeId > 0) {
-        domainAssert(StockAvailable::getQuantityAvailableByProduct($p228, $attributeId, 1) === 0, 'Out-of-feed combination stock not zero: ' . $attributeId);
+        domainAssert(freshStockQuantity($p228, $attributeId, 1) === 0, 'Out-of-feed combination stock not zero: ' . $attributeId);
     }
 }
 domainAssert((int) $db->getValue("SELECT out_of_feed FROM `{$table}mapping` WHERE id_shop=1 AND source='matterhorn' AND source_key='228723'", false) === 1, 'Out-of-feed mapping state missing');
