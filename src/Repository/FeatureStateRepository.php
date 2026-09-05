@@ -9,7 +9,7 @@ final class FeatureStateRepository
         $rows = \Db::getInstance()->executeS(sprintf(
             "SELECT * FROM `%sli_matterhornim_99dfbf_feature_state` WHERE id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d",
             _DB_PREFIX_, $shopId, pSQL($source), pSQL($sourceKey), $productId
-        )) ?: [];
+        ), true, false) ?: [];
         $out = [];
         foreach ($rows as $row) {
             $featureId = (int) ($row['id_feature'] ?? 0);
