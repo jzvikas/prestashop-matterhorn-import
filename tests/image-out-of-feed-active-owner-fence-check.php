@@ -58,13 +58,29 @@ if (str_contains($reconciler, '$this->queue->unresolvedForSource(')
     exit(1);
 }
 
-$currentRunFence = strpos($reconciler, '$this->unresolvedForActiveMappings($shopId, $source, $runId)');
-$sourceFence = strpos($reconciler, '$this->unresolvedForActiveMappings($shopId, $source)');
-$reconcileStart = strpos($reconciler, '$this->runs->imageReconcileStart($runId)');
-if ($currentRunFence === false || $sourceFence === false || $reconcileStart === false
-    || $currentRunFence >= $reconcileStart || $sourceFence >= $reconcileStart
+$assertReadyStart = strpos($reconciler, 'private function assertReady(');
+$activeMethodStart = strpos($reconciler, 'private function unresolvedForActiveMappings(');
+if ($assertReadyStart === false || $activeMethodStart === false || $assertReadyStart >= $activeMethodStart) {
+    fwrite(STDERR, "FAIL: image reconciliation readiness method boundaries missing\n");
+    exit(1);
+}
+$assertReadyBody = substr($reconciler, $assertReadyStart, $activeMethodStart - $assertReadyStart);
+if (!str_contains($assertReadyBody, '$this->unresolvedForActiveMappings($shopId, $source, $runId)')
+    || !str_contains($assertReadyBody, '$this->unresolvedForActiveMappings($shopId, $source)')
 ) {
-    fwrite(STDERR, "FAIL: active unresolved queue fences must run before reconciliation starts\n");
+    fwrite(STDERR, "FAIL: assertReady must fence current-run and cross-run active unresolved jobs\n");
+    exit(1);
+}
+
+$firstReadyCall = strpos($reconciler, '$this->assertReady($runId, $shopId, $source);');
+$secondReadyCall = $firstReadyCall === false
+    ? false
+    : strpos($reconciler, '$this->assertReady($runId, $shopId, $source);', $firstReadyCall + 1);
+$reconcileStart = strpos($reconciler, '$this->runs->imageReconcileStart($runId)');
+if ($firstReadyCall === false || $secondReadyCall === false || $reconcileStart === false
+    || $firstReadyCall >= $reconcileStart || $secondReadyCall >= $reconcileStart
+) {
+    fwrite(STDERR, "FAIL: active unresolved queue readiness must be rechecked before reconciliation starts\n");
     exit(1);
 }
 
