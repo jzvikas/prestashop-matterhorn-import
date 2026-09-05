@@ -82,24 +82,38 @@ final class FeatureSynchronizer
         ksort($actual, SORT_NUMERIC);
         ksort($final, SORT_NUMERIC);
         $needsProductMutation = $actual !== $final;
-        if ($needsProductMutation && $this->productShopCount($productId) > 1) {
-            throw new \RuntimeException('Refusing feature_product mutation for product shared across multiple shops: ' . $productId);
-        }
 
         $db = \Db::getInstance();
         if ($needsProductMutation) {
+            $this->assertExclusiveTargetShop($productId, $shopId);
+            $latestActual = $this->actual($productId);
+            ksort($latestActual, SORT_NUMERIC);
+            if ($latestActual !== $actual) {
+                throw new \RuntimeException('Product feature state changed concurrently before synchronization: ' . $productId);
+            }
+
             foreach ($actual as $featureId => $valueId) {
                 if (($final[$featureId] ?? null) === $valueId) {
                     continue;
                 }
-                if (!$db->delete('feature_product', 'id_product=' . $productId . ' AND id_feature=' . (int) $featureId)) {
+                $this->assertExclusiveTargetShop($productId, $shopId);
+                if (!$db->delete(
+                    'feature_product',
+                    'id_product=' . $productId .
+                    ' AND id_feature=' . (int) $featureId .
+                    ' AND id_feature_value=' . (int) $valueId
+                )) {
                     throw new \RuntimeException('Could not remove previous product feature ' . $featureId);
+                }
+                if ((int) $db->Affected_Rows() !== 1) {
+                    throw new \RuntimeException('Product feature changed concurrently while removing feature ' . $featureId);
                 }
             }
             foreach ($final as $featureId => $valueId) {
                 if (($actual[$featureId] ?? null) === $valueId) {
                     continue;
                 }
+                $this->assertExclusiveTargetShop($productId, $shopId);
                 if (!$db->insert('feature_product', [
                     'id_feature' => (int) $featureId,
                     'id_product' => $productId,
@@ -122,7 +136,9 @@ final class FeatureSynchronizer
     private function actual(int $productId): array
     {
         $rows = \Db::getInstance()->executeS(
-            'SELECT id_feature,id_feature_value FROM `' . _DB_PREFIX_ . 'feature_product` WHERE id_product=' . $productId . ' ORDER BY id_feature'
+            'SELECT id_feature,id_feature_value FROM `' . _DB_PREFIX_ . 'feature_product` WHERE id_product=' . $productId . ' ORDER BY id_feature',
+            true,
+            false
         ) ?: [];
         $actual = [];
         foreach ($rows as $row) {
@@ -138,8 +154,20 @@ final class FeatureSynchronizer
         return $actual;
     }
 
-    private function productShopCount(int $productId): int
+    private function assertExclusiveTargetShop(int $productId, int $shopId): void
     {
-        return (int) \Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product_shop` WHERE id_product=' . $productId);
+        $row = \Db::getInstance()->getRow(sprintf(
+            "SELECT COUNT(*) AS shop_count," .
+            "SUM(CASE WHEN id_shop=%d THEN 1 ELSE 0 END) AS target_shop_count " .
+            "FROM `%sproduct_shop` WHERE id_product=%d",
+            $shopId,
+            _DB_PREFIX_,
+            $productId
+        ), false);
+        $shopCount = is_array($row) ? (int) ($row['shop_count'] ?? 0) : 0;
+        $targetShopCount = is_array($row) ? (int) ($row['target_shop_count'] ?? 0) : 0;
+        if ($shopCount !== 1 || $targetShopCount !== 1) {
+            throw new \RuntimeException('Refusing feature_product mutation for product not exclusive to target shop: ' . $productId);
+        }
     }
 }
