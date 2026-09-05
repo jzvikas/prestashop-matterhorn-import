@@ -7,14 +7,28 @@ final class NewProductQueueRepository
     private const LEASE_MINUTES = 10;
     private const MAX_ATTEMPTS = 5;
     private const ENQUEUE_CHUNK = 500;
+    private const MAX_ENQUEUE_SQL_BYTES = 8388608;
+    private const ENQUEUE_SQL_OVERHEAD_RESERVE = 4096;
 
     public function enqueueBatch(int $runId, int $shopId, string $source, array $rows): int
     {
         if ($rows === []) { return 0; }
         $values = [];
+        $valuesBytes = 0;
         foreach ($rows as $row) {
-            $values[] = sprintf("(%d,%d,'%s','%s','%s','%s','pending',0,NULL,NULL,NULL,NULL,NOW(),NOW())", $runId, $shopId, pSQL($source), pSQL((string) $row['source_key']), pSQL((string) $row['payload'], true), pSQL((string) $row['payload_hash']));
-            if (count($values) >= self::ENQUEUE_CHUNK) { $this->insertValues($values); $values = []; }
+            $value = sprintf("(%d,%d,'%s','%s','%s','%s','pending',0,NULL,NULL,NULL,NULL,NOW(),NOW())", $runId, $shopId, pSQL($source), pSQL((string) $row['source_key']), pSQL((string) $row['payload'], true), pSQL((string) $row['payload_hash']));
+            $valueBytes = strlen($value) + ($values === [] ? 0 : 1);
+            if ($values !== [] && ($valuesBytes + $valueBytes + self::ENQUEUE_SQL_OVERHEAD_RESERVE > self::MAX_ENQUEUE_SQL_BYTES || count($values) >= self::ENQUEUE_CHUNK)) {
+                $this->insertValues($values);
+                $values = [];
+                $valuesBytes = 0;
+                $valueBytes = strlen($value);
+            }
+            if ($valueBytes + self::ENQUEUE_SQL_OVERHEAD_RESERVE > self::MAX_ENQUEUE_SQL_BYTES) {
+                throw new \RuntimeException('Matterhorn new-product queue row exceeds enqueue SQL byte budget');
+            }
+            $values[] = $value;
+            $valuesBytes += $valueBytes;
         }
         if ($values !== []) { $this->insertValues($values); }
         return count($rows);
@@ -156,6 +170,9 @@ final class NewProductQueueRepository
     private function insertValues(array $values): void
     {
         $sql = sprintf("INSERT INTO `%s%s` (`id_run`,`id_shop`,`source`,`source_key`,`payload`,`payload_hash`,`status`,`attempts`,`available_at`,`locked_by`,`locked_until`,`last_error`,`created_at`,`updated_at`) VALUES %s ON DUPLICATE KEY UPDATE payload=IF(VALUES(id_run)>=id_run,VALUES(payload),payload),payload_hash=IF(VALUES(id_run)>=id_run,VALUES(payload_hash),payload_hash),attempts=IF(status='processing',attempts,IF(VALUES(id_run)>id_run,0,attempts)),available_at=IF(status='processing',available_at,IF(VALUES(id_run)>id_run,NULL,available_at)),locked_by=IF(status='processing',locked_by,IF(VALUES(id_run)>id_run,NULL,locked_by)),locked_until=IF(status='processing',locked_until,IF(VALUES(id_run)>id_run,NULL,locked_until)),last_error=IF(status='processing',last_error,IF(VALUES(id_run)>id_run,NULL,last_error)),updated_at=IF(VALUES(id_run)>=id_run,NOW(),updated_at),status=IF(status='processing','processing',IF(VALUES(id_run)>id_run,'pending',status)),id_run=GREATEST(id_run,VALUES(id_run))", _DB_PREFIX_, self::TABLE, implode(',', $values));
+        if (strlen($sql) > self::MAX_ENQUEUE_SQL_BYTES) {
+            throw new \RuntimeException('Matterhorn new-product queue enqueue SQL exceeded byte budget');
+        }
         if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Matterhorn new-product queue enqueue failed'); }
     }
 }
