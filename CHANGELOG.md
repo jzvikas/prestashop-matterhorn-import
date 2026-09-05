@@ -49,7 +49,7 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Added bounded `matterhornimport:images:revalidate` scheduling for supplier image-content changes behind unchanged URLs.
 - Reuses the secure persistent image worker and HTTP `ETag` / `Last-Modified` conditional requests instead of downloading every image on every import.
 - Added `idx_revalidate (id_shop, source, updated_at, source_key)` for stale image-state discovery.
-- Bounded stale discovery by product count and the existing snapshot payload window. If `payload_window_deferred` is greater than zero, simply run the scheduler again later. Already scheduled products are excluded while their image jobs remain unresolved, and successfully revalidated states get a fresh `updated_at`, so repeated invocations naturally advance through a large catalog.
+- Bounded stale discovery by product limit, a hard 50,000-row DB scan cap and the existing 8 MiB snapshot payload window.
 - Added latest completed/reconciled-run fencing, out-of-feed exclusion, unresolved-job fencing and missing-manifest fail-closed checks.
 - Added `doctor`, static, MariaDB and PrestaShop runtime coverage for the new index/command surface.
 - Hardened PrestaShop multishop duplicated `product` / `product_shop` price/active shadow consistency.
