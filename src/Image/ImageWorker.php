@@ -61,6 +61,9 @@ final class ImageWorker
                     if (!is_array($prior) || (int) ($prior['id_image'] ?? 0) <= 0) { throw new \RuntimeException('Image returned 304 without reusable state'); }
                     if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start image revalidation transaction'); }
                     $transaction = true;
+                    // Re-read under a row lock because a newer import run may have superseded
+                    // id_run/position/cover while this worker was downloading/revalidating.
+                    $row = $this->queue->lockOwned($idQueue, $token);
                     $this->assertLockedMappingOwnership($row);
                     $this->state->touchNotModified($row, (int) $prior['id_image']);
                     $this->queue->done($idQueue, $token);
@@ -78,6 +81,7 @@ final class ImageWorker
                 if (!$this->mappingMatches($row)) { throw new StaleImageJobException('mapping changed before image persistence'); }
                 if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start image transaction'); }
                 $transaction = true;
+                $row = $this->queue->lockOwned($idQueue, $token);
                 $this->assertLockedMappingOwnership($row);
 
                 $duplicate = $this->state->findByContentHash((int) $row['id_shop'], (string) $row['source'], (int) $row['id_product'], $download->contentHash);
@@ -93,6 +97,9 @@ final class ImageWorker
                         $externalImageCommit = true;
                         $hookCommitRecoveries++;
                         if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not restore image transaction after PrestaShop hook commit'); }
+                        // The hook commit released our queue row lock. Acquire it again and
+                        // reload the newest desired run/placement before writing image_state.
+                        $row = $this->queue->lockOwned($idQueue, $token);
                         $this->assertLockedMappingOwnership($row);
                     }
                     $this->state->save($row, $idImage, $download);
