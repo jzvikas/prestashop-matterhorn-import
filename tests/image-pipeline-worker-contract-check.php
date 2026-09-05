@@ -67,6 +67,8 @@ $checks = [
     [$queue, 'id_run=GREATEST(id_run,VALUES(id_run))', 'image desired generation must be monotonic'],
     [$queue, 'a newer owner handoff revokes the old worker', 'owner handoff lease revocation must be documented'],
     [$queue, 'function unresolvedForSource', 'reconciliation must fence the entire shop/source queue'],
+    [$processor, 'ImageManager::checkImageMemoryLimit($download->path)', 'image resize must honor PrestaShop memory limit guard'],
+    [$processor, 'Image exceeds PrestaShop resize memory limit', 'image memory guard error clarity'],
     [$processor, 'associateTo([$shopId], $productId)', 'shop image association'],
     [$processor, 'ImageType::getImagesTypes', 'thumbnail generation'],
     [$processor, 'count($shopRows) !== 1', 'multishop destructive-delete guard'],
@@ -112,6 +114,17 @@ foreach ($checks as [$haystack, $needle, $label]) {
 }
 if (!is_string($downloader) || strpos($downloader, 'strlen($url) > self::MAX_URL_BYTES') > strpos($downloader, 'parse_url($url)')) {
     fwrite(STDERR, "FAIL: image URL length guard must run before URL/network resolution\n");
+    exit(1);
+}
+if (!is_string($processor)) {
+    fwrite(STDERR, "FAIL: image processor source unavailable\n");
+    exit(1);
+}
+$memoryGuard = strpos($processor, 'ImageManager::checkImageMemoryLimit($download->path)');
+$imageRow = strpos($processor, '$image = new \\Image();');
+$firstResize = strpos($processor, 'ImageManager::resize($download->path');
+if ($memoryGuard === false || $imageRow === false || $firstResize === false || $memoryGuard >= $imageRow || $imageRow >= $firstResize) {
+    fwrite(STDERR, "FAIL: image memory guard must run before Image row creation and resize\n");
     exit(1);
 }
 if (!is_string($queue)) {
