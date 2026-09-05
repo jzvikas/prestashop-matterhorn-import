@@ -308,6 +308,13 @@ final class CombinationSynchronizer
             return;
         }
         $idList = implode(',', $ids);
+        $externalDefault = (int) $db->getValue(sprintf(
+            'SELECT pa.id_product_attribute FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product=%d AND pas.default_on=1 AND pa.id_product_attribute NOT IN (%s) ORDER BY pa.id_product_attribute LIMIT 1',
+            _DB_PREFIX_, _DB_PREFIX_, $shopId, $productId, $idList
+        ));
+        if ($externalDefault > 0) {
+            throw new \RuntimeException('Refusing to override default combination owned outside Matterhorn: ' . $externalDefault);
+        }
         if (!$db->update('product_attribute_shop', ['default_on' => null], 'id_shop=' . $shopId . ' AND id_product_attribute IN (' . $idList . ')')) {
             throw new \RuntimeException('Could not clear target-shop default combination');
         }
