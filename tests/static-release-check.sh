@@ -19,4 +19,5 @@ php tests/image-pipeline-worker-contract-check.php
 php tests/new-product-worker-contract-check.php
 php tests/operations-contract-check.php
 php tests/back-office-config-contract-check.php
+php tests/production-hardening-contract-check.php
 echo "Static release checks: OK"
