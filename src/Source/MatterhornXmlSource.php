@@ -79,10 +79,30 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
             throw new \RuntimeException('Cannot open Matterhorn XML: ' . $path);
         }
         $seen = 0;
+        $rootSeen = false;
+        $rootDepth = -1;
         try {
             while ($reader->read()) {
+                if (!$rootSeen) {
+                    if ($reader->nodeType !== \XMLReader::ELEMENT) {
+                        continue;
+                    }
+                    if ($reader->localName !== 'products') {
+                        throw new \RuntimeException(
+                            'Matterhorn XML root must be <products>; found <' . $reader->localName . '>'
+                        );
+                    }
+                    $rootSeen = true;
+                    $rootDepth = $reader->depth;
+                    continue;
+                }
                 if ($reader->nodeType !== \XMLReader::ELEMENT || $reader->localName !== 'product') {
                     continue;
+                }
+                if ($reader->depth !== $rootDepth + 1) {
+                    throw new \RuntimeException(
+                        'Matterhorn <product> records must be direct children of <products>'
+                    );
                 }
                 $seen++;
                 if ($seen <= $offset) {
@@ -95,6 +115,9 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
                 if ($error->level >= LIBXML_ERR_ERROR) {
                     throw new \RuntimeException('Matterhorn XML parse error: ' . trim($error->message));
                 }
+            }
+            if (!$rootSeen) {
+                throw new \RuntimeException('Matterhorn XML root must be <products>');
             }
         } finally {
             $reader->close();
