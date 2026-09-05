@@ -20,6 +20,8 @@ combinationCheck(!str_contains($mapping, 'lp_import_combination_mapping'), 'gene
 combinationCheck(str_contains($attributeResolver, "$" . "row['attribute_ids'] = $" . "attributeIds"), 'supplier attributes resolve to numeric ids before sync');
 combinationCheck(str_contains($sync, 'combinations_authoritative'), 'authoritative combination removal supported');
 combinationCheck(str_contains($sync, 'Refusing to mutate global fields of shared combination'), 'shared combination global mutation fails closed');
+combinationCheck(str_contains($sync, 'Refusing to override default combination owned outside Matterhorn'), 'external manual default combination conflict fails closed');
+combinationCheck(str_contains($sync, 'pa.id_product_attribute NOT IN'), 'default healing must inspect non-Matterhorn target-shop combinations');
 combinationCheck(str_contains($sync, 'StockAvailable::setQuantity'), 'combination stock uses shop-aware PrestaShop stock API');
 
 $product = new ProductData('206161', 'MH-206161', ['default' => 'Panties'], 14.9, 0, true, [], [
