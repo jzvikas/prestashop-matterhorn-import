@@ -23,6 +23,7 @@ php tests/remove-orchestration-contract-check.php
 php tests/run-orchestration-contract-check.php
 php tests/image-pipeline-foundation-contract-check.php
 php tests/image-pipeline-worker-contract-check.php
+php tests/image-queue-batch-lease-contract-check.php
 php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
 php tests/new-product-worker-contract-check.php
