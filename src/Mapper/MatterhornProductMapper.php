@@ -147,7 +147,10 @@ final class MatterhornProductMapper implements ProductMapperInterface
             $extra['combinations_authoritative'] = true;
             $extra['combination_attributes_auto_create'] = true;
         }
-        if ($warnings !== []) { $extra['supplier_warnings'] = $warnings; }
+        if ($warnings !== []) {
+            sort($warnings, SORT_STRING);
+            $extra['supplier_warnings'] = $warnings;
+        }
 
         return new ProductData($sourceKey, $reference, ['default' => $name], $price, 0, true, $images, $extra);
     }
