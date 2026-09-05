@@ -8,6 +8,7 @@
     "ext-curl": "*",
     "ext-dom": "*",
     "ext-fileinfo": "*",
+    "ext-mbstring": "*",
     "ext-simplexml": "*",
     "ext-xmlreader": "*"
   },
