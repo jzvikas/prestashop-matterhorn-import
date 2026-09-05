@@ -204,7 +204,7 @@ final class ProductData
                 'price' => (float) ($row['price'] ?? -1.0),
                 'reduction' => (float) ($row['reduction'] ?? 0.0),
                 'reduction_tax' => !empty($row['reduction_tax']),
-                'reduction_type' => strtolower(trim((string) ($row['reduction_type'] ?? 'amount')),
+                'reduction_type' => strtolower(trim((string) ($row['reduction_type'] ?? 'amount'))),
             ];
         }
         usort($projected, static fn(array $a, array $b): int => [$a['id_product_attribute'],$a['id_currency'],$a['id_country'],$a['id_group'],$a['id_customer'],$a['from_quantity'],$a['from'],$a['to']] <=> [$b['id_product_attribute'],$b['id_currency'],$b['id_country'],$b['id_group'],$b['id_customer'],$b['from_quantity'],$b['from'],$b['to']]);
