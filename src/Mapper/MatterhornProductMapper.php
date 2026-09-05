@@ -14,6 +14,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
     private const MAX_PRESTASHOP_REFERENCE_BYTES = 64;
     private const MAX_PRESTASHOP_STOCK = 2147483647;
     private const PRESTASHOP_PRICE_PATTERN = '/^[0-9]{1,10}(?:\.[0-9]{1,9})?$/D';
+    private const PRESTASHOP_CATALOG_TEXT_PATTERN = '/^[^<>{}]*$/u';
     private const MAX_MANUFACTURER_NAME_CHARS = 64;
     private const MAX_CATEGORY_NAME_CHARS = 128;
     private const MAX_FEATURE_VALUE_CHARS = 255;
@@ -41,6 +42,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
         }
         $name = trim((string) ($row['name'] ?? ''));
         if ($name === '') { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' is missing name'); }
+        $this->assertCatalogText($name, 'product name', $sourceKey);
         if (mb_strlen($name, 'UTF-8') > 128) { $name = mb_substr($name, 0, 128, 'UTF-8'); }
 
         $priceRaw = trim((string) ($row['price'] ?? ''));
@@ -90,6 +92,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
         if ($sourceLanguageId > 0) { $extra['source_language_id'] = $sourceLanguageId; }
         $brand = trim((string) ($row['brand'] ?? ''));
         if ($brand !== '') {
+            $this->assertCatalogText($brand, 'manufacturer name', $sourceKey);
             if (mb_strlen($brand, 'UTF-8') > self::MAX_MANUFACTURER_NAME_CHARS) {
                 throw new \InvalidArgumentException(
                     'Matterhorn manufacturer name exceeds PrestaShop ' . self::MAX_MANUFACTURER_NAME_CHARS .
@@ -102,14 +105,26 @@ final class MatterhornProductMapper implements ProductMapperInterface
         $category = is_array($row['category'] ?? null) ? $row['category'] : [];
         $categoryId = trim((string) ($category['id'] ?? ''));
         $categoryName = trim((string) ($category['name'] ?? ''));
-        if ($categoryName !== '' && mb_strlen($categoryName, 'UTF-8') > self::MAX_CATEGORY_NAME_CHARS) {
-            throw new \InvalidArgumentException(
-                'Matterhorn category name exceeds PrestaShop ' . self::MAX_CATEGORY_NAME_CHARS .
-                '-character limit for product ' . $sourceKey
-            );
+        if ($categoryName !== '') {
+            $this->assertCatalogText($categoryName, 'category name', $sourceKey);
+            if (mb_strlen($categoryName, 'UTF-8') > self::MAX_CATEGORY_NAME_CHARS) {
+                throw new \InvalidArgumentException(
+                    'Matterhorn category name exceeds PrestaShop ' . self::MAX_CATEGORY_NAME_CHARS .
+                    '-character limit for product ' . $sourceKey
+                );
+            }
         }
         $categoryPath = $this->categories->normalize((string) ($row['category_path'] ?? ''));
         if ($categoryId !== '') {
+            if ($categoryName === '' && $categoryPath === '') {
+                $this->assertCatalogText($categoryId, 'category fallback name', $sourceKey);
+                if (mb_strlen($categoryId, 'UTF-8') > self::MAX_CATEGORY_NAME_CHARS) {
+                    throw new \InvalidArgumentException(
+                        'Matterhorn category fallback name exceeds PrestaShop ' . self::MAX_CATEGORY_NAME_CHARS .
+                        '-character limit for product ' . $sourceKey
+                    );
+                }
+            }
             $extra['categories'] = [[
                 'key' => $this->categories->key($categoryId),
                 'name' => $categoryName !== '' ? $categoryName : $categoryId,
@@ -122,6 +137,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
         foreach (['color' => 'Color', 'type' => 'Type'] as $rawKey => $displayName) {
             $value = trim((string) ($row[$rawKey] ?? ''));
             if ($value === '') { continue; }
+            $this->assertCatalogText($value, $displayName . ' feature value', $sourceKey);
             if (mb_strlen($value, 'UTF-8') > self::MAX_FEATURE_VALUE_CHARS) {
                 throw new \InvalidArgumentException(
                     'Matterhorn ' . $displayName . ' value exceeds PrestaShop ' .
@@ -223,6 +239,15 @@ final class MatterhornProductMapper implements ProductMapperInterface
         }
 
         return new ProductData($sourceKey, $reference, ['default' => $name], $price, 0, true, $images, $extra);
+    }
+
+    private function assertCatalogText(string $value, string $label, string $sourceKey): void
+    {
+        if (preg_match(self::PRESTASHOP_CATALOG_TEXT_PATTERN, $value) !== 1) {
+            throw new \InvalidArgumentException(
+                'Matterhorn ' . $label . ' contains characters rejected by PrestaShop (<, >, {, }) for product ' . $sourceKey
+            );
+        }
     }
 
     private function identity(string $value): string
