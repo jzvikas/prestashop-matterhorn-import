@@ -52,7 +52,7 @@ final class AttributeResolver
             "INNER JOIN `%sattribute_group_lang` agl ON agl.id_attribute_group=ag.id_attribute_group AND agl.id_lang=%d " .
             "WHERE BINARY agl.name=BINARY '%s' ORDER BY ag.id_attribute_group LIMIT 2",
             _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $langId, pSQL($name)
-        )) ?: [];
+        ), true, false) ?: [];
         if (count($rows) > 1) { throw new \RuntimeException('Ambiguous exact attribute group name in target shop: ' . $name); }
         return (int) ($rows[0]['id_attribute_group'] ?? 0);
     }
@@ -65,7 +65,7 @@ final class AttributeResolver
             "INNER JOIN `%sattribute_lang` al ON al.id_attribute=a.id_attribute AND al.id_lang=%d " .
             "WHERE a.id_attribute_group=%d AND BINARY al.name=BINARY '%s' ORDER BY a.id_attribute LIMIT 2",
             _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $langId, $groupId, pSQL($value)
-        )) ?: [];
+        ), true, false) ?: [];
         if (count($rows) > 1) { throw new \RuntimeException('Ambiguous exact attribute value for group ' . $groupId . ': ' . $value); }
         return (int) ($rows[0]['id_attribute'] ?? 0);
     }
@@ -73,7 +73,10 @@ final class AttributeResolver
     private function createGroup(int $shopId, string $name): int
     {
         $db = \Db::getInstance();
-        $position = (int) $db->getValue('SELECT COALESCE(MAX(position),-1)+1 FROM `' . _DB_PREFIX_ . 'attribute_group`');
+        $position = (int) $db->getValue(
+            'SELECT COALESCE(MAX(position),-1)+1 FROM `' . _DB_PREFIX_ . 'attribute_group`',
+            false
+        );
         if (!$db->insert('attribute_group', ['is_color_group' => 0, 'group_type' => 'select', 'position' => max(0, $position)])) {
             throw new \RuntimeException('Could not create attribute group: ' . $name);
         }
@@ -93,7 +96,10 @@ final class AttributeResolver
     private function createAttribute(int $shopId, int $groupId, string $value): int
     {
         $db = \Db::getInstance();
-        $position = (int) $db->getValue('SELECT COALESCE(MAX(position),-1)+1 FROM `' . _DB_PREFIX_ . 'attribute` WHERE id_attribute_group=' . $groupId);
+        $position = (int) $db->getValue(
+            'SELECT COALESCE(MAX(position),-1)+1 FROM `' . _DB_PREFIX_ . 'attribute` WHERE id_attribute_group=' . $groupId,
+            false
+        );
         if (!$db->insert('attribute', ['id_attribute_group' => $groupId, 'color' => '', 'position' => max(0, $position)])) {
             throw new \RuntimeException('Could not create attribute value: ' . $value);
         }
@@ -101,7 +107,7 @@ final class AttributeResolver
         if ($attributeId <= 0) { throw new \RuntimeException('Created attribute value has invalid ID: ' . $value); }
         foreach (\Language::getLanguages(false, $shopId) as $lang) {
             if (!$db->insert('attribute_lang', ['id_attribute' => $attributeId, 'id_lang' => (int) $lang['id_lang'], 'name' => $value])) {
-                throw new \RuntimeException('Could not create attribute translation: ' . $value);
+                throw new \RuntimeException('Could not create attribute translation: ' . $value); }
             }
         }
         if (!$db->insert('attribute_shop', ['id_attribute' => $attributeId, 'id_shop' => $shopId])) {
@@ -113,7 +119,10 @@ final class AttributeResolver
     private function acquireLock(\Db $db, string $scope): string
     {
         $name = 'matterhorn:attr:' . substr(hash('sha256', $scope), 0, 40);
-        if ((int) $db->getValue("SELECT GET_LOCK('" . pSQL($name) . "'," . self::LOCK_TIMEOUT_SECONDS . ')') !== 1) {
+        if ((int) $db->getValue(
+            "SELECT GET_LOCK('" . pSQL($name) . "'," . self::LOCK_TIMEOUT_SECONDS . ')',
+            false
+        ) !== 1) {
             throw new \RuntimeException('Could not acquire Matterhorn attribute resolver lock');
         }
         return $name;
@@ -121,6 +130,6 @@ final class AttributeResolver
 
     private function releaseLock(\Db $db, string $name): void
     {
-        try { $db->getValue("SELECT RELEASE_LOCK('" . pSQL($name) . "')"); } catch (\Throwable) {}
+        try { $db->getValue("SELECT RELEASE_LOCK('" . pSQL($name) . "')", false); } catch (\Throwable) {}
     }
 }
