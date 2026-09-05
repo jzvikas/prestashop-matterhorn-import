@@ -12,20 +12,18 @@ services:
 
   Lp\MatterhornImport\Contract\SourceInterface:
     alias: Lp\MatterhornImport\Source\MatterhornXmlSource
-
   Lp\MatterhornImport\Contract\ProductMapperInterface:
     alias: Lp\MatterhornImport\Mapper\MatterhornProductMapper
-
   Lp\MatterhornImport\Contract\SizeResolverInterface:
     alias: Lp\MatterhornImport\Matterhorn\MatterhornSizeResolver
-
   Lp\MatterhornImport\Contract\ProductWriterInterface:
     alias: Lp\MatterhornImport\Product\MatterhornProductWriter
-
   Lp\MatterhornImport\Contract\OutOfFeedPolicyInterface:
     alias: Lp\MatterhornImport\Product\DeactivateOutOfFeedPolicy
 
   Lp\MatterhornImport\Command\ReadCommand:
     tags: ['console.command']
   Lp\MatterhornImport\Command\ImportCommand:
+    tags: ['console.command']
+  Lp\MatterhornImport\Command\UpdateCommand:
     tags: ['console.command']
