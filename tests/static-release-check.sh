@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 php -r 'if (PHP_VERSION_ID < 80400) { fwrite(STDERR, "PHP 8.4+ required\n"); exit(1); }'
 while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find . -path './vendor' -prune -o -name '*.php' -print0)
+bash tests/prestashop-db-single-row-limit-check.sh
 php tests/matterhorn-parser-mapper-check.php
 php tests/supplier-warning-determinism-check.php
 php tests/supplier-metadata-isolation-check.php
