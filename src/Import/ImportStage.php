@@ -142,7 +142,7 @@ final class ImportStage
 
     private function transactionIsActive(\Db $db): bool
     {
-        $value = $db->getValue('SELECT @@session.in_transaction');
+        $value = $db->getValue('SELECT @@session.in_transaction', false);
         if ($value === false) { throw new \RuntimeException('Could not inspect IMPORT transaction state: ' . $db->getMsgError()); }
         return (int) $value === 1;
     }
