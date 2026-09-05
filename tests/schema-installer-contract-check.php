@@ -54,6 +54,9 @@ schemaCheck(str_contains($installer, 'private const OWNED_TABLES = ['), 'install
 schemaCheck(substr_count($installer, "'li_matterhornim_99dfbf_") >= 16, 'partial-schema preservation must cover all module tables');
 schemaCheck(str_contains($installer, 'private function anyOwnedTableExists()'), 'installer must expose any-owned-table detection');
 schemaCheck(str_contains($installer, 'if (!$schemaPreExisted)'), 'failed reinstall must not drop retained schema');
+schemaCheck(str_contains($installer, "COLUMN_NAME='out_of_feed' LIMIT 1"), 'mapping-state upgrade must detect an already-created out_of_feed column');
+schemaCheck(str_contains($installer, "INDEX_NAME='idx_feed_state' LIMIT 1"), 'mapping-state upgrade must detect an already-created feed-state index');
+schemaCheck(!str_contains($installer, 'SHOW COLUMNS FROM') && !str_contains($installer, 'SHOW INDEX FROM'), 'mapping-state detection must use INFORMATION_SCHEMA instead of SHOW-result shape assumptions');
 schemaCheck(str_contains($installer, 'ensureExclusiveProductOwnership()'), 'fresh/reinstall must ensure exclusive product ownership');
 schemaCheck(str_contains($installer, "'uq_shop_product_owner'"), 'ownership migration must target uq_shop_product_owner');
 schemaCheck(str_contains($installer, 'GROUP BY id_shop,id_product HAVING COUNT(*)>1'), 'ownership migration must detect legacy cross-source conflicts before adding unique index');
