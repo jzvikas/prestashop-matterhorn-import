@@ -33,6 +33,8 @@ $checks = [
     [$gc, 'timeLimitSeconds', 'GC time budget'],
     [$gc, "status='done'", 'GC only completed queue jobs'],
     [$gc, 'EXISTS (SELECT 1', 'new-product mapping retention guard'],
+    [$gc, "newer.id_shop=r.id_shop AND newer.source=r.source AND newer.id_run>r.id_run", 'latest shop/source snapshot retention guard'],
+    [$gc, "li_matterhornim_99dfbf_snapshot", 'snapshot GC must target module snapshot table'],
     [$services, 'Lp\\MatterhornImport\\Command\\GcCommand:', 'GC service registration'],
 ];
 foreach ($checks as [$haystack, $needle, $label]) {
