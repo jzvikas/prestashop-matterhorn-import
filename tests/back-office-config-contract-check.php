@@ -34,7 +34,7 @@ $checks = [
     [$policy, 'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', 'source-language policy source'],
     [$mapper, '$policy = ($this->policy ?? new MatterhornPolicy())->current()', 'mapper reads stable Matterhorn policy snapshot'],
     [$mapper, "extra['source_language_id']", 'source language captured in snapshot payload'],
-    [$mapper, "'auto_create' => $categoryAutoCreate", 'category auto-create policy captured in payload'],
+    [$mapper, "'auto_create' => \$categoryAutoCreate", 'category auto-create policy captured in payload'],
     [$mapper, "extra['features_auto_create']", 'feature auto-create policy captured in payload'],
     [$writer, "data->extra['source_language_id']", 'writer consumes snapshot language policy'],
     [$images, '$this->settings->imageWorkerLimit($shopId)', 'image worker BO default'],
