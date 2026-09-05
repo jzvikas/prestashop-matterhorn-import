@@ -17,28 +17,38 @@ feature_sync="src/Feature/FeatureSynchronizer.php"
 combination="src/Combination/CombinationSynchronizer.php"
 
 for file in "$guard" "$import_stage" "$update_stage" "$remove_stage" "$new_worker" "$base_writer" "$matterhorn_writer" "$category" "$manufacturer" "$feature_resolver" "$feature_sync" "$combination"; do
-  [[ -f "$file" ]] || { echo "missing $file" >&2; exit 1; }
+  [[ -f "$file" ]] || { echo "FAIL: item-transaction contract file missing: $file" >&2; exit 1; }
 done
 
-grep -Fq "getValue('SELECT @@session.in_transaction', false)" "$guard"
-grep -Fq "START TRANSACTION" "$guard"
-grep -Fq "SAVEPOINT ' . \$this->savepoint" "$guard"
-grep -Fq 'recoveryCount' "$guard"
+require_literal() {
+  local file="$1"
+  local literal="$2"
+  local contract="$3"
+  if ! grep -Fq -- "$literal" "$file"; then
+    echo "FAIL: $contract [$file]" >&2
+    exit 1
+  fi
+}
 
-grep -Fq 'transactionGuard->arm($db, self::SAVEPOINT)' "$import_stage"
-grep -Fq 'transactionGuard->arm($db, self::SAVEPOINT)' "$update_stage"
-grep -Fq 'transactionGuard->disarm()' "$import_stage"
-grep -Fq 'transactionGuard->disarm()' "$update_stage"
+require_literal "$guard" "getValue('SELECT @@session.in_transaction', false)" 'transaction guard must inspect live session transaction state'
+require_literal "$guard" 'START TRANSACTION' 'transaction guard must restore an externally committed transaction'
+require_literal "$guard" "SAVEPOINT ' . \$this->savepoint" 'transaction guard must recreate the caller savepoint'
+require_literal "$guard" 'recoveryCount' 'transaction guard must expose external-commit recovery count'
 
-grep -Fq 'transactionGuard->arm($db)' "$remove_stage"
-grep -Fq 'transactionGuard->recoveryCount()' "$remove_stage"
-grep -Fq 'lockProductOwnership($shopId, $source, $sourceKey, $productId)' "$remove_stage"
+require_literal "$import_stage" 'transactionGuard->arm($db, self::SAVEPOINT)' 'IMPORT must arm the shared transaction guard at its item savepoint'
+require_literal "$update_stage" 'transactionGuard->arm($db, self::SAVEPOINT)' 'UPDATE must arm the shared transaction guard at its item savepoint'
+require_literal "$import_stage" 'transactionGuard->disarm()' 'IMPORT must disarm transaction guard after item/batch completion'
+require_literal "$update_stage" 'transactionGuard->disarm()' 'UPDATE must disarm transaction guard after item/batch completion'
 
-grep -Fq 'transactionGuard->arm($db)' "$new_worker"
-grep -Fq 'transactionGuard->recoveryCount()' "$new_worker"
+require_literal "$remove_stage" 'transactionGuard->arm($db)' 'REMOVE must arm the shared transaction guard'
+require_literal "$remove_stage" 'transactionGuard->recoveryCount()' 'REMOVE must observe external-commit recovery'
+require_literal "$remove_stage" 'lockProductOwnership($shopId, $source, $sourceKey, $productId)' 'REMOVE must fence product ownership before mutation'
+
+require_literal "$new_worker" 'transactionGuard->arm($db)' 'new-product worker must arm the shared transaction guard'
+require_literal "$new_worker" 'transactionGuard->recoveryCount()' 'new-product worker must observe external-commit recovery'
 
 for file in "$base_writer" "$matterhorn_writer" "$category" "$manufacturer" "$feature_resolver" "$feature_sync" "$combination"; do
-  grep -Fq 'transactionGuard->restoreAfterExternalCommit()' "$file"
+  require_literal "$file" 'transactionGuard->restoreAfterExternalCommit()' 'PrestaShop-facing writer/resolver must restore stage-owned transactions after ObjectModel/API calls'
 done
 
 echo 'Item transaction guard regression coverage present.'
