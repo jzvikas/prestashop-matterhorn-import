@@ -16,7 +16,8 @@ final class MatterhornHtmlSanitizer
             return trim((string) \Tools::purifyHTML($html));
         }
         if (!class_exists('DOMDocument')) {
-            return trim(strip_tags($html, '<p><br><strong><b><em><i><ul><ol><li><div><span><table><thead><tbody><tr><th><td>'));
+            // Fail safe: without a structural HTML parser preserve text only.
+            return trim(strip_tags($html));
         }
 
         $dom = new \DOMDocument('1.0', 'UTF-8');
@@ -33,7 +34,7 @@ final class MatterhornHtmlSanitizer
             }
             $root = $dom->getElementById('matterhorn-root');
             if (!$root instanceof \DOMElement) {
-                return '';
+                return trim(strip_tags($html));
             }
             $this->sanitizeChildren($root);
             $out = '';

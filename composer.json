@@ -6,6 +6,7 @@
   "require": {
     "php": ">=8.4",
     "ext-curl": "*",
+    "ext-dom": "*",
     "ext-fileinfo": "*",
     "ext-simplexml": "*",
     "ext-xmlreader": "*"

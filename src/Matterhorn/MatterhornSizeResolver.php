@@ -20,9 +20,9 @@ final class MatterhornSizeResolver implements SizeResolverInterface
             return $this->cache[$key];
         }
 
-        $shopId = $this->shopId();
-        $langId = $this->languageId($shopId);
-        $groupId = $this->groupId($shopId, $langId);
+        [$shopId, $shopGroupId] = $this->shopContext();
+        $langId = $this->languageId($shopId, $shopGroupId);
+        $groupId = $this->groupId($shopId, $shopGroupId, $langId);
         $db = \Db::getInstance();
         $id = (int) $db->getValue(sprintf(
             "SELECT a.id_attribute FROM `%sattribute` a " .
@@ -50,12 +50,17 @@ final class MatterhornSizeResolver implements SizeResolverInterface
         return $this->cache[$key] = (int) $attribute->id;
     }
 
-    private function groupId(int $shopId, int $langId): int
+    private function groupId(int $shopId, int $shopGroupId, int $langId): int
     {
         if ($this->groupId > 0) {
             return $this->groupId;
         }
-        $name = trim((string) \Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', null, null, $shopId));
+        $name = trim((string) \Configuration::get(
+            'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME',
+            null,
+            $shopGroupId,
+            $shopId
+        ));
         if ($name === '') {
             $name = 'Size';
         }
@@ -88,19 +93,24 @@ final class MatterhornSizeResolver implements SizeResolverInterface
         return $this->groupId = (int) $group->id;
     }
 
-    private function shopId(): int
+    /** @return array{0:int,1:int} */
+    private function shopContext(): array
     {
         $shop = \Context::getContext()->shop ?? null;
-        $id = $shop instanceof \Shop ? (int) $shop->id : 0;
-        if ($id <= 0) {
+        if (!$shop instanceof \Shop) {
             throw new \RuntimeException('Matterhorn Size resolver requires an explicit shop context');
         }
-        return $id;
+        $shopId = (int) $shop->id;
+        $shopGroupId = (int) $shop->id_shop_group;
+        if ($shopId <= 0 || $shopGroupId <= 0) {
+            throw new \RuntimeException('Matterhorn Size resolver requires a valid shop and shop group');
+        }
+        return [$shopId, $shopGroupId];
     }
 
-    private function languageId(int $shopId): int
+    private function languageId(int $shopId, int $shopGroupId): int
     {
-        $id = (int) \Configuration::get('PS_LANG_DEFAULT', null, null, $shopId);
+        $id = (int) \Configuration::get('PS_LANG_DEFAULT', null, $shopGroupId, $shopId);
         if ($id <= 0) {
             $id = (int) \Configuration::get('PS_LANG_DEFAULT');
         }
