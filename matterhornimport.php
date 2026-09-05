@@ -12,7 +12,7 @@ class MatterhornImport extends Module
     {
         $this->name = 'matterhornimport';
         $this->tab = 'administration';
-        $this->version = '0.1.6';
+        $this->version = '0.1.7';
         $this->author = 'LP';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -108,15 +108,15 @@ class MatterhornImport extends Module
     private function renderStatus(int $shopId): string
     {
         $db = \Db::getInstance();
-        $run = $db->getRow("SELECT id_run,status,read_status,import_status,update_status,remove_status,image_reconcile_status,image_reconcile_checkpoint,image_reconcile_done,started_at,finished_at FROM `" . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='matterhorn' ORDER BY id_run DESC");
+        $run = $db->getRow("SELECT id_run,status,read_status,import_status,update_status,remove_status,image_reconcile_status,image_reconcile_checkpoint,image_reconcile_done,started_at,finished_at FROM `" . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='matterhorn' ORDER BY id_run DESC", false);
         $queue = [];
         foreach (['images' => 'li_matterhornim_99dfbf_image_queue', 'new products' => 'li_matterhornim_99dfbf_new_product_queue'] as $label => $table) {
-            $rows = $db->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . $table . '` WHERE id_shop=' . $shopId . ' GROUP BY status') ?: [];
+            $rows = $db->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . $table . '` WHERE id_shop=' . $shopId . ' GROUP BY status', true, false) ?: [];
             $counts = [];
             foreach ($rows as $row) { $counts[(string) $row['status']] = (int) $row['qty']; }
             $queue[] = $label . ': pending=' . ($counts['pending'] ?? 0) . ', processing=' . ($counts['processing'] ?? 0) . ', failed=' . ($counts['failed'] ?? 0) . ', done=' . ($counts['done'] ?? 0);
         }
-        $orphanCount = (int) $db->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_orphan` WHERE id_shop=' . $shopId);
+        $orphanCount = (int) $db->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_orphan` WHERE id_shop=' . $shopId, false);
         $queue[] = 'image recovery orphans=' . $orphanCount;
         $runText = !$run ? 'No import run yet.' : sprintf(
             '#%d %s — READ %s / IMPORT %s / UPDATE %s / REMOVE %s / IMAGES %s (done=%d checkpoint=%s)',
