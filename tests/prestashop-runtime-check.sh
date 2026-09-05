@@ -151,6 +151,25 @@ docker exec "$PS_CONTAINER" php -d memory_limit=512M -r '
   $url->id_shop = $shop2Id; $url->active = true; $url->main = true;
   $url->domain = "localhost"; $url->domain_ssl = "localhost"; $url->physical_uri = "/mh-shop-2/"; $url->virtual_uri = "";
   if (!$url->add()) { throw new RuntimeException("Could not create shop #2 URL"); }
+
+  if (!$db->execute(
+    "INSERT IGNORE INTO `" . _DB_PREFIX_ . "lang_shop` (`id_lang`,`id_shop`) " .
+    "SELECT l.id_lang," . $shop2Id . " FROM `" . _DB_PREFIX_ . "lang` l WHERE l.active=1"
+  )) { throw new RuntimeException("Could not initialize shop #2 languages"); }
+  Language::resetStaticCache();
+
+  Shop::setContext(Shop::CONTEXT_ALL);
+  if (!Configuration::updateValue("PS_MULTISHOP_FEATURE_ACTIVE", 1)) {
+    throw new RuntimeException("Could not enable PrestaShop multishop feature");
+  }
+  Shop::setContext(Shop::CONTEXT_SHOP, 1);
+  $context = Context::getContext();
+  $context->shop = $shop1;
+  $featureProperty = new ReflectionProperty(Shop::class, "feature_active");
+  $featureProperty->setAccessible(true);
+  $featureProperty->setValue(null, null);
+  if (!Shop::isFeatureActive()) { throw new RuntimeException("PrestaShop multishop feature did not become active"); }
+
   $group = (int) $shop1->id_shop_group;
   Configuration::updateValue("MATTERHORNIMPORT_BATCH_SIZE", "111", false, $group, 1);
   Configuration::updateValue("MATTERHORNIMPORT_BATCH_SIZE", "222", false, $group, $shop2Id);
