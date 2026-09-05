@@ -53,6 +53,7 @@ foreach ([
     [$import, "getValue('SELECT @@session.in_transaction', false)", 'IMPORT transaction state must bypass Db query cache'],
     [$update, "getValue('SELECT @@session.in_transaction', false)", 'UPDATE transaction state must bypass Db query cache'],
     [$remove, "getValue('SELECT @@session.in_transaction', false)", 'REMOVE transaction state must bypass Db query cache'],
+    [$newWorker, "getValue('SELECT @@session.in_transaction', false)", 'new-product transaction state must bypass Db query cache'],
     [$importLock, '), false);', 'advisory import lock reads must bypass Db query cache'],
     [$importLock, "RELEASE_LOCK('" , 'advisory import lock release missing'],
     [$imageWorker, "getValue('SELECT @@session.in_transaction', false)", 'image transaction state must bypass Db query cache'],
@@ -100,7 +101,7 @@ if (!str_contains($categoryMapping, '), true, false)')) {
     $fail('category mapping preload must bypass Db query cache');
 }
 
-if (!str_contains($snapshots, "WHERE id_run=' . (int) $runId, false)")) {
+if (!str_contains($snapshots, "WHERE id_run=' . (int) \$runId, false)")) {
     $fail('snapshot run count must bypass Db query cache');
 }
 if (substr_count($snapshots, 'true, false') < 5 || !str_contains($snapshots, "executeS(\$sql, true, false)")) {
@@ -114,6 +115,7 @@ if (!str_contains($production, 'READ -> IMPORT -> UPDATE -> REMOVE')) { $fail('p
 if (!str_contains($production, 'matterhornimport:images:reconcile')) { $fail('production image reconciliation documentation missing'); }
 if (!str_contains($production, 'matterhornimport:images:revalidate')) { $fail('production image revalidation documentation missing'); }
 if (!str_contains($production, 'flock -n')) { $fail('production overlap guard example missing'); }
+if (!str_contains($production, 'uq_shop_product_owner (id_shop, id_product)')) { $fail('0.1.7 exclusive ownership upgrade documentation missing'); }
 
 foreach ([
     "'manufacturer_lang'" => 'manufacturer language transaction safety',
