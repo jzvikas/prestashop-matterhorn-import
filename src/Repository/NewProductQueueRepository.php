@@ -75,7 +75,9 @@ final class NewProductQueueRepository
         $rows = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . $limit) ?: [];
         if ($rows === []) { return 0; }
         $ids = implode(',', array_map(static fn(array $row): int => (int) $row['id_queue'], $rows));
-        if (!$db->execute("UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE id_queue IN (" . $ids . ')')) {
+        // The candidate list is only a bounded preload. Recheck failed status while updating so a
+        // concurrent retry+claim cannot have its processing lease cleared by this stale ID list.
+        if (!$db->execute("UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE status='failed' AND id_queue IN (" . $ids . ')')) {
             throw new \RuntimeException('Matterhorn new-product queue retry reset failed');
         }
         return (int) $db->Affected_Rows();
