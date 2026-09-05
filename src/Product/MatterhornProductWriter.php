@@ -4,6 +4,7 @@ namespace Lp\MatterhornImport\Product;
 use Lp\MatterhornImport\Contract\GranularProductWriterInterface;
 use Lp\MatterhornImport\DTO\ProductData;
 use Lp\MatterhornImport\Manufacturer\ManufacturerResolver;
+use Lp\MatterhornImport\Util\ItemTransactionGuard;
 use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class MatterhornProductWriter implements GranularProductWriterInterface
@@ -12,13 +13,16 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
         private PrestaProductWriter $base,
         private ShopContextManager $shopContext,
         private ManufacturerResolver $manufacturers,
-        private ProductShopAssociationManager $associations
+        private ProductShopAssociationManager $associations,
+        private ItemTransactionGuard $transactionGuard
     ) {}
 
     public function create(ProductData $data, int $shopId): int
     {
         $productId = $this->base->create($data, $shopId);
+        $this->transactionGuard->restoreAfterExternalCommit();
         $this->applySupplierCore($productId, $data, $shopId, true, false);
+        $this->transactionGuard->restoreAfterExternalCommit();
         return $productId;
     }
 
@@ -36,10 +40,14 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
         $price = in_array('price', $domains, true);
         if ($core || $price) {
             $this->applySupplierCore($productId, $data, $shopId, $core, $price);
+            $this->transactionGuard->restoreAfterExternalCommit();
         }
 
         $delegated = array_values(array_intersect($domains, ['stock','category']));
-        if ($delegated !== []) { $this->base->updateDomains($productId, $data, $shopId, $delegated); }
+        if ($delegated !== []) {
+            $this->base->updateDomains($productId, $data, $shopId, $delegated);
+            $this->transactionGuard->restoreAfterExternalCommit();
+        }
 
         foreach (['attribute' => 'attributes', 'feature' => 'features'] as $domain => $extraKey) {
             if (in_array($domain, $domains, true) && !empty($data->extra[$extraKey])) {
@@ -48,15 +56,17 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
         }
     }
 
-    public function disable(int $productId, int $shopId): void { $this->base->disable($productId, $shopId); }
+    public function disable(int $productId, int $shopId): void
+    {
+        $this->base->disable($productId, $shopId);
+        $this->transactionGuard->restoreAfterExternalCommit();
+    }
 
     private function applySupplierCore(int $productId, ProductData $data, int $shopId, bool $core, bool $price): void
     {
         $this->shopContext->activate($shopId);
         $this->associations->ensure($productId, $shopId);
-        if ($core) {
-            $this->associations->assertExclusiveGlobalOwnership($productId, $shopId);
-        }
+        if ($core) { $this->associations->assertExclusiveGlobalOwnership($productId, $shopId); }
         $product = new \Product($productId, false, null, $shopId);
         if (!\Validate::isLoadedObject($product)) { throw new \RuntimeException('Matterhorn product not found: ' . $productId); }
 
@@ -73,6 +83,7 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
             }
             if ($manufacturerName !== '' || array_key_exists('manufacturer', $data->extra)) {
                 $product->id_manufacturer = $this->manufacturers->resolve($manufacturerName, $shopId, $autoCreate);
+                $this->transactionGuard->restoreAfterExternalCommit();
             }
 
             $sourceLangId = $this->sourceLanguageId($shopId, $data);
@@ -85,9 +96,8 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
         }
         if ($price) { $product->price = $data->price; }
         if (!$product->update()) { throw new \RuntimeException('Matterhorn product update failed: ' . $productId); }
-        if ($price && !$core) {
-            $this->associations->restoreDefaultShopShadows($productId, $shopId, ['price']);
-        }
+        $this->transactionGuard->restoreAfterExternalCommit();
+        if ($price && !$core) { $this->associations->restoreDefaultShopShadows($productId, $shopId, ['price']); }
     }
 
     private function sourceLanguageId(int $shopId, ProductData $data): int
@@ -95,13 +105,9 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
         $shop = \Context::getContext()->shop ?? null;
         $groupId = $shop instanceof \Shop ? (int) $shop->id_shop_group : 0;
         $snapshotLanguageId = (int) ($data->extra['source_language_id'] ?? 0);
-        if ($snapshotLanguageId > 0 && $this->languageBelongsToShop($snapshotLanguageId, $shopId)) {
-            return $snapshotLanguageId;
-        }
+        if ($snapshotLanguageId > 0 && $this->languageBelongsToShop($snapshotLanguageId, $shopId)) { return $snapshotLanguageId; }
         $configured = (int) \Configuration::get('MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', null, $groupId > 0 ? $groupId : null, $shopId);
-        if ($configured > 0 && $this->languageBelongsToShop($configured, $shopId)) {
-            return $configured;
-        }
+        if ($configured > 0 && $this->languageBelongsToShop($configured, $shopId)) { return $configured; }
         $fallback = (int) \Configuration::get('PS_LANG_DEFAULT', null, $groupId > 0 ? $groupId : null, $shopId);
         if ($fallback <= 0) { $fallback = (int) \Configuration::get('PS_LANG_DEFAULT'); }
         if ($fallback <= 0 || !$this->languageBelongsToShop($fallback, $shopId)) {
