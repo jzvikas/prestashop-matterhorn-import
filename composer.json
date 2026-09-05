@@ -19,6 +19,7 @@
   },
   "config": {
     "optimize-autoloader": true,
+    "prepend-autoloader": false,
     "sort-packages": true
   }
 }
