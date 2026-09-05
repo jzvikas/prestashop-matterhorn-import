@@ -28,3 +28,7 @@ services:
     tags: ['console.command']
   Lp\MatterhornImport\Command\ImagesReconcileCommand:
     tags: ['console.command']
+  Lp\MatterhornImport\Command\NewProductsEnqueueCommand:
+    tags: ['console.command']
+  Lp\MatterhornImport\Command\NewProductsCommand:
+    tags: ['console.command']
