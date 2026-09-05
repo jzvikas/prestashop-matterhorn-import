@@ -65,6 +65,13 @@ $badEanRow = $rows[0];
 $badEanRow['options'][0]['ean'] = 'BAD-EAN';
 $badEan = $mapper->map($badEanRow);
 check(($badEan->extra['combinations'][0]['ean13'] ?? 'x') === '', 'malformed optional EAN is blank, not fatal');
+check(count($badEan->extra['supplier_warnings'] ?? []) === 1 && str_contains((string) $badEan->extra['supplier_warnings'][0], 'invalid optional EAN13'), 'malformed optional EAN must be observable');
+
+$negativeStockRow = $rows[0];
+$negativeStockRow['options'][0]['stock'] = '-4';
+$negativeStock = $mapper->map($negativeStockRow);
+check(($negativeStock->extra['combinations'][0]['quantity'] ?? -1) === 0, 'negative stock must normalize to zero');
+check(count($negativeStock->extra['supplier_warnings'] ?? []) === 1 && str_contains((string) $negativeStock->extra['supplier_warnings'][0], 'negative stock'), 'negative stock normalization must be observable');
 
 $duplicateId = $rows[0]; $duplicateId['options'][1]['id'] = $duplicateId['options'][0]['id'];
 try { $mapper->map($duplicateId); check(false, 'duplicate option id must fail'); }
