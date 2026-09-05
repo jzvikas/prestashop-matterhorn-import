@@ -37,9 +37,7 @@ final class RunRepository
     public function assertContext(int $runId, int $shopId, string $source): array
     {
         $run = $this->get($runId);
-        if ($run === null) {
-            throw new \RuntimeException('Matterhorn import run not found: ' . $runId);
-        }
+        if ($run === null) { throw new \RuntimeException('Matterhorn import run not found: ' . $runId); }
         if ((int) $run['id_shop'] !== $shopId || (string) $run['source'] !== $source) {
             throw new \RuntimeException('Run/shop/source mismatch; stage execution blocked');
         }
@@ -48,12 +46,8 @@ final class RunRepository
 
     public function stage(int $runId, string $stage, string $status): void
     {
-        if (!in_array($stage, ['read','import','update','remove'], true)) {
-            throw new \InvalidArgumentException('Invalid import stage: ' . $stage);
-        }
-        if (!in_array($status, ['pending','running','completed','failed','paused'], true)) {
-            throw new \InvalidArgumentException('Invalid stage status: ' . $status);
-        }
+        if (!in_array($stage, ['read','import','update','remove'], true)) { throw new \InvalidArgumentException('Invalid import stage: ' . $stage); }
+        if (!in_array($status, ['pending','running','completed','failed','paused'], true)) { throw new \InvalidArgumentException('Invalid stage status: ' . $status); }
         if (!\Db::getInstance()->update(self::TABLE, [$stage . '_status' => pSQL($status)], 'id_run=' . (int) $runId)) {
             throw new \RuntimeException('Could not update Matterhorn stage status');
         }
@@ -62,12 +56,8 @@ final class RunRepository
     public function increment(int $runId, string $field, int $by = 1): void
     {
         $allowed = ['source_total','source_valid','source_invalid','source_duplicate','import_done','import_failed','update_done','update_skipped','update_failed','remove_done','remove_failed'];
-        if (!in_array($field, $allowed, true)) {
-            throw new \InvalidArgumentException('Invalid run counter: ' . $field);
-        }
-        if (!\Db::getInstance()->execute(
-            'UPDATE `' . _DB_PREFIX_ . self::TABLE . '` SET `' . $field . '`=`' . $field . '`+' . (int) $by . ' WHERE id_run=' . (int) $runId
-        )) {
+        if (!in_array($field, $allowed, true)) { throw new \InvalidArgumentException('Invalid run counter: ' . $field); }
+        if (!\Db::getInstance()->execute('UPDATE `' . _DB_PREFIX_ . self::TABLE . '` SET `' . $field . '`=`' . $field . '`+' . (int) $by . ' WHERE id_run=' . (int) $runId)) {
             throw new \RuntimeException('Could not increment run counter: ' . $field);
         }
     }
@@ -87,9 +77,7 @@ final class RunRepository
 
     public function resetRead(int $runId, ?string $fingerprint, string $policyHash): void
     {
-        if (!preg_match('/^[a-f0-9]{64}$/D', $policyHash)) {
-            throw new \InvalidArgumentException('READ policy hash must be a SHA-256 value');
-        }
+        if (!preg_match('/^[a-f0-9]{64}$/D', $policyHash)) { throw new \InvalidArgumentException('READ policy hash must be a SHA-256 value'); }
         if (!\Db::getInstance()->update(self::TABLE, [
             'status' => 'running',
             'read_status' => 'pending',
@@ -117,18 +105,49 @@ final class RunRepository
             '`source_valid`=`source_valid`+' . $valid . ',' .
             '`source_invalid`=`source_invalid`+' . $invalid .
             ' WHERE id_run=' . (int) $runId;
-        if (!\Db::getInstance()->execute($sql)) {
-            throw new \RuntimeException('Could not persist READ checkpoint');
-        }
+        if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Could not persist READ checkpoint'); }
     }
 
     public function setReadDuplicate(int $runId, int $duplicates): void
     {
-        if ($duplicates < 0) {
-            throw new \InvalidArgumentException('Duplicate count cannot be negative');
-        }
+        if ($duplicates < 0) { throw new \InvalidArgumentException('Duplicate count cannot be negative'); }
         if (!\Db::getInstance()->update(self::TABLE, ['source_duplicate' => $duplicates], 'id_run=' . (int) $runId)) {
             throw new \RuntimeException('Could not update duplicate counter');
+        }
+    }
+
+    public function imageReconcileStart(int $runId): void
+    {
+        if (!\Db::getInstance()->update(self::TABLE, ['image_reconcile_status' => 'running'], 'id_run=' . (int) $runId)) {
+            throw new \RuntimeException('Could not start Matterhorn image reconciliation state');
+        }
+    }
+
+    public function imageReconcileCheckpoint(int $runId, string $sourceKey): void
+    {
+        $sourceKey = trim($sourceKey);
+        if ($sourceKey === '' || strlen($sourceKey) > 191) {
+            throw new \InvalidArgumentException('Invalid image reconciliation checkpoint');
+        }
+        $db = \Db::getInstance();
+        if (!$db->execute(
+            "UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET image_reconcile_checkpoint='" . pSQL($sourceKey) .
+            "',image_reconcile_done=image_reconcile_done+1 WHERE id_run=" . (int) $runId
+        )) {
+            throw new \RuntimeException('Could not persist image reconciliation checkpoint');
+        }
+        if ((int) $db->Affected_Rows() !== 1) {
+            throw new \RuntimeException('Matterhorn image reconciliation run disappeared while checkpointing');
+        }
+    }
+
+    public function imageReconcileFinish(int $runId, string $status): void
+    {
+        if (!in_array($status, ['paused','completed','failed'], true)) {
+            throw new \InvalidArgumentException('Invalid image reconciliation status');
+        }
+        if (!\Db::getInstance()->update(self::TABLE, ['image_reconcile_status' => pSQL($status)], 'id_run=' . (int) $runId)) {
+            throw new \RuntimeException('Could not update image reconciliation status');
         }
     }
 
@@ -141,9 +160,7 @@ final class RunRepository
 
     public function finish(int $runId, string $status = 'completed'): void
     {
-        if (!in_array($status, ['completed','failed','paused'], true)) {
-            throw new \InvalidArgumentException('Invalid run status: ' . $status);
-        }
+        if (!in_array($status, ['completed','failed','paused'], true)) { throw new \InvalidArgumentException('Invalid run status: ' . $status); }
         if (!\Db::getInstance()->update(self::TABLE, [
             'status' => pSQL($status),
             'finished_at' => date('Y-m-d H:i:s'),
