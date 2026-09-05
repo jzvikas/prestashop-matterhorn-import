@@ -2,12 +2,18 @@
 namespace Lp\MatterhornImport\Category;
 
 use Lp\MatterhornImport\DTO\ProductData;
+use Lp\MatterhornImport\Product\ProductShopAssociationManager;
 use Lp\MatterhornImport\Repository\CategoryMappingRepository;
 use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class CategorySynchronizer
 {
-    public function __construct(private CategoryMappingRepository $mapping, private CategoryAutoMapper $autoMapper, private ShopContextManager $shopContext) {}
+    public function __construct(
+        private CategoryMappingRepository $mapping,
+        private CategoryAutoMapper $autoMapper,
+        private ShopContextManager $shopContext,
+        private ProductShopAssociationManager $associations
+    ) {}
 
     public function sync(int $productId, ProductData $data, int $shopId): void
     {
@@ -27,6 +33,11 @@ final class CategorySynchronizer
         $leafIds = array_values(array_unique(array_map('intval', array_values($resolved))));
         $categoryIds = $this->expandHierarchy($leafIds, $shopId);
         if ($categoryIds === []) { throw new \RuntimeException('Resolved category hierarchy is empty'); }
+
+        // category_product and the product's default-category field are not safely isolated
+        // per shop. Never mutate them for a product shared with another shop.
+        $this->associations->assertExclusiveGlobalOwnership($productId, $shopId);
+
         $product = new \Product($productId, false, null, $shopId);
         if (!\Validate::isLoadedObject($product)) { throw new \RuntimeException('Product not found for category sync: ' . $productId); }
         $product->id_category_default = $leafIds[0];
