@@ -38,3 +38,5 @@ services:
     tags: ['console.command']
   Lp\MatterhornImport\Command\StatusCommand:
     tags: ['console.command']
+  Lp\MatterhornImport\Command\GcCommand:
+    tags: ['console.command']
