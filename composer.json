@@ -1,0 +1,22 @@
+{
+  "name": "lp/prestashop-matterhorn-import",
+  "description": "Matterhorn Wholesale high-throughput staged import module for PrestaShop 9.1.x",
+  "type": "prestashop-module",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.4",
+    "ext-curl": "*",
+    "ext-fileinfo": "*",
+    "ext-simplexml": "*",
+    "ext-xmlreader": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "Lp\\MatterhornImport\\": "src/"
+    }
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true
+  }
+}
