@@ -55,9 +55,13 @@ $checks = [
     [$queue, "WHERE status='failed' AND source='", 'image retry update must recheck source at write time'],
     [$queue, 'function lockOwned', 'queue must expose row-level lease lock'],
     [$queue, 'FOR UPDATE', 'queue desired metadata must be fenced by row lock'],
-    [$queue, 'id_run=VALUES(id_run)', 'newer run must supersede queued desired run metadata'],
-    [$queue, 'position=VALUES(position)', 'newer run must supersede desired image position'],
-    [$queue, "status=IF(status='processing','processing','pending')", 'processing lease must survive desired-run supersession while non-processing rows are requeued'],
+    [$queue, 'source=IF(VALUES(id_run)>=id_run,VALUES(source),source)', 'older image generation must not replace source ownership metadata'],
+    [$queue, 'source_key=IF(VALUES(id_run)>=id_run,VALUES(source_key),source_key)', 'older image generation must not replace source key metadata'],
+    [$queue, 'position=IF(VALUES(id_run)>=id_run,VALUES(position),position)', 'older image generation must not replace desired position'],
+    [$queue, 'is_cover=IF(VALUES(id_run)>=id_run,VALUES(is_cover),is_cover)', 'older image generation must not replace desired cover state'],
+    [$queue, "status=IF(VALUES(id_run)>=id_run,IF(status='processing','processing','pending'),status)", 'newer image generation must preserve an active lease and requeue non-processing work'],
+    [$queue, 'id_run=GREATEST(id_run,VALUES(id_run))', 'image desired generation must be monotonic'],
+    [$queue, 'Keep id_run assignment last', 'generation fence must document MySQL/MariaDB assignment ordering'],
     [$queue, 'function unresolvedForSource', 'reconciliation must fence the entire shop/source queue'],
     [$processor, 'associateTo([$shopId], $productId)', 'shop image association'],
     [$processor, 'ImageType::getImagesTypes', 'thumbnail generation'],
@@ -104,6 +108,20 @@ foreach ($checks as [$haystack, $needle, $label]) {
 }
 if (!is_string($downloader) || strpos($downloader, 'strlen($url) > self::MAX_URL_BYTES') > strpos($downloader, 'parse_url($url)')) {
     fwrite(STDERR, "FAIL: image URL length guard must run before URL/network resolution\n");
+    exit(1);
+}
+if (!is_string($queue)) {
+    fwrite(STDERR, "FAIL: image queue source unavailable\n");
+    exit(1);
+}
+$positionFence = strpos($queue, 'position=IF(VALUES(id_run)>=id_run');
+$runAssignment = strpos($queue, 'id_run=GREATEST(id_run,VALUES(id_run))');
+if ($positionFence === false || $runAssignment === false || $positionFence >= $runAssignment) {
+    fwrite(STDERR, "FAIL: image generation predicates must evaluate before monotonic id_run assignment\n");
+    exit(1);
+}
+if (str_contains($queue, 'id_run=VALUES(id_run),source=VALUES(source)')) {
+    fwrite(STDERR, "FAIL: stale image enqueue must not unconditionally replace desired generation metadata\n");
     exit(1);
 }
 if (str_contains((string) $reconciler, 'SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d')) {
