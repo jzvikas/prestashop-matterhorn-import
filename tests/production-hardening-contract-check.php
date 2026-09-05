@@ -10,6 +10,9 @@ $update = (string) file_get_contents($root . '/src/Import/UpdateStage.php');
 $remove = (string) file_get_contents($root . '/src/Import/RemoveStage.php');
 $importLock = (string) file_get_contents($root . '/src/Lock/ImportLock.php');
 $imageWorker = (string) file_get_contents($root . '/src/Image/ImageWorker.php');
+$manufacturer = (string) file_get_contents($root . '/src/Manufacturer/ManufacturerResolver.php');
+$attributeResolver = (string) file_get_contents($root . '/src/Attribute/AttributeResolver.php');
+$attributeMapping = (string) file_get_contents($root . '/src/Repository/AttributeMappingRepository.php');
 $newWorker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
 $production = (string) file_get_contents($root . '/docs/PRODUCTION.md');
 $mapper = (string) file_get_contents($root . '/src/Mapper/MatterhornProductMapper.php');
@@ -54,6 +57,28 @@ foreach ([
     [$imageWorker, 'false', 'image lock/session reads must bypass Db query cache'],
 ] as [$source, $needle, $label]) {
     if (!str_contains($source, $needle)) { $fail($label); }
+}
+
+if (!str_contains($manufacturer, 'GET_LOCK') || !str_contains($manufacturer, "', 10)\", false)")) {
+    $fail('manufacturer resolver lock acquisition must bypass Db query cache');
+}
+if (!str_contains($manufacturer, 'SELECT id_manufacturer') || substr_count($manufacturer, "\n                false\n") < 2) {
+    $fail('manufacturer resolver live lookup/association reads must bypass Db query cache');
+}
+if (!str_contains($manufacturer, 'RELEASE_LOCK') || !str_contains($manufacturer, "')\", false);")) {
+    $fail('manufacturer resolver lock release must bypass Db query cache');
+}
+if (substr_count($attributeResolver, '), true, false)') < 2) {
+    $fail('attribute resolver exact group/value reads must bypass Db query cache');
+}
+if (substr_count($attributeResolver, "\n            false\n") < 3) {
+    $fail('attribute resolver position/lock reads must bypass Db query cache');
+}
+if (!str_contains($attributeResolver, 'RELEASE_LOCK') || !str_contains($attributeResolver, "')\", false);")) {
+    $fail('attribute resolver lock release must bypass Db query cache');
+}
+if (!str_contains($attributeMapping, '), false);')) {
+    $fail('supplier attribute mapping resolution must bypass Db query cache');
 }
 
 if (!str_contains($production, 'READ -> IMPORT -> UPDATE -> REMOVE')) { $fail('production stage order missing'); }
