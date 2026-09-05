@@ -11,6 +11,7 @@ php tests/matterhorn-feed-structure-check.php
 php tests/matterhorn-duplicate-singleton-field-check.php
 php tests/matterhorn-required-field-bound-check.php
 php tests/matterhorn-html-sanitizer-check.php
+php tests/matterhorn-image-credential-admission-check.php
 php tests/category-path-read-bound-check.php
 php tests/category-hierarchy-live-fence-check.php
 php tests/matterhorn-stock-bound-check.php
