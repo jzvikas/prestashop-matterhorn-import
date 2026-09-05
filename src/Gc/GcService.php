@@ -7,6 +7,8 @@ use Lp\MatterhornImport\Repository\ImageQueueRepository;
 
 final class GcService
 {
+    private const ORPHAN_PAGE_LIMIT = 2000;
+
     public function __construct(
         private ImageOrphanRepository $imageOrphans,
         private ImageQueueRepository $imageQueue,
@@ -67,7 +69,10 @@ final class GcService
     {
         $stats = ['image_orphans_processed'=>0,'image_orphans_deleted'=>0,'image_orphans_resolved'=>0,'image_orphans_deferred'=>0];
         while (!$this->stopped($maxRows, $total, $started, $timeLimitSeconds)) {
-            $limit = $maxRows > 0 ? min($chunk, $maxRows - $total) : $chunk;
+            // ImageOrphanRepository::due() caps one preload page at 2000. Compare EOF against that
+            // effective page size rather than the caller's possibly larger GC chunk.
+            $limit = min($chunk, self::ORPHAN_PAGE_LIMIT);
+            if ($maxRows > 0) { $limit = min($limit, $maxRows - $total); }
             if ($limit <= 0) { break; }
             $rows = $this->imageOrphans->due($limit, $shopId);
             if ($rows === []) { break; }
@@ -101,7 +106,7 @@ final class GcService
         }
         $imageExists = (bool) \Db::getInstance()->getValue(sprintf(
             'SELECT 1 FROM `%simage` WHERE id_image=%d AND id_product=%d', _DB_PREFIX_, $idImage, $productId
-        ));
+        ), false);
         if (!$imageExists) {
             $this->imageOrphans->forget($idOrphan);
             return 'image_orphans_resolved';
@@ -125,7 +130,7 @@ final class GcService
         return (bool) \Db::getInstance()->getValue(sprintf(
             'SELECT 1 FROM `%sli_matterhornim_99dfbf_image_state` WHERE id_product=%d AND id_image=%d LIMIT 1',
             _DB_PREFIX_, $productId, $idImage
-        ));
+        ), false);
     }
 
     private function stopped(int $maxRows, int $total, float $started, int $timeLimitSeconds): bool
@@ -155,9 +160,9 @@ final class GcService
         $snapshotTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_snapshot';
         $shopWhere = $shopId === null ? '' : ' AND r.id_shop=' . $shopId;
 
-        // Image reconciliation reads the desired manifest directly from snapshot payloads and only
-        // permits the latest shop/source run. Preserve that latest run until a newer generation
-        // exists; at that point the older run cannot be reconciled anymore and is safe to collect.
+        // Image revalidation reads the latest desired manifest directly from snapshot payloads, so
+        // keep the latest shop/source generation even after reconciliation. Older generations are
+        // collectible once a newer run exists and therefore cannot become the latest target again.
         $sql = 'DELETE FROM `' . $snapshotTable . '` WHERE id_run<' . $keepRunId .
             ' AND id_run IN (' .
             'SELECT r.id_run FROM `' . $runTable . '` r WHERE 1=1' . $shopWhere .
@@ -173,11 +178,37 @@ final class GcService
     {
         $db = \Db::getInstance();
         $shopWhere = $shopId === null ? '' : ' AND s.id_shop=' . $shopId;
-        $rows = $db->executeS('SELECT s.id_shop,s.source,s.source_key,s.url_hash FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_state` s LEFT JOIN `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_mapping` m ON m.id_shop=s.id_shop AND m.source=s.source AND m.source_key=s.source_key AND m.id_product=s.id_product LEFT JOIN `' . _DB_PREFIX_ . 'image` i ON i.id_image=s.id_image AND i.id_product=s.id_product LEFT JOIN `' . _DB_PREFIX_ . 'image_shop` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop WHERE (m.source_key IS NULL OR i.id_image IS NULL OR ish.id_image IS NULL)' . $shopWhere . ' ORDER BY s.id_shop,s.source,s.source_key,s.url_hash LIMIT ' . $limit) ?: [];
+        $rows = $db->executeS(
+            'SELECT s.id_shop,s.source,s.source_key,s.url_hash FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_state` s ' .
+            'LEFT JOIN `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_mapping` m ON m.id_shop=s.id_shop AND m.source=s.source AND m.source_key=s.source_key AND m.id_product=s.id_product ' .
+            'LEFT JOIN `' . _DB_PREFIX_ . 'image` i ON i.id_image=s.id_image AND i.id_product=s.id_product ' .
+            'LEFT JOIN `' . _DB_PREFIX_ . 'image_shop` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop ' .
+            'WHERE (m.source_key IS NULL OR i.id_image IS NULL OR ish.id_image IS NULL)' . $shopWhere . ' ' .
+            'ORDER BY s.id_shop,s.source,s.source_key,s.url_hash LIMIT ' . $limit,
+            true,
+            false
+        ) ?: [];
         if ($rows === []) { return 0; }
         $keys = [];
-        foreach ($rows as $row) { $keys[] = sprintf("(%d,'%s','%s','%s')", (int)$row['id_shop'], pSQL((string)$row['source']), pSQL((string)$row['source_key']), pSQL((string)$row['url_hash'])); }
-        if (!$db->execute('DELETE FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_state` WHERE (id_shop,source,source_key,url_hash) IN (' . implode(',', $keys) . ')')) { throw new \RuntimeException('Bounded image-state GC failed'); }
+        foreach ($rows as $row) {
+            $keys[] = sprintf("(%d,'%s','%s','%s')", (int)$row['id_shop'], pSQL((string)$row['source']), pSQL((string)$row['source_key']), pSQL((string)$row['url_hash']));
+        }
+
+        // Candidate discovery and deletion are intentionally separate to keep GC bounded. Recheck
+        // the live ownership predicates at DELETE time so a concurrent recovery cannot recreate a
+        // mapping/image/image_shop row and then lose its newly-valid image state to this stale list.
+        $state = _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_state';
+        $mapping = _DB_PREFIX_ . 'li_matterhornim_99dfbf_mapping';
+        $image = _DB_PREFIX_ . 'image';
+        $imageShop = _DB_PREFIX_ . 'image_shop';
+        $sql = 'DELETE FROM `' . $state . '` WHERE (id_shop,source,source_key,url_hash) IN (' . implode(',', $keys) . ')' .
+            ' AND (' .
+            'NOT EXISTS (SELECT 1 FROM `' . $mapping . '` m WHERE m.id_shop=`' . $state . '`.id_shop ' .
+            'AND m.source=`' . $state . '`.source AND m.source_key=`' . $state . '`.source_key AND m.id_product=`' . $state . '`.id_product)' .
+            ' OR NOT EXISTS (SELECT 1 FROM `' . $image . '` i WHERE i.id_image=`' . $state . '`.id_image AND i.id_product=`' . $state . '`.id_product)' .
+            ' OR NOT EXISTS (SELECT 1 FROM `' . $imageShop . '` ish WHERE ish.id_image=`' . $state . '`.id_image AND ish.id_shop=`' . $state . '`.id_shop)' .
+            ')';
+        if (!$db->execute($sql)) { throw new \RuntimeException('Bounded image-state GC failed'); }
         return (int) $db->Affected_Rows();
     }
 
