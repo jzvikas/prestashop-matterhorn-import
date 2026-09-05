@@ -21,13 +21,14 @@ $upgrade015 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.5.php');
 $upgrade016 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.6.php');
 $upgrade017 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.7.php');
 $main = (string) file_get_contents($root . '/matterhornimport.php');
+$genericPrefix = 'PREFIX_' . 'lp_' . 'import_';
 
 schemaCheck(substr_count($install, 'CREATE TABLE IF NOT EXISTS') === 13, 'core schema must define 13 generated module tables');
 schemaCheck(substr_count($attributeInstall, 'CREATE TABLE IF NOT EXISTS') === 2, 'attribute schema must define two mapping tables');
 schemaCheck(substr_count($imageOrphanInstall, 'CREATE TABLE IF NOT EXISTS') === 1, 'image orphan schema must define one recovery table');
-schemaCheck(!str_contains($install, 'PREFIX_lp_import_'), 'generic skeleton table token must not leak into core schema');
-schemaCheck(!str_contains($attributeInstall, 'PREFIX_lp_import_'), 'generic skeleton table token must not leak into attribute schema');
-schemaCheck(!str_contains($imageOrphanInstall, 'PREFIX_lp_import_'), 'generic skeleton table token must not leak into image orphan schema');
+schemaCheck(!str_contains($install, $genericPrefix), 'generic skeleton table token must not leak into core schema');
+schemaCheck(!str_contains($attributeInstall, $genericPrefix), 'generic skeleton table token must not leak into attribute schema');
+schemaCheck(!str_contains($imageOrphanInstall, $genericPrefix), 'generic skeleton table token must not leak into image orphan schema');
 schemaCheck(str_contains($install, 'PREFIX_li_matterhornim_99dfbf_run'), 'generated Matterhorn DB token must own run table');
 schemaCheck(str_contains($install, '`source_policy_hash` CHAR(64) NULL'), 'fresh run schema must include policy hash');
 schemaCheck(str_contains($install, "`image_reconcile_status` VARCHAR(16) NOT NULL DEFAULT 'pending'"), 'fresh run schema must include reconciliation status');
