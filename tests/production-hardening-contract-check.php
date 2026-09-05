@@ -9,6 +9,7 @@ $import = (string) file_get_contents($root . '/src/Import/ImportStage.php');
 $update = (string) file_get_contents($root . '/src/Import/UpdateStage.php');
 $newWorker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
 $production = (string) file_get_contents($root . '/docs/PRODUCTION.md');
+$self = realpath(__FILE__);
 
 $fail = static function (string $message): never {
     fwrite(STDERR, "FAIL: {$message}\n");
@@ -44,6 +45,7 @@ $forbidden = ['Lp\\ImportSkeleton\\', 'LPIMPORTSKELETON_', 'lp_import_'];
 foreach ($iterator as $file) {
     if (!$file->isFile()) { continue; }
     $path = $file->getPathname();
+    if ($self !== false && realpath($path) === $self) { continue; }
     if (str_contains($path, DIRECTORY_SEPARATOR . '.git' . DIRECTORY_SEPARATOR) || str_contains($path, DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR)) { continue; }
     $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
     if (!in_array($extension, ['php','yml','yaml','sql','md','sh','json'], true)) { continue; }
