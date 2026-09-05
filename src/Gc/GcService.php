@@ -5,6 +5,7 @@ use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\Image\PrestaImageProcessor;
 use Lp\MatterhornImport\Repository\ImageOrphanRepository;
 use Lp\MatterhornImport\Repository\ImageQueueRepository;
+use Lp\MatterhornImport\Repository\RunRepository;
 
 final class GcService
 {
@@ -14,7 +15,8 @@ final class GcService
         private ImageOrphanRepository $imageOrphans,
         private ImageQueueRepository $imageQueue,
         private PrestaImageProcessor $imageProcessor,
-        private SourceInterface $sourceAdapter
+        private SourceInterface $sourceAdapter,
+        private RunRepository $runs
     ) {
     }
 
@@ -26,6 +28,12 @@ final class GcService
         if ($shopId !== null && $shopId <= 0) { throw new \InvalidArgumentException('GC shop ID must be positive'); }
         $source = trim($this->sourceAdapter->name());
         if ($source === '') { throw new \RuntimeException('GC source name is empty'); }
+        if ($keepRunId > 0) {
+            if ($shopId === null) {
+                throw new \InvalidArgumentException('GC --keep-run requires a concrete --shop so the retention boundary cannot cross shop contexts');
+            }
+            $this->runs->assertContext($keepRunId, $shopId, $source);
+        }
         $chunk = min(10000, $chunk);
         $started = microtime(true);
         $stats = [
@@ -73,8 +81,6 @@ final class GcService
     {
         $stats = ['image_orphans_processed'=>0,'image_orphans_deleted'=>0,'image_orphans_resolved'=>0,'image_orphans_deferred'=>0];
         while (!$this->stopped($maxRows, $total, $started, $timeLimitSeconds)) {
-            // ImageOrphanRepository::due() caps one preload page at 2000. Compare EOF against that
-            // effective page size rather than the caller's possibly larger GC chunk.
             $limit = min($chunk, self::ORPHAN_PAGE_LIMIT);
             if ($maxRows > 0) { $limit = min($limit, $maxRows - $total); }
             if ($limit <= 0) { break; }
@@ -160,13 +166,11 @@ final class GcService
 
     private function deleteSnapshots(int $keepRunId, int $limit, ?int $shopId, string $source): int
     {
+        if ($shopId === null) { throw new \LogicException('Snapshot GC requires a concrete shop retention context'); }
         $runTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_run';
         $snapshotTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_snapshot';
-        $scopeWhere = " AND r.source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND r.id_shop=' . $shopId);
+        $scopeWhere = " AND r.source='" . pSQL($source) . "' AND r.id_shop=" . $shopId;
 
-        // Image revalidation reads the latest desired manifest directly from snapshot payloads, so
-        // keep the latest shop/source generation even after reconciliation. Older generations are
-        // collectible once a newer run exists and therefore cannot become the latest target again.
         $sql = 'DELETE FROM `' . $snapshotTable . '` WHERE id_run<' . $keepRunId .
             ' AND id_run IN (' .
             'SELECT r.id_run FROM `' . $runTable . '` r WHERE 1=1' . $scopeWhere .
@@ -198,9 +202,6 @@ final class GcService
             $keys[] = sprintf("(%d,'%s','%s','%s')", (int)$row['id_shop'], pSQL((string)$row['source']), pSQL((string)$row['source_key']), pSQL((string)$row['url_hash']));
         }
 
-        // Candidate discovery and deletion are intentionally separate to keep GC bounded. Recheck
-        // the live ownership predicates at DELETE time so a concurrent recovery cannot recreate a
-        // mapping/image/image_shop row and then lose its newly-valid image state to this stale list.
         $state = _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_state';
         $mapping = _DB_PREFIX_ . 'li_matterhornim_99dfbf_mapping';
         $image = _DB_PREFIX_ . 'image';
