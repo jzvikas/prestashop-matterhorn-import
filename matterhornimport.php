@@ -12,7 +12,7 @@ class MatterhornImport extends Module
     {
         $this->name = 'matterhornimport';
         $this->tab = 'administration';
-        $this->version = '0.1.5';
+        $this->version = '0.1.6';
         $this->author = 'LP';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -101,7 +101,7 @@ class MatterhornImport extends Module
         ];
         foreach ($labels as $key => [$label, $min, $max]) { $output .= $this->field($key, $label, (string) $operational[$key], 'number', $min, $max); }
         $output .= '<button class="btn btn-primary" type="submit" name="submitMatterhornImport">' . $this->trans('Save', [], 'Modules.Matterhornimport.Admin') . '</button></form></div>';
-        $output .= '<div class="panel"><h3>Recommended CLI lanes</h3><pre>' . htmlspecialchars("# Product cycle\nphp bin/console matterhornimport:run --shop={$shopId}\n\n# Independent workers\nphp bin/console matterhornimport:new-products --shop={$shopId}\nphp bin/console matterhornimport:images --shop={$shopId}\n\n# Authoritative image manifest after workers drain (safe to resume)\nphp bin/console matterhornimport:images:reconcile --run=<latest-run-id> --shop={$shopId} --max-items=5000 --time-limit=300\n\n# Operations\nphp bin/console matterhornimport:retry --shop={$shopId}\nphp bin/console matterhornimport:gc --shop={$shopId}\nphp bin/console matterhornimport:doctor --shop={$shopId}\nphp bin/console matterhornimport:status --shop={$shopId}", ENT_QUOTES, 'UTF-8') . '</pre></div>';
+        $output .= '<div class="panel"><h3>Recommended CLI lanes</h3><pre>' . htmlspecialchars("# Product cycle\nphp bin/console matterhornimport:run --shop={$shopId}\n\n# Independent workers\nphp bin/console matterhornimport:new-products --shop={$shopId}\nphp bin/console matterhornimport:images --shop={$shopId}\n\n# Authoritative image manifest after workers drain (safe to resume)\nphp bin/console matterhornimport:images:reconcile --run=<latest-run-id> --shop={$shopId} --max-items=5000 --time-limit=300\n\n# Periodically revalidate stale same-URL image content; image worker drains scheduled jobs\nphp bin/console matterhornimport:images:revalidate --shop={$shopId} --age-hours=24 --limit=5000\nphp bin/console matterhornimport:images --shop={$shopId}\n\n# Operations\nphp bin/console matterhornimport:retry --shop={$shopId}\nphp bin/console matterhornimport:gc --shop={$shopId}\nphp bin/console matterhornimport:doctor --shop={$shopId}\nphp bin/console matterhornimport:status --shop={$shopId}", ENT_QUOTES, 'UTF-8') . '</pre></div>';
         return $output;
     }
 
