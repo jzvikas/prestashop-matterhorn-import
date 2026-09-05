@@ -40,6 +40,8 @@ $expected = [
 try {
     foreach ($uninstallFiles as $file) { $execFile($file); }
     foreach ($installFiles as $file) { $execFile($file); }
+    // Fresh schema SQL must be naturally idempotent; retained-data reinstall executes the
+    // same CREATE TABLE IF NOT EXISTS files before Installer ensure*() safety checks.
     foreach ($installFiles as $file) { $execFile($file); }
 
     foreach ($expected as $suffix) {
@@ -50,15 +52,24 @@ try {
         if (strtoupper((string) $row['ENGINE']) !== 'INNODB') { throw new RuntimeException('Non-InnoDB table ' . $table); }
     }
 
+    $runTable = $prefix . 'li_matterhornim_99dfbf_run';
+    if (!$db->query("SHOW COLUMNS FROM `{$runTable}` LIKE 'source_policy_hash'")?->fetch_assoc()) { throw new RuntimeException('Run source_policy_hash column missing'); }
+    if (!$db->query("SHOW INDEX FROM `{$runTable}` WHERE Key_name='idx_shop_source_run'")?->fetch_assoc()) { throw new RuntimeException('Run idx_shop_source_run missing'); }
+
     $mapping = $prefix . 'li_matterhornim_99dfbf_mapping';
     if (!$db->query("SHOW COLUMNS FROM `{$mapping}` LIKE 'out_of_feed'")?->fetch_assoc()) { throw new RuntimeException('Mapping out_of_feed column missing'); }
     if (!$db->query("SHOW INDEX FROM `{$mapping}` WHERE Key_name='idx_feed_state'")?->fetch_assoc()) { throw new RuntimeException('Mapping idx_feed_state missing'); }
+    if (!$db->query("SHOW INDEX FROM `{$mapping}` WHERE Key_name='idx_feed_product'")?->fetch_assoc()) { throw new RuntimeException('Mapping idx_feed_product missing'); }
 
     $imageQueue = $prefix . 'li_matterhornim_99dfbf_image_queue';
     foreach (['id_shop','source','source_key','id_product','url_hash','status','locked_by','locked_until','available_at'] as $columnName) {
         $safe = $db->real_escape_string($columnName);
         if (!$db->query("SHOW COLUMNS FROM `{$imageQueue}` LIKE '{$safe}'")?->fetch_assoc()) { throw new RuntimeException('Image queue column missing: ' . $columnName); }
     }
+    if (!$db->query("SHOW INDEX FROM `{$imageQueue}` WHERE Key_name='idx_shop_claim'")?->fetch_assoc()) { throw new RuntimeException('Image queue idx_shop_claim missing'); }
+
+    $newProductQueue = $prefix . 'li_matterhornim_99dfbf_new_product_queue';
+    if (!$db->query("SHOW INDEX FROM `{$newProductQueue}` WHERE Key_name='idx_shop_claim'")?->fetch_assoc()) { throw new RuntimeException('New-product queue idx_shop_claim missing'); }
 
     $imageOrphan = $prefix . 'li_matterhornim_99dfbf_image_orphan';
     foreach (['id_queue','id_shop','source','source_key','id_product','id_image','reason','attempts','available_at'] as $columnName) {
