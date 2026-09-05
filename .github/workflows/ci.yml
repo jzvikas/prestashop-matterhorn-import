@@ -79,6 +79,9 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
+          extensions: curl, fileinfo, simplexml, xmlreader, dom, mbstring
           coverage: none
+      - name: Build production module autoloader
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
       - name: PrestaShop 9.1.5 install multishop and uninstall lifecycle
         run: bash tests/prestashop-runtime-check.sh
