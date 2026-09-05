@@ -7,6 +7,9 @@ $services = (string) file_get_contents($root . '/config/services.yml');
 $installer = (string) file_get_contents($root . '/src/Installer.php');
 $import = (string) file_get_contents($root . '/src/Import/ImportStage.php');
 $update = (string) file_get_contents($root . '/src/Import/UpdateStage.php');
+$remove = (string) file_get_contents($root . '/src/Import/RemoveStage.php');
+$importLock = (string) file_get_contents($root . '/src/Lock/ImportLock.php');
+$imageWorker = (string) file_get_contents($root . '/src/Image/ImageWorker.php');
 $newWorker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
 $production = (string) file_get_contents($root . '/docs/PRODUCTION.md');
 $mapper = (string) file_get_contents($root . '/src/Mapper/MatterhornProductMapper.php');
@@ -39,6 +42,20 @@ foreach ([[$import, '$this->specificPrices->sync', 'IMPORT specific-price parity
     if (!str_contains($source, $needle)) { $fail($label); }
 }
 if (!str_contains($update, "'specific_price'")) { $fail('UPDATE does not route specific_price hash domain'); }
+
+foreach ([
+    [$import, "getValue('SELECT @@session.in_transaction', false)", 'IMPORT transaction state must bypass Db query cache'],
+    [$update, "getValue('SELECT @@session.in_transaction', false)", 'UPDATE transaction state must bypass Db query cache'],
+    [$remove, "getValue('SELECT @@session.in_transaction', false)", 'REMOVE transaction state must bypass Db query cache'],
+    [$importLock, '), false);', 'advisory import lock reads must bypass Db query cache'],
+    [$importLock, "RELEASE_LOCK('" , 'advisory import lock release missing'],
+    [$imageWorker, "getValue('SELECT @@session.in_transaction', false)", 'image transaction state must bypass Db query cache'],
+    [$imageWorker, 'GET_LOCK', 'image content lock acquisition missing'],
+    [$imageWorker, 'false', 'image lock/session reads must bypass Db query cache'],
+] as [$source, $needle, $label]) {
+    if (!str_contains($source, $needle)) { $fail($label); }
+}
+
 if (!str_contains($production, 'READ -> IMPORT -> UPDATE -> REMOVE')) { $fail('production stage order missing'); }
 if (!str_contains($production, 'matterhornimport:images:reconcile')) { $fail('production image reconciliation documentation missing'); }
 if (!str_contains($production, 'matterhornimport:images:revalidate')) { $fail('production image revalidation documentation missing'); }
