@@ -56,6 +56,10 @@ $checks = [
     [$processor, 'ImageType::getImagesTypes', 'thumbnail generation'],
     [$processor, 'count($shopRows) !== 1', 'multishop destructive-delete guard'],
     [$processor, 'syncProductPlacement', 'image placement reconciliation'],
+    [$reconciler, 'DELETE target FROM', 'multishop image detach must use atomic delete'],
+    [$reconciler, 'INNER JOIN `%s` other', 'multishop image detach must guard another shop in same statement'],
+    [$reconciler, 'other.id_image=target.id_image AND other.id_shop<>target.id_shop', 'multishop detach other-shop predicate'],
+    [$reconciler, 'target.id_product=%d AND target.id_shop=%d', 'multishop detach must target exact product/shop'],
     [$reconciler, 'Only the latest shop/source run may reconcile images', 'latest-run guard'],
     [$reconciler, 'unresolvedForRun', 'current-run unresolved queue guard'],
     [$reconciler, 'unresolvedForSource', 'cross-run source queue guard'],
@@ -93,6 +97,10 @@ foreach ($checks as [$haystack, $needle, $label]) {
 }
 if (!is_string($downloader) || strpos($downloader, 'strlen($url) > self::MAX_URL_BYTES') > strpos($downloader, 'parse_url($url)')) {
     fwrite(STDERR, "FAIL: image URL length guard must run before URL/network resolution\n");
+    exit(1);
+}
+if (str_contains((string) $reconciler, 'SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d')) {
+    fwrite(STDERR, "FAIL: image detach must not rely on a racy pre-delete shop count\n");
     exit(1);
 }
 if (str_contains((string) $reconciler, "last_seen_run_id'] !== \$runId")) {
