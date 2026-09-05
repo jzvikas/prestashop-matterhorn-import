@@ -105,9 +105,12 @@ final class Installer
         try {
             $db = \Db::getInstance();
             $table = _DB_PREFIX_ . self::MAPPING_TABLE;
+            // Db::getValue() already performs a single-row read through PrestaShop's Db layer.
+            // Do not embed LIMIT here: Db::getRow() appends its own LIMIT and would turn
+            // existence probes into invalid "LIMIT 1 LIMIT 1" SQL on the real runtime.
             $columnExists = (bool) $db->getValue(
                 "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='out_of_feed' LIMIT 1",
+                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='out_of_feed'",
                 false
             );
             if (!$columnExists && !$db->execute(
@@ -118,7 +121,7 @@ final class Installer
 
             $indexExists = (bool) $db->getValue(
                 "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='idx_feed_state' LIMIT 1",
+                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='idx_feed_state'",
                 false
             );
             if (!$indexExists && !$db->execute(
@@ -175,7 +178,7 @@ final class Installer
             $oldUnique = 'uq_shop_source_product';
             $oldUniqueExists = (bool) $db->getValue(
                 "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($oldUnique) . "' LIMIT 1",
+                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($oldUnique) . "'",
                 false
             );
             if ($oldUniqueExists && !$db->execute(
@@ -197,7 +200,7 @@ final class Installer
             $table = _DB_PREFIX_ . self::RUN_TABLE;
             $exists = (bool) $db->getValue(
                 "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='source_policy_hash' LIMIT 1",
+                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='source_policy_hash'",
                 false
             );
             if (!$exists && !$db->execute(
@@ -225,7 +228,7 @@ final class Installer
             foreach ($columns as $column => $definition) {
                 $exists = (bool) $db->getValue(
                     "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
-                    "AND TABLE_NAME='" . pSQL($runTable) . "' AND COLUMN_NAME='" . pSQL($column) . "' LIMIT 1",
+                    "AND TABLE_NAME='" . pSQL($runTable) . "' AND COLUMN_NAME='" . pSQL($column) . "'",
                     false
                 );
                 if (!$exists && !$db->execute(
@@ -239,7 +242,7 @@ final class Installer
             $index = 'idx_shop_source_status';
             $indexExists = (bool) $db->getValue(
                 "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($queueTable) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1",
+                "AND TABLE_NAME='" . pSQL($queueTable) . "' AND INDEX_NAME='" . pSQL($index) . "'",
                 false
             );
             if (!$indexExists && !$db->execute(
@@ -281,7 +284,7 @@ final class Installer
                 foreach ($definitions as $index => $definition) {
                     $exists = (bool) $db->getValue(
                         "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                        "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1",
+                        "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($index) . "'",
                         false
                     );
                     if (!$exists && !$db->execute(
@@ -323,7 +326,7 @@ final class Installer
     {
         $table = _DB_PREFIX_ . $suffix;
         return (bool) \Db::getInstance()->getValue(
-            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL($table) . "' LIMIT 1",
+            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL($table) . "'",
             false
         );
     }
