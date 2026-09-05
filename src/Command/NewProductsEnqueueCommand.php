@@ -43,6 +43,7 @@ final class NewProductsEnqueueCommand extends Command
         $timeLimit = CommandInput::nonNegativeInt($input->getOption('time-limit'), '--time-limit', 86400);
         $source = $this->source->name();
         $run = $this->runs->assertContext($runId, $shopId, $source);
+        $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
         if ((string) $run['read_status'] !== 'completed') { throw new \RuntimeException('READ must complete before enqueueing new products'); }
         if ((string) $run['remove_status'] !== 'pending') { throw new \RuntimeException('Cannot enqueue new products after REMOVE has started'); }
 
