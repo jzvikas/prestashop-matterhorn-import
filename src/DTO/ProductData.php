@@ -52,7 +52,8 @@ final class ProductData
             $extra['specific_prices'],
             $extra['specific_prices_authoritative'],
             $extra['specific_prices_adopt_existing'],
-            $extra['supplier_warnings']
+            $extra['supplier_warnings'],
+            $extra['supplier_metadata']
         );
         return $this->hashCache['core'] = $this->hashValue([
             'reference' => $this->reference,
