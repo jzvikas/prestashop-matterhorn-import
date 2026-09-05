@@ -12,7 +12,7 @@ class MatterhornImport extends Module
     {
         $this->name = 'matterhornimport';
         $this->tab = 'administration';
-        $this->version = '0.1.1';
+        $this->version = '0.1.2';
         $this->author = 'LP';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -120,6 +120,8 @@ class MatterhornImport extends Module
             foreach ($rows as $row) { $counts[(string) $row['status']] = (int) $row['qty']; }
             $queue[] = $label . ': pending=' . ($counts['pending'] ?? 0) . ', processing=' . ($counts['processing'] ?? 0) . ', failed=' . ($counts['failed'] ?? 0) . ', done=' . ($counts['done'] ?? 0);
         }
+        $orphanCount = (int) $db->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_orphan` WHERE id_shop=' . $shopId);
+        $queue[] = 'image recovery orphans=' . $orphanCount;
         $runText = !$run ? 'No import run yet.' : sprintf('#%d %s — READ %s / IMPORT %s / UPDATE %s / REMOVE %s', (int) $run['id_run'], (string) $run['status'], (string) $run['read_status'], (string) $run['import_status'], (string) $run['update_status'], (string) $run['remove_status']);
         return '<div class="panel"><h3>Current shop status</h3><p><strong>' . htmlspecialchars($runText, ENT_QUOTES, 'UTF-8') . '</strong></p><p>' . htmlspecialchars(implode(' | ', $queue), ENT_QUOTES, 'UTF-8') . '</p></div>';
     }
