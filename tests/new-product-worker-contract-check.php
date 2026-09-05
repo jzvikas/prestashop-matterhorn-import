@@ -28,7 +28,7 @@ $checks = [
     [$queue, "private const TABLE = 'li_matterhornim_99dfbf_new_product_queue'", 'module-owned new-product queue'],
     [$queue, 'locked_until', 'lease fencing'],
     [$queue, 'public function claim(string $worker, string $source', 'new-product claims must require source scope'],
-    [$queue, "$scopeWhere = \" AND source='\"", 'new-product claim predicate must include source'],
+    [$queue, 'scopeWhere = " AND source=', 'new-product claim predicate must include source'],
     [$queue, 'public function retryFailed(string $source', 'new-product retry must require source scope'],
     [$queue, "WHERE status='failed' AND source='", 'new-product retry update must recheck source at write time'],
     [$queue, 'GREATEST(id_run,VALUES(id_run))', 'newer queue generation ownership'],
