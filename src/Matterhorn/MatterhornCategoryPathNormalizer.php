@@ -4,6 +4,7 @@ namespace Lp\MatterhornImport\Matterhorn;
 final class MatterhornCategoryPathNormalizer
 {
     private const MAX_CATEGORY_SEGMENT_CHARS = 128;
+    private const MAX_CATEGORY_PATH_DEPTH = 32;
     private const MAX_SUPPLIER_KEY_CHARS = 191;
 
     public function normalize(string $path): string
@@ -13,6 +14,11 @@ final class MatterhornCategoryPathNormalizer
             static fn(string $part): string => trim($part),
             $parts
         ), static fn(string $part): bool => $part !== ''));
+        if (count($parts) > self::MAX_CATEGORY_PATH_DEPTH) {
+            throw new \InvalidArgumentException(
+                'Matterhorn category path depth exceeds operational limit of ' . self::MAX_CATEGORY_PATH_DEPTH
+            );
+        }
         foreach ($parts as $part) {
             if (mb_strlen($part, 'UTF-8') > self::MAX_CATEGORY_SEGMENT_CHARS) {
                 throw new \InvalidArgumentException(
