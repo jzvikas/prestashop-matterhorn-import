@@ -2,6 +2,14 @@
 
 All notable Matterhorn Import changes are tracked here. A version is not production-approved until the release gates documented in `README.md` and `docs/PRODUCTION.md` have executed successfully on that commit.
 
+## Unreleased
+
+- Kept supplier normalization warnings observable in snapshot payloads/status without letting warning-only differences dirty catalog domain hashes.
+- Removed the UPDATE fallback that routed payload-only metadata changes into unnecessary product core writes.
+- Canonicalized supplier warning ordering so semantically identical option reordering does not churn snapshot payload hashes.
+- Added regression coverage for warning/domain isolation and warning-order determinism to the static release gate.
+- Made the GitHub Actions release workflow manually dispatchable when push-trigger execution is unavailable.
+
 ## 0.1.6
 
 - Added bounded `matterhornimport:images:revalidate` scheduling for supplier image-content changes behind unchanged URLs.
