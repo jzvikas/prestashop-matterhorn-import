@@ -12,7 +12,7 @@ class MatterhornImport extends Module
     {
         $this->name = 'matterhornimport';
         $this->tab = 'administration';
-        $this->version = '0.1.4';
+        $this->version = '0.1.5';
         $this->author = 'LP';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -70,12 +70,8 @@ class MatterhornImport extends Module
 
         $source = (string) \Configuration::get('MATTERHORNIMPORT_SOURCE_FILE', null, $shopGroupId, $shopId);
         $sourceLanguageId = (int) \Configuration::get('MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', null, $shopGroupId, $shopId);
-        if (!isset($languages[$sourceLanguageId])) {
-            $sourceLanguageId = (int) \Configuration::get('PS_LANG_DEFAULT', null, $shopGroupId, $shopId);
-        }
-        if (!isset($languages[$sourceLanguageId]) && $languages !== []) {
-            $sourceLanguageId = (int) array_key_first($languages);
-        }
+        if (!isset($languages[$sourceLanguageId])) { $sourceLanguageId = (int) \Configuration::get('PS_LANG_DEFAULT', null, $shopGroupId, $shopId); }
+        if (!isset($languages[$sourceLanguageId]) && $languages !== []) { $sourceLanguageId = (int) array_key_first($languages); }
         $categoryAutoCreate = $this->boolConfig('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', $shopGroupId, $shopId, true);
         $featureAutoCreate = $this->boolConfig('MATTERHORNIMPORT_FEATURE_AUTO_CREATE', $shopGroupId, $shopId, true);
         $sizeGroup = (string) \Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', null, $shopGroupId, $shopId);
@@ -105,14 +101,14 @@ class MatterhornImport extends Module
         ];
         foreach ($labels as $key => [$label, $min, $max]) { $output .= $this->field($key, $label, (string) $operational[$key], 'number', $min, $max); }
         $output .= '<button class="btn btn-primary" type="submit" name="submitMatterhornImport">' . $this->trans('Save', [], 'Modules.Matterhornimport.Admin') . '</button></form></div>';
-        $output .= '<div class="panel"><h3>Recommended CLI lanes</h3><pre>' . htmlspecialchars("# Product cycle\nphp bin/console matterhornimport:run --shop={$shopId}\n\n# Independent workers\nphp bin/console matterhornimport:new-products --shop={$shopId}\nphp bin/console matterhornimport:images --shop={$shopId}\n\n# Operations\nphp bin/console matterhornimport:retry --shop={$shopId}\nphp bin/console matterhornimport:gc --shop={$shopId}\nphp bin/console matterhornimport:doctor --shop={$shopId}\nphp bin/console matterhornimport:status --shop={$shopId}", ENT_QUOTES, 'UTF-8') . '</pre></div>';
+        $output .= '<div class="panel"><h3>Recommended CLI lanes</h3><pre>' . htmlspecialchars("# Product cycle\nphp bin/console matterhornimport:run --shop={$shopId}\n\n# Independent workers\nphp bin/console matterhornimport:new-products --shop={$shopId}\nphp bin/console matterhornimport:images --shop={$shopId}\n\n# Authoritative image manifest after workers drain (safe to resume)\nphp bin/console matterhornimport:images:reconcile --run=<latest-run-id> --shop={$shopId} --max-items=5000 --time-limit=300\n\n# Operations\nphp bin/console matterhornimport:retry --shop={$shopId}\nphp bin/console matterhornimport:gc --shop={$shopId}\nphp bin/console matterhornimport:doctor --shop={$shopId}\nphp bin/console matterhornimport:status --shop={$shopId}", ENT_QUOTES, 'UTF-8') . '</pre></div>';
         return $output;
     }
 
     private function renderStatus(int $shopId): string
     {
         $db = \Db::getInstance();
-        $run = $db->getRow("SELECT id_run,status,read_status,import_status,update_status,remove_status,started_at,finished_at FROM `" . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='matterhorn' ORDER BY id_run DESC");
+        $run = $db->getRow("SELECT id_run,status,read_status,import_status,update_status,remove_status,image_reconcile_status,image_reconcile_checkpoint,image_reconcile_done,started_at,finished_at FROM `" . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='matterhorn' ORDER BY id_run DESC");
         $queue = [];
         foreach (['images' => 'li_matterhornim_99dfbf_image_queue', 'new products' => 'li_matterhornim_99dfbf_new_product_queue'] as $label => $table) {
             $rows = $db->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . $table . '` WHERE id_shop=' . $shopId . ' GROUP BY status') ?: [];
@@ -122,7 +118,12 @@ class MatterhornImport extends Module
         }
         $orphanCount = (int) $db->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_orphan` WHERE id_shop=' . $shopId);
         $queue[] = 'image recovery orphans=' . $orphanCount;
-        $runText = !$run ? 'No import run yet.' : sprintf('#%d %s — READ %s / IMPORT %s / UPDATE %s / REMOVE %s', (int) $run['id_run'], (string) $run['status'], (string) $run['read_status'], (string) $run['import_status'], (string) $run['update_status'], (string) $run['remove_status']);
+        $runText = !$run ? 'No import run yet.' : sprintf(
+            '#%d %s — READ %s / IMPORT %s / UPDATE %s / REMOVE %s / IMAGES %s (done=%d checkpoint=%s)',
+            (int) $run['id_run'], (string) $run['status'], (string) $run['read_status'], (string) $run['import_status'],
+            (string) $run['update_status'], (string) $run['remove_status'], (string) ($run['image_reconcile_status'] ?? 'pending'),
+            (int) ($run['image_reconcile_done'] ?? 0), (string) (($run['image_reconcile_checkpoint'] ?? '') ?: '-')
+        );
         return '<div class="panel"><h3>Current shop status</h3><p><strong>' . htmlspecialchars($runText, ENT_QUOTES, 'UTF-8') . '</strong></p><p>' . htmlspecialchars(implode(' | ', $queue), ENT_QUOTES, 'UTF-8') . '</p></div>';
     }
 
