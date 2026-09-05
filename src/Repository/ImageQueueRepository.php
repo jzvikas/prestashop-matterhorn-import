@@ -93,13 +93,17 @@ final class ImageQueueRepository
     public function retryFailed(?int $shopId = null, int $limit = 1000): int
     {
         $where = "status='failed'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
-        $ids = \Db::getInstance()->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . max(1, $limit)) ?: [];
+        $db = \Db::getInstance();
+        $ids = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . max(1, $limit)) ?: [];
         if ($ids === []) { return 0; }
         $list = implode(',', array_map(static fn(array $row): int => (int) $row['id_queue'], $ids));
-        if (!\Db::getInstance()->execute("UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE id_queue IN (" . $list . ')')) {
+        // Revalidate the mutable status in the UPDATE itself. Another retry process may have
+        // already reopened one of these rows and a worker may have claimed it after our SELECT.
+        // Without this fence the stale ID list could clear that worker's active lease.
+        if (!$db->execute("UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE status='failed' AND id_queue IN (" . $list . ')')) {
             throw new \RuntimeException('Matterhorn image queue retry reset failed');
         }
-        return count($ids);
+        return (int) $db->Affected_Rows();
     }
 
     public function status(int $idQueue): ?string
