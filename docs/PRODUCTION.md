@@ -24,7 +24,7 @@ php bin/console matterhornimport:doctor --shop=1
 php bin/console matterhornimport:status --shop=1
 ```
 
-Do not schedule production writes while `doctor` reports errors. `doctor` also validates the current module schema, the exact exclusive product-ownership index, Size mapping references and the source-scoped image reconciliation queue index.
+Do not schedule production writes while `doctor` reports errors. `doctor` also validates the current module schema, the exact exclusive product-ownership index, Size mapping references and the source-scoped image reconciliation queue index. Live status/doctor queue, orphan and error counters are read without the PrestaShop query cache and are restricted to the Matterhorn source for the selected shop.
 
 ### Upgrading retained data to 0.1.7
 
@@ -54,6 +54,10 @@ php bin/console matterhornimport:run --shop=1 --run=123 --json
 
 The shop/source advisory lock prevents two catalog mutation stages from running concurrently. Catalog entity creation additionally uses shared `lpimp:*` advisory-lock namespaces for manufacturer, category, attribute and feature resolution so different supplier import modules cannot race while creating the same global PrestaShop entity.
 
+PrestaShop ObjectModels and third-party hooks share the same database connection and may commit a transaction internally. Matterhorn therefore arms a shared item-transaction guard around IMPORT/UPDATE/REMOVE/new-product work. Nested product/category/manufacturer/feature/combination writes re-check `@@session.in_transaction`; if a hook committed the connection, the module recreates its caller-owned transaction (and IMPORT/UPDATE savepoint where applicable) before module mapping/queue/state durability writes. This is a recovery boundary, not permission for hooks to own Matterhorn state.
+
+REMOVE uses **one transaction per product**. It row-locks the exact `(shop, source, source_key, id_product)` mapping before applying the out-of-feed policy. If a hook commits that transaction, REMOVE starts a fresh transaction and reacquires exact mapping ownership before marking the row `out_of_feed=1`. The final mapping update includes `id_product` and requires exactly one affected row, so an ownership change fails closed instead of completing against a different mapping.
+
 ### Stage-by-stage mode
 
 For explicit orchestration:
@@ -80,6 +84,8 @@ php bin/console matterhornimport:new-products --shop=1
 This lane uses the same shop/source lock as IMPORT, so it must not mutate the same shop concurrently with `run`/`import`/`update`/`remove`. After the queue has been drained, still run the normal IMPORT stage for the same run. IMPORT will skip products already mapped by the worker, create any remaining rows, and mark the IMPORT stage complete before UPDATE is allowed.
 
 The queue is restart-safe: leases are fenced, expired leases can be reclaimed, interrupted creates are recovered, retryable database failures use backoff, and a newer run can hand a newer payload to an already-processing source key without losing that generation. If an older generation creates the product first, the requeued newer generation updates that same mapped product rather than creating a duplicate.
+
+After any hook-triggered external commit the worker recreates its item transaction before module durability writes. Mapping persistence, image enqueue and queue-generation finalization are then committed together; the claimed generation is finalized **before** the SQL `COMMIT`, closing the crash gap where catalog/mapping state could previously become durable while the queue row remained processing.
 
 ## 4. Images
 
@@ -146,7 +152,7 @@ php bin/console matterhornimport:status --shop=1
 php bin/console matterhornimport:doctor --shop=1
 ```
 
-`status` reports persisted supplier normalization warnings separately from true import errors.
+`status` reports persisted supplier normalization warnings separately from true import errors. Queue/orphan counts are source-scoped, so unrelated source rows in the same module tables cannot inflate the Matterhorn status.
 
 Explicitly reset failed retryable jobs only after the underlying cause is understood:
 
@@ -154,7 +160,7 @@ Explicitly reset failed retryable jobs only after the underlying cause is unders
 php bin/console matterhornimport:retry --shop=1 --domain=all --json
 ```
 
-Retry reset updates are status-fenced at write time. A stale operator/worker candidate list therefore cannot clear a lease that another worker has acquired in the meantime.
+Retry reset updates are status-fenced at write time. A stale operator/worker candidate list therefore cannot clear a lease that another worker has acquired in the meantime. Repository retry resets are hard-capped at 100,000 rows per call even if a larger value reaches the repository layer.
 
 Run bounded metadata GC separately:
 
