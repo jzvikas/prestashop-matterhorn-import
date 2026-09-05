@@ -26,7 +26,7 @@ final class FeatureMappingRepository
             "WHERE fm.id_shop=%d AND fm.source='%s' AND fm.supplier_feature_key='%s' AND fvm.supplier_value_key='%s'",
             _DB_PREFIX_, _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $shopId,
             pSQL($source), pSQL($featureKey), pSQL($valueKey)
-        ));
+        ), false);
         if (!$row || (int) $row['id_feature'] <= 0 || (int) $row['id_feature_value'] <= 0) {
             return $this->pairCache[$cacheKey] = null;
         }
