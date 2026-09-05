@@ -4,11 +4,21 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 
 ## Unreleased
 
+## 0.1.7
+
+- Enforced exclusive PrestaShop product ownership per shop with `uq_shop_product_owner (id_shop, id_product)` so two supplier sources cannot manage the same product silently.
+- Added an idempotent retained-data/upgrade migration that fails closed when a legacy database already contains cross-source ownership conflicts instead of choosing an owner automatically.
+- Removed ownership-sensitive `ON DUPLICATE KEY UPDATE` behavior from mapping persistence; exact owners update in place while foreign product-owner collisions now fail explicitly.
+- Added runtime database safety validation for the exact unique ownership index and MariaDB regression coverage for duplicate-source ownership rejection and legacy conflict detection.
+- Fenced image and new-product retry resets with `status='failed'` at UPDATE time so a stale retry candidate list cannot clear a worker lease acquired concurrently.
+- Bypassed PrestaShop `Db` query caching for advisory locks, transaction-state decisions, mutable run state, worker lease/queue reads and Back Office live status reads.
+- Made multishop image detach atomic with one guarded `DELETE ... INNER JOIN` statement instead of a racy pre-delete shop-count check.
+- Rejected image URLs above 16 KiB before `parse_url`, DNS lookup or network access.
 - Kept supplier normalization warnings observable in snapshot payloads/status without letting warning-only differences dirty catalog domain hashes.
 - Removed the UPDATE fallback that routed payload-only metadata changes into unnecessary product core writes.
 - Canonicalized supplier warning ordering so semantically identical option reordering does not churn snapshot payload hashes.
 - Preserved Matterhorn `avaible_in` and `creation_date` as supplier metadata without assigning stock/delivery/date-add semantics or dirtying catalog domain hashes.
-- Added regression coverage for warning/domain isolation, warning-order determinism and supplier metadata isolation to the static release gate.
+- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, DB cache bypass, image URL bounds, atomic multishop detach and ownership schema safety.
 - Made the GitHub Actions release workflow manually dispatchable when push-trigger execution is unavailable.
 
 ## 0.1.6
