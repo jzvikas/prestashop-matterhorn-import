@@ -16,6 +16,15 @@ final class ErrorRepository
             'message' => pSQL(mb_substr($message, 0, 8000), true),
             'created_at' => date('Y-m-d H:i:s'),
         ], true);
+        if ($error instanceof \Throwable) {
+            error_log(sprintf(
+                '[matterhornimport] item failure run=%d stage=%s source_key=%s message=%s',
+                $runId,
+                $stage,
+                $sourceKey ?? '-',
+                mb_substr($message, 0, 1000)
+            ));
+        }
         if (!$ok) {
             error_log(sprintf('[matterhornimport] error persistence failed run=%d stage=%s source_key=%s message=%s', $runId, $stage, $sourceKey ?? '-', mb_substr($message, 0, 1000)));
         }
