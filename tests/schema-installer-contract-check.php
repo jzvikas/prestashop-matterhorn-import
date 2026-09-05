@@ -42,7 +42,10 @@ schemaCheck(str_contains($installer, "'attribute-mapping.sql'"), 'installer must
 schemaCheck(str_contains($installer, "'image-orphan.sql'"), 'installer must load image orphan recovery schema');
 schemaCheck(!str_contains($installer, 'performance-indexes.sql'), 'fresh/reinstall path must not execute non-idempotent raw index SQL');
 schemaCheck(str_contains($installer, '$schemaPreExisted = true'), 'install failure cleanup must default to preserving possible existing data');
-schemaCheck(str_contains($installer, '$schemaPreExisted = $this->tableExists(self::RUN_TABLE)'), 'installer must detect retained schema before creating/upgrading');
+schemaCheck(str_contains($installer, '$schemaPreExisted = $this->anyOwnedTableExists()'), 'installer must detect any retained or partial module schema before creating/upgrading');
+schemaCheck(str_contains($installer, 'private const OWNED_TABLES = ['), 'installer must enumerate owned tables for partial-schema preservation');
+schemaCheck(substr_count($installer, "'li_matterhornim_99dfbf_") >= 16, 'partial-schema preservation must cover all module tables');
+schemaCheck(str_contains($installer, 'private function anyOwnedTableExists()'), 'installer must expose any-owned-table detection');
 schemaCheck(str_contains($installer, 'if (!$schemaPreExisted)'), 'failed reinstall must not drop retained schema');
 schemaCheck(str_contains($installer, 'ensureRunPolicySchema()'), 'fresh install must ensure semantic READ policy schema');
 schemaCheck(str_contains($installer, 'ensureImageReconcileSchema()'), 'fresh/reinstall must ensure resumable image reconciliation schema');
