@@ -72,11 +72,22 @@ final class CategoryMappingRepository
         if ($shopId <= 0 || $supplierKey === '' || $categoryId <= 0) {
             throw new \InvalidArgumentException('Category assignment requires shop, supplier key and category');
         }
-        if (!\Db::getInstance()->update(
+        $db = \Db::getInstance();
+        if (!$db->update(
             'li_matterhornim_99dfbf_category_mapping',
             ['id_category' => $categoryId, 'active' => $active ? 1 : 0, 'updated_at' => date('Y-m-d H:i:s')],
             sprintf("id_shop=%d AND supplier_key='%s'", $shopId, pSQL($supplierKey))
         )) { throw new \RuntimeException('Category mapping assignment failed'); }
+
+        $row = $db->getRow(sprintf(
+            "SELECT id_category,active FROM `%sli_matterhornim_99dfbf_category_mapping` WHERE id_shop=%d AND supplier_key='%s'",
+            _DB_PREFIX_, $shopId, pSQL($supplierKey)
+        ), false);
+        if (!$row || (int) ($row['id_category'] ?? 0) !== $categoryId || (int) ($row['active'] ?? 0) !== ($active ? 1 : 0)) {
+            unset($this->cache[$shopId][$supplierKey]);
+            throw new \RuntimeException('Category mapping assignment could not be verified after write');
+        }
+
         $this->cache[$shopId][$supplierKey] = [
             'supplier_key' => $supplierKey,
             'id_category' => $categoryId,
