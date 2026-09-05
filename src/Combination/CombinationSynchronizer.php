@@ -3,6 +3,7 @@ namespace Lp\MatterhornImport\Combination;
 
 use Lp\MatterhornImport\DTO\ProductData;
 use Lp\MatterhornImport\Repository\CombinationMappingRepository;
+use Lp\MatterhornImport\Util\ItemTransactionGuard;
 use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class CombinationSynchronizer
@@ -10,14 +11,13 @@ final class CombinationSynchronizer
     public function __construct(
         private ShopContextManager $shopContext,
         private CombinationNormalizer $normalizer,
-        private CombinationMappingRepository $mapping
+        private CombinationMappingRepository $mapping,
+        private ItemTransactionGuard $transactionGuard
     ) {}
 
     public function sync(int $runId, int $shopId, string $source, int $productId, ProductData $product): void
     {
-        if (!array_key_exists('combinations', $product->extra)) {
-            return;
-        }
+        if (!array_key_exists('combinations', $product->extra)) { return; }
         $desired = $this->normalizer->normalize($product);
         $this->shopContext->activate($shopId);
         $mapped = $this->mapping->allForProduct($shopId, $source, $product->sourceKey, $productId);
@@ -30,9 +30,7 @@ final class CombinationSynchronizer
             $semanticKey = $item['semantic_key'];
             $desiredKeys[$semanticKey] = true;
             if ($item['default']) {
-                if ($explicitDefault !== null) {
-                    throw new \RuntimeException('More than one supplier combination is marked default for ' . $product->sourceKey);
-                }
+                if ($explicitDefault !== null) { throw new \RuntimeException('More than one supplier combination is marked default for ' . $product->sourceKey); }
                 $explicitDefault = $semanticKey;
             }
 
@@ -65,9 +63,7 @@ final class CombinationSynchronizer
             );
             if ($structureChanged) {
                 if ((int) ($survivor['shop_count'] ?? 1) > 1) {
-                    if (!$this->globalStructureMatches($survivor, $item)) {
-                        throw new \RuntimeException('Refusing to mutate global fields of shared combination ' . $id);
-                    }
+                    if (!$this->globalStructureMatches($survivor, $item)) { throw new \RuntimeException('Refusing to mutate global fields of shared combination ' . $id); }
                     $this->updateSharedShopFields($id, $shopId, $item);
                 } else {
                     $this->updateExclusiveCombination($productId, $id, $shopId, $item);
@@ -78,6 +74,9 @@ final class CombinationSynchronizer
                 \StockAvailable::setQuantity($productId, $id, $item['quantity'], $shopId);
             }
 
+            // Combination/StockAvailable ObjectModels and hooks may commit the shared connection.
+            // Restore the caller-owned item boundary before persisting module ownership/hashes.
+            $this->transactionGuard->restoreAfterExternalCommit();
             $this->mapping->save(
                 $shopId, $source, $product->sourceKey, $semanticKey, $productId, $id,
                 $item['structure_hash'], $item['stock_hash'], $runId
@@ -86,23 +85,21 @@ final class CombinationSynchronizer
 
             foreach ($candidates as $candidate) {
                 $candidateId = (int) $candidate['id_product_attribute'];
-                if ($candidateId === $id) {
-                    continue;
-                }
+                if ($candidateId === $id) { continue; }
                 $this->removeFromTargetShop($productId, $candidateId, $shopId);
+                $this->transactionGuard->restoreAfterExternalCommit();
                 $this->mapping->deleteByAttribute($shopId, $candidateId);
             }
         }
 
         if (!empty($product->extra['combinations_authoritative'])) {
             foreach ($mapped as $semanticKey => $row) {
-                if (isset($desiredKeys[$semanticKey])) {
-                    continue;
-                }
+                if (isset($desiredKeys[$semanticKey])) { continue; }
                 $id = (int) ($row['id_product_attribute'] ?? 0);
                 if ($id > 0 && $this->belongsToProductShop($productId, $id, $shopId)) {
                     $this->removeFromTargetShop($productId, $id, $shopId);
                 }
+                $this->transactionGuard->restoreAfterExternalCommit();
                 $this->mapping->deleteSemantic($shopId, $source, $product->sourceKey, $semanticKey);
             }
         }
@@ -127,9 +124,7 @@ final class CombinationSynchronizer
         $out = [];
         foreach ($rows as $row) {
             $ids = array_values(array_filter(array_map('intval', explode(',', (string) $row['attribute_ids'])), static fn(int $id): bool => $id > 0));
-            if ($ids === []) {
-                continue;
-            }
+            if ($ids === []) { continue; }
             $semantic = $this->normalizer->semanticKey($ids);
             $out[$semantic][] = [
                 'id_product_attribute' => (int) $row['id_product_attribute'],
@@ -152,17 +147,11 @@ final class CombinationSynchronizer
     {
         if ($mappedId > 0) {
             foreach ($candidates as $candidate) {
-                if ((int) $candidate['id_product_attribute'] === $mappedId && $this->candidateReusable($candidate, $item)) {
-                    return $candidate;
-                }
+                if ((int) $candidate['id_product_attribute'] === $mappedId && $this->candidateReusable($candidate, $item)) { return $candidate; }
             }
         }
         usort($candidates, static fn(array $a, array $b): int => (int) $a['id_product_attribute'] <=> (int) $b['id_product_attribute']);
-        foreach ($candidates as $candidate) {
-            if ($this->candidateReusable($candidate, $item)) {
-                return $candidate;
-            }
-        }
+        foreach ($candidates as $candidate) { if ($this->candidateReusable($candidate, $item)) { return $candidate; } }
         return null;
     }
 
@@ -174,9 +163,7 @@ final class CombinationSynchronizer
     private function globalStructureMatches(array $actual, array $item): bool
     {
         foreach (['reference', 'ean13', 'upc', 'mpn'] as $field) {
-            if ((string) ($actual[$field] ?? '') !== (string) $item[$field]) {
-                return false;
-            }
+            if ((string) ($actual[$field] ?? '') !== (string) $item[$field]) { return false; }
         }
         return true;
     }
@@ -190,10 +177,7 @@ final class CombinationSynchronizer
             && (int) ($actual['minimal_quantity'] ?? 1) === (int) $item['minimal_quantity'];
     }
 
-    private function sameFloat(float $a, float $b): bool
-    {
-        return abs($a - $b) < 0.000001;
-    }
+    private function sameFloat(float $a, float $b): bool { return abs($a - $b) < 0.000001; }
 
     private function createCombination(int $productId, int $shopId, array $item): int
     {
@@ -202,29 +186,25 @@ final class CombinationSynchronizer
         $combination->id_shop_list = [$shopId];
         $this->applyStructure($combination, $item);
         $combination->default_on = null;
-        if (!$combination->add()) {
-            throw new \RuntimeException('PrestaShop combination create failed for product ' . $productId);
-        }
-        if (!$combination->setAttributes($item['attribute_ids'])) {
-            throw new \RuntimeException('PrestaShop combination attribute assignment failed for product ' . $productId);
-        }
+        if (!$combination->add()) { throw new \RuntimeException('PrestaShop combination create failed for product ' . $productId); }
+        $this->transactionGuard->restoreAfterExternalCommit();
+        if (!$combination->setAttributes($item['attribute_ids'])) { throw new \RuntimeException('PrestaShop combination attribute assignment failed for product ' . $productId); }
+        $this->transactionGuard->restoreAfterExternalCommit();
         \StockAvailable::setQuantity($productId, (int) $combination->id, $item['quantity'], $shopId);
+        $this->transactionGuard->restoreAfterExternalCommit();
         return (int) $combination->id;
     }
 
     private function updateExclusiveCombination(int $productId, int $id, int $shopId, array $item): void
     {
-        if ($this->shopAssociationCount($id) > 1) {
-            throw new \RuntimeException('Refusing ObjectModel update of shared combination ' . $id);
-        }
+        if ($this->shopAssociationCount($id) > 1) { throw new \RuntimeException('Refusing ObjectModel update of shared combination ' . $id); }
         $combination = new \Combination($id, null, $shopId);
         if (!\Validate::isLoadedObject($combination) || (int) $combination->id_product !== $productId) {
             throw new \RuntimeException('Combination not found or belongs to another product: ' . $id);
         }
         $this->applyStructure($combination, $item);
-        if (!$combination->update()) {
-            throw new \RuntimeException('PrestaShop combination update failed: ' . $id);
-        }
+        if (!$combination->update()) { throw new \RuntimeException('PrestaShop combination update failed: ' . $id); }
+        $this->transactionGuard->restoreAfterExternalCommit();
     }
 
     private function updateSharedShopFields(int $id, int $shopId, array $item): void
@@ -269,24 +249,19 @@ final class CombinationSynchronizer
             "WHERE target.id_product_attribute=%d AND target.id_shop=%d",
             _DB_PREFIX_, _DB_PREFIX_, _DB_PREFIX_, $productId, $id, $shopId
         ));
-        if (!$detached) {
-            throw new \RuntimeException('Could not detach shared combination ' . $id . ' from shop ' . $shopId);
-        }
+        if (!$detached) { throw new \RuntimeException('Could not detach shared combination ' . $id . ' from shop ' . $shopId); }
 
         $affected = (int) $db->Affected_Rows();
         if ($affected === 0) {
-            if ($this->belongsToProductShop($productId, $id, $shopId)) {
-                $this->deleteExclusiveCombination($productId, $id, $shopId);
-            }
+            if ($this->belongsToProductShop($productId, $id, $shopId)) { $this->deleteExclusiveCombination($productId, $id, $shopId); }
             return;
         }
-        if ($affected !== 1) {
-            throw new \RuntimeException('Unexpected shared combination detach count for ' . $id);
-        }
+        if ($affected !== 1) { throw new \RuntimeException('Unexpected shared combination detach count for ' . $id); }
 
         if (!\StockAvailable::removeProductFromStockAvailable($productId, $id, $shopId)) {
             throw new \RuntimeException('Could not detach shared combination stock ' . $id . ' from shop ' . $shopId);
         }
+        $this->transactionGuard->restoreAfterExternalCommit();
         if (!$db->delete('cart_product', 'id_product_attribute=' . $id . ' AND id_shop=' . $shopId)) {
             throw new \RuntimeException('Could not clean target-shop cart rows for combination ' . $id);
         }
@@ -303,31 +278,20 @@ final class CombinationSynchronizer
             "WHERE pa.id_product_attribute=%d GROUP BY pa.id_product",
             $shopId, _DB_PREFIX_, _DB_PREFIX_, $id
         ), false);
-        if (!is_array($row) || $row === []) {
-            return;
-        }
-        if ((int) ($row['id_product'] ?? 0) !== $productId) {
-            throw new \RuntimeException('Refusing to delete combination from another product: ' . $id);
-        }
+        if (!is_array($row) || $row === []) { return; }
+        if ((int) ($row['id_product'] ?? 0) !== $productId) { throw new \RuntimeException('Refusing to delete combination from another product: ' . $id); }
         $shopCount = (int) ($row['shop_count'] ?? 0);
         $targetShopCount = (int) ($row['target_shop_count'] ?? 0);
-        if ($targetShopCount === 0) {
-            return;
-        }
+        if ($targetShopCount === 0) { return; }
         if ($shopCount !== 1 || $targetShopCount !== 1) {
             throw new \RuntimeException('Refusing global delete of shared or ambiguously associated combination ' . $id);
         }
 
         $combination = new \Combination($id, null, $shopId);
-        if (!\Validate::isLoadedObject($combination)) {
-            return;
-        }
-        if ((int) $combination->id_product !== $productId) {
-            throw new \RuntimeException('Refusing to delete combination from another product: ' . $id);
-        }
-        if (!$combination->delete()) {
-            throw new \RuntimeException('Could not delete exclusive combination ' . $id);
-        }
+        if (!\Validate::isLoadedObject($combination)) { return; }
+        if ((int) $combination->id_product !== $productId) { throw new \RuntimeException('Refusing to delete combination from another product: ' . $id); }
+        if (!$combination->delete()) { throw new \RuntimeException('Could not delete exclusive combination ' . $id); }
+        $this->transactionGuard->restoreAfterExternalCommit();
     }
 
     private function shopAssociationCount(int $id): int
@@ -349,36 +313,40 @@ final class CombinationSynchronizer
 
     private function healDefault(int $productId, int $shopId, array $survivors, ?string $explicitDefault): void
     {
-        if ($survivors === []) {
-            return;
-        }
+        if ($survivors === []) { return; }
         $defaultId = $explicitDefault !== null ? (int) ($survivors[$explicitDefault] ?? 0) : 0;
         if ($defaultId <= 0) {
             $ids = array_values(array_map('intval', $survivors));
             sort($ids, SORT_NUMERIC);
             $defaultId = $ids[0] ?? 0;
         }
-        if ($defaultId <= 0) {
-            return;
+        if ($defaultId <= 0) { return; }
+        if (!$this->belongsToProductShop($productId, $defaultId, $shopId)) {
+            throw new \RuntimeException('Chosen default combination is no longer available in target shop: ' . $defaultId);
         }
+
         $db = \Db::getInstance();
         $ids = array_values(array_unique(array_map('intval', $survivors)));
-        if ($ids === []) {
-            return;
-        }
+        if ($ids === []) { return; }
         $idList = implode(',', $ids);
         $externalDefault = (int) $db->getValue(sprintf(
             'SELECT pa.id_product_attribute FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product=%d AND pas.default_on=1 AND pa.id_product_attribute NOT IN (%s) ORDER BY pa.id_product_attribute LIMIT 1',
             _DB_PREFIX_, _DB_PREFIX_, $shopId, $productId, $idList
         ), false);
-        if ($externalDefault > 0) {
-            throw new \RuntimeException('Refusing to override default combination owned outside Matterhorn: ' . $externalDefault);
-        }
+        if ($externalDefault > 0) { throw new \RuntimeException('Refusing to override default combination owned outside Matterhorn: ' . $externalDefault); }
         if (!$db->update('product_attribute_shop', ['default_on' => null], 'id_shop=' . $shopId . ' AND id_product_attribute IN (' . $idList . ')')) {
             throw new \RuntimeException('Could not clear target-shop default combination');
         }
-        if (!$db->update('product_attribute_shop', ['default_on' => 1], 'id_shop=' . $shopId . ' AND id_product_attribute=' . $defaultId)) {
+        if (!$db->execute(sprintf(
+            "UPDATE `%sproduct_attribute_shop` pas " .
+            "INNER JOIN `%sproduct_attribute` pa ON pa.id_product_attribute=pas.id_product_attribute " .
+            "SET pas.default_on=1 WHERE pa.id_product=%d AND pas.id_product_attribute=%d AND pas.id_shop=%d",
+            _DB_PREFIX_, _DB_PREFIX_, $productId, $defaultId, $shopId
+        ))) {
             throw new \RuntimeException('Could not set target-shop default combination ' . $defaultId);
+        }
+        if ((int) $db->Affected_Rows() !== 1) {
+            throw new \RuntimeException('Chosen default combination changed concurrently before assignment: ' . $defaultId);
         }
     }
 }
