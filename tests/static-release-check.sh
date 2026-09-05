@@ -27,6 +27,7 @@ php tests/product-persistence-contract-check.php
 bash tests/product-shop-partial-language-recovery-check.sh
 php tests/feature-sync-contract-check.php
 php tests/combination-sync-contract-check.php
+php tests/specific-price-state-contract-check.php
 bash tests/item-transaction-guard-check.sh
 bash tests/product-domain-fanout-bounds-check.sh
 bash tests/stage-counter-durability-check.sh
