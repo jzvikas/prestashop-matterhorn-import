@@ -87,6 +87,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
 
         $options = is_array($row['options'] ?? null) ? array_values($row['options']) : [];
         $prepared = [];
+        $warnings = [];
         $seenOptionIds = [];
         $seenSizes = [];
         foreach ($options as $index => $option) {
@@ -107,9 +108,15 @@ final class MatterhornProductMapper implements ProductMapperInterface
             $stockRaw = trim((string) ($option['stock'] ?? '0'));
             $stock = filter_var($stockRaw, FILTER_VALIDATE_INT);
             if ($stock === false) { throw new \InvalidArgumentException('Matterhorn option ' . $optionId . ' has invalid stock for product ' . $sourceKey); }
+            if ((int) $stock < 0) {
+                $warnings[] = 'option ' . $optionId . ' negative stock ' . (int) $stock . ' normalized to 0';
+            }
             $stock = max(0, (int) $stock);
             $ean = trim((string) ($option['ean'] ?? ''));
-            if ($ean !== '' && !preg_match('/^\d{13}$/D', $ean)) { $ean = ''; }
+            if ($ean !== '' && !preg_match('/^\d{13}$/D', $ean)) {
+                $warnings[] = 'option ' . $optionId . ' invalid optional EAN13 normalized to blank';
+                $ean = '';
+            }
 
             $prepared[] = [
                 'attribute' => $attribute,
@@ -140,6 +147,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
             $extra['combinations_authoritative'] = true;
             $extra['combination_attributes_auto_create'] = true;
         }
+        if ($warnings !== []) { $extra['supplier_warnings'] = $warnings; }
 
         return new ProductData($sourceKey, $reference, ['default' => $name], $price, 0, true, $images, $extra);
     }
