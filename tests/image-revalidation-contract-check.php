@@ -36,11 +36,13 @@ $checks = [
     [$scheduler, 'strcmp($key, $lastReturnedKey) > 0', 'only keys beyond bounded payload cursor may defer'],
     [$scheduler, '$this->queue->enqueueBatch', 'existing secure image queue reuse'],
     [$scheduler, 'payload_window_deferred', 'bounded payload-window visibility'],
+    [$state, 'MAX_STALE_SCAN_ROWS = 50000', 'hard stale-state DB row scan cap'],
+    [$state, '$scanLimit = min(self::MAX_STALE_SCAN_ROWS', 'stale-state scan cap must be applied'],
     [$state, 'updated_at<=DATE_SUB(NOW(),INTERVAL %d HOUR)', 'age-based stale selection'],
     [$state, 'm.out_of_feed=0', 'revalidation excludes out-of-feed products'],
     [$state, 'q.id_shop=s.id_shop AND q.id_product=s.id_product', 'unresolved-job fence must use indexed product prefix'],
     [$state, "q.status<>'done'", 'revalidation avoids products with unresolved image work'],
-    [$state, 'GROUP BY s.source_key', 'stale scan bounded per product'],
+    [$state, 'ORDER BY s.updated_at ASC,s.source_key ASC LIMIT %d', 'stale scan must stop on ordered index range'],
     [$snapshots, 'function imageManifestRowsForSourceKeys', 'bounded keyed manifest lookup'],
     [$snapshots, 'MAX_FETCH_PAYLOAD_BYTES', 'manifest payload memory bound'],
     [$command, "parent::__construct('matterhornimport:images:revalidate')", 'image revalidate command name'],
@@ -53,6 +55,10 @@ $checks = [
 
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
+}
+if (str_contains($state, 'GROUP BY s.source_key')) {
+    fwrite(STDERR, "FAIL: stale-state hot query must not GROUP BY the entire stale range\n");
+    exit(1);
 }
 
 echo "Image revalidation contract: OK\n";
