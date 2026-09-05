@@ -85,8 +85,11 @@ final class RunRepository
         }
     }
 
-    public function resetRead(int $runId, ?string $fingerprint): void
+    public function resetRead(int $runId, ?string $fingerprint, string $policyHash): void
     {
+        if (!preg_match('/^[a-f0-9]{64}$/D', $policyHash)) {
+            throw new \InvalidArgumentException('READ policy hash must be a SHA-256 value');
+        }
         if (!\Db::getInstance()->update(self::TABLE, [
             'status' => 'running',
             'read_status' => 'pending',
@@ -96,6 +99,7 @@ final class RunRepository
             'source_duplicate' => 0,
             'read_checkpoint' => 0,
             'source_fingerprint' => $fingerprint === null ? null : pSQL($fingerprint),
+            'source_policy_hash' => pSQL($policyHash),
             'finished_at' => null,
         ], 'id_run=' . (int) $runId, 0, true)) {
             throw new \RuntimeException('Could not reset Matterhorn READ state');
