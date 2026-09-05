@@ -45,8 +45,6 @@ final class ReadStage
             }
         }
 
-        // Refresh once at invocation start and seed the shared policy service. Mapper and
-        // Size resolver consume this cached snapshot for every product in this READ slice.
         $policySnapshot = $this->policy->snapshot($shopId, true);
         $policyHash = $this->policy->hash($policySnapshot);
         $checkpoint = (int) ($run['read_checkpoint'] ?? 0);
@@ -75,6 +73,7 @@ final class ReadStage
             $absoluteCheckpoint = $checkpoint;
             $products = [];
             $batchErrors = [];
+            $batchWarnings = [];
             $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
             $paused = false;
 
@@ -88,10 +87,14 @@ final class ReadStage
                         throw new \RuntimeException('Normalized product payload exceeds READ limit of ' . self::MAX_PRODUCT_PAYLOAD_BYTES . ' bytes (' . $payloadBytes . ' bytes)');
                     }
                     if ($batchTotal > 0 && ($batchTotal >= self::WRITE_BATCH || $batchPayloadBytes + $payloadBytes > self::MAX_BATCH_PAYLOAD_BYTES)) {
-                        $this->flushBatch($runId, $absoluteCheckpoint - 1, $products, $batchErrors, $batchTotal, $batchValid, $batchInvalid);
-                        $products = []; $batchErrors = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
+                        $this->flushBatch($runId, $absoluteCheckpoint - 1, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                        $products = []; $batchErrors = []; $batchWarnings = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
                     }
                     $products[] = $product;
+                    foreach ((array) ($product->extra['supplier_warnings'] ?? []) as $warning) {
+                        $message = trim((string) $warning);
+                        if ($message !== '') { $batchWarnings[] = ['source_key' => $product->sourceKey, 'message' => $message]; }
+                    }
                     $batchPayloadBytes += $payloadBytes;
                     $batchValid++;
                 } catch (\Throwable $e) {
@@ -101,14 +104,14 @@ final class ReadStage
                 $batchTotal++;
                 $this->budget->markItem();
                 if ($batchTotal >= self::WRITE_BATCH) {
-                    $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchTotal, $batchValid, $batchInvalid);
-                    $products = []; $batchErrors = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
+                    $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                    $products = []; $batchErrors = []; $batchWarnings = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
                 }
                 if ($this->budget->shouldStop()) { $paused = true; break; }
             }
 
             if ($batchTotal > 0) {
-                $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchTotal, $batchValid, $batchInvalid);
+                $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
             }
             if ($checkpointSource !== null && !hash_equals((string) $fingerprint, $checkpointSource->fingerprint())) {
                 throw new \RuntimeException('Source XML changed while READ was running; downstream stages blocked');
@@ -161,14 +164,19 @@ final class ReadStage
         }
     }
 
-    /** @param list<\Lp\MatterhornImport\DTO\ProductData> $products @param list<array{source_key:string,error:\Throwable}> $batchErrors */
-    private function flushBatch(int $runId, int $checkpoint, array $products, array $batchErrors, int $total, int $valid, int $invalid): void
+    /**
+     * @param list<\Lp\MatterhornImport\DTO\ProductData> $products
+     * @param list<array{source_key:string,error:\Throwable}> $batchErrors
+     * @param list<array{source_key:string,message:string}> $batchWarnings
+     */
+    private function flushBatch(int $runId, int $checkpoint, array $products, array $batchErrors, array $batchWarnings, int $total, int $valid, int $invalid): void
     {
         $db = \Db::getInstance();
         if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start READ batch transaction'); }
         try {
             $this->snapshots->upsertBatch($runId, $products);
             foreach ($batchErrors as $item) { $this->errors->add($runId, 'read', $item['source_key'], $item['error']); }
+            foreach ($batchWarnings as $item) { $this->errors->add($runId, 'read', $item['source_key'], 'WARNING: ' . $item['message']); }
             $this->runs->commitReadProgress($runId, $checkpoint, $total, $valid, $invalid);
             if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit READ batch'); }
         } catch (\Throwable $e) {
