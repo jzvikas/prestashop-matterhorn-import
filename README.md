@@ -6,20 +6,23 @@ Standalone high-throughput Matterhorn Wholesale supplier import module for **Pre
 
 The production implementation is now assembled across the supplier adapter and reusable skeleton domains:
 
-- streaming `XMLReader` Matterhorn source with checkpoint resume and source fingerprinting;
+- streaming `XMLReader` Matterhorn source with checkpoint resume, source fingerprinting and READ semantic-policy fencing;
 - semantic mapper with isolated domain hashes;
 - category path mapping, manufacturer resolution, Color/Type features and sanitized descriptions;
-- pure READ-time Size descriptors resolved to PrestaShop attributes only during persistence;
+- pure READ-time Size descriptors resolved to PrestaShop attributes only during persistence, with shop-scoped Size group policy;
 - Size combinations with option reference, stock and validated EAN13;
 - guarded `READ -> IMPORT -> UPDATE -> REMOVE` orchestration with bounded resume and REMOVE safety;
+- out-of-feed deactivation that zeroes both base and combination stock;
 - generic specific-price ownership/synchronization infrastructure, which is a no-op for the current Matterhorn feed because the supplier does not provide specific prices;
-- secure persistent image queue/state, lease fencing, HTTP revalidation, SSRF/DNS protections, attachment worker, deduplication and authoritative reconciliation;
+- secure persistent image queue/state, lease fencing, cross-run/mapping fencing, HTTP revalidation, SSRF/DNS protections, attachment worker, deduplication, orphan recovery and authoritative reconciliation;
 - global new-product queue/worker with interrupted-create recovery and retry/backoff;
 - `retry`, `doctor`, `status` and bounded `gc` operational commands;
 - shop-scoped Back Office configuration and live run/queue status;
-- static contracts, real MariaDB schema lifecycle coverage and a Docker PrestaShop 9.1.5 multishop/install/uninstall lifecycle gate.
+- static contracts, changed-feed domain isolation coverage, real MariaDB schema lifecycle coverage and a Docker PrestaShop 9.1.5 runtime gate.
 
-**The implementation is not marked release-green yet:** the GitHub Actions free-minute limit is currently exhausted, so the newly added lifecycle gates have been prepared but have not been executed on the latest commits. They must be run after the Actions quota resets before PROD release approval.
+The real PrestaShop gate now covers module install and command registration, Matterhorn CREATE, manufacturer/category/features, Size combinations, EAN and stock, description persistence, image-manifest enqueue, selective changed-feed UPDATE hashes, REMOVE dry-run, out-of-feed deactivate/stock-zero, multishop isolation/product association recovery, and retention/destructive-uninstall behavior.
+
+**The implementation is not marked release-green yet:** the GitHub Actions free-minute limit is currently exhausted, so the latest static, MariaDB and PrestaShop lifecycle gates have been prepared but have not executed on the latest commits. They must run after the Actions quota resets before PROD release approval.
 
 Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IMPORT_BUILD_PROMPT.md). Production/cron operations: [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
@@ -91,7 +94,7 @@ Real PrestaShop lifecycle, using Docker:
 bash tests/prestashop-runtime-check.sh
 ```
 
-GitHub Actions defines all three gates: PHP 8.4 static contracts, MariaDB schema lifecycle, and PrestaShop **9.1.5 / PHP 8.4** install + command registration + multishop isolation + product association recovery + uninstall retention/destructive-uninstall lifecycle.
+GitHub Actions defines all three gates: PHP 8.4 static contracts, MariaDB schema lifecycle, and PrestaShop **9.1.5 / PHP 8.4** full catalog + multishop + install/uninstall lifecycle.
 
 ## Production rule
 
