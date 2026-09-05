@@ -105,18 +105,26 @@ final class Installer
         try {
             $db = \Db::getInstance();
             $table = _DB_PREFIX_ . self::MAPPING_TABLE;
-            $quotedTable = str_replace('`', '``', $table);
-            $column = $db->getRow("SHOW COLUMNS FROM `{$quotedTable}` LIKE 'out_of_feed'", false);
-            if (!is_array($column)) {
-                if (!$db->execute("ALTER TABLE `{$quotedTable}` ADD COLUMN `out_of_feed` TINYINT(1) NOT NULL DEFAULT 0 AFTER `image_hash`")) {
-                    throw new \RuntimeException('Could not add Matterhorn out_of_feed mapping state: ' . $db->getMsgError());
-                }
+            $columnExists = (bool) $db->getValue(
+                "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
+                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='out_of_feed' LIMIT 1",
+                false
+            );
+            if (!$columnExists && !$db->execute(
+                'ALTER TABLE `' . bqSQL($table) . '` ADD COLUMN `out_of_feed` TINYINT(1) NOT NULL DEFAULT 0 AFTER `image_hash`'
+            )) {
+                throw new \RuntimeException('Could not add Matterhorn out_of_feed mapping state: ' . $db->getMsgError());
             }
-            $index = $db->getRow("SHOW INDEX FROM `{$quotedTable}` WHERE Key_name='idx_feed_state'", false);
-            if (!is_array($index)) {
-                if (!$db->execute("ALTER TABLE `{$quotedTable}` ADD KEY `idx_feed_state` (`id_shop`,`source`,`out_of_feed`,`last_seen_run_id`)")) {
-                    throw new \RuntimeException('Could not add Matterhorn feed-state index: ' . $db->getMsgError());
-                }
+
+            $indexExists = (bool) $db->getValue(
+                "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
+                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='idx_feed_state' LIMIT 1",
+                false
+            );
+            if (!$indexExists && !$db->execute(
+                'ALTER TABLE `' . bqSQL($table) . '` ADD KEY `idx_feed_state` (`id_shop`,`source`,`out_of_feed`,`last_seen_run_id`)'
+            )) {
+                throw new \RuntimeException('Could not add Matterhorn feed-state index: ' . $db->getMsgError());
             }
             return true;
         } catch (\Throwable $e) {
