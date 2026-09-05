@@ -37,6 +37,28 @@ final class ImageStateRepository
         )) ?: [];
     }
 
+    /** @return list<string> */
+    public function staleSourceKeys(int $shopId, string $source, int $ageHours = 24, int $limit = 500): array
+    {
+        if ($shopId <= 0 || trim($source) === '') { throw new \InvalidArgumentException('Stale image-state lookup requires shop/source'); }
+        $ageHours = max(1, min(87600, $ageHours));
+        $limit = max(1, min(5000, $limit));
+        $rows = \Db::getInstance()->executeS(sprintf(
+            "SELECT s.source_key,MIN(s.updated_at) AS oldest_at FROM `%s%s` s " .
+            "INNER JOIN `%sli_matterhornim_99dfbf_mapping` m ON m.id_shop=s.id_shop AND m.source=s.source AND m.source_key=s.source_key AND m.id_product=s.id_product AND m.out_of_feed=0 " .
+            "WHERE s.id_shop=%d AND s.source='%s' AND s.updated_at<=DATE_SUB(NOW(),INTERVAL %d HOUR) " .
+            "AND NOT EXISTS (SELECT 1 FROM `%sli_matterhornim_99dfbf_image_queue` q WHERE q.id_shop=s.id_shop AND q.source=s.source AND q.source_key=s.source_key AND q.status<>'done') " .
+            "GROUP BY s.source_key ORDER BY oldest_at ASC,s.source_key ASC LIMIT %d",
+            _DB_PREFIX_, self::TABLE, _DB_PREFIX_, $shopId, pSQL($source), $ageHours, _DB_PREFIX_, $limit
+        )) ?: [];
+        $keys = [];
+        foreach ($rows as $row) {
+            $key = trim((string) ($row['source_key'] ?? ''));
+            if ($key !== '') { $keys[] = $key; }
+        }
+        return $keys;
+    }
+
     public function touchNotModified(array $queueRow, int $idImage): void
     {
         $sql = sprintf(
