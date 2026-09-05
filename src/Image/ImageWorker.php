@@ -1,6 +1,7 @@
 <?php
 namespace Lp\MatterhornImport\Image;
 
+use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\Exception\StaleImageJobException;
 use Lp\MatterhornImport\Repository\ImageOrphanRepository;
 use Lp\MatterhornImport\Repository\ImageQueueRepository;
@@ -14,6 +15,7 @@ final class ImageWorker
 
     public function __construct(
         private ImageQueueRepository $queue,
+        private SourceInterface $sourceAdapter,
         private SafeImageDownloader $downloader,
         private PrestaImageProcessor $processor,
         private DatabaseSafety $safety,
@@ -27,11 +29,13 @@ final class ImageWorker
     public function tick(string $worker, int $limit = 20, ?int $shopId = null): array
     {
         $this->safety->assertTransactionalCore();
+        $sourceName = trim($this->sourceAdapter->name());
+        if ($sourceName === '') { throw new \RuntimeException('Image worker source name is empty'); }
         $done = $failed = $lost = $superseded = $deduplicated = $notModified = $replacedDeleted = $replacementCleanupFailed = 0;
         $hookCommitRecoveries = $attachedRollbackDeletes = $attachedRollbackDeleteFailed = 0;
         $orphanRecorded = $orphanRecordFailed = 0;
 
-        foreach ($this->queue->claim($worker, $limit, $shopId) as $row) {
+        foreach ($this->queue->claim($worker, $sourceName, $limit, $shopId) as $row) {
             $idQueue = (int) $row['id_queue'];
             $token = (string) ($row['locked_by'] ?? '');
             if ($token === '' || !$this->queue->renew($idQueue, $token)) {
