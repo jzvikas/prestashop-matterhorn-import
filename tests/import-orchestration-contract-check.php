@@ -14,6 +14,8 @@ foreach ($files as $name => $content) { if ($content === false) { throw new Runt
 $checks = [
     ['stage','READ must complete before IMPORT'], ['stage','InterruptedCreateRecovery'], ['stage','CombinationAttributeResolver'],
     ['stage','FeatureSynchronizer'], ['stage','ImageQueueRepository'], ['stage','SAVEPOINT'], ['stage','@@session.in_transaction'],
+    ['stage','FAILURE_SAMPLE_LIMIT = 3'], ['stage','FAILURE_SAMPLE_MESSAGE_BYTES = 240'], ['stage','failureSample('],
+    ['stage',"'; examples: ' . implode(' | ', \$failureSamples)"],
     ['snapshot','MAX_FETCH_PAYLOAD_BYTES'], ['snapshot','newRows'], ['mapping','last_seen_run_id'],
     ['recovery','date_add'], ['recovery','li_matterhornim_99dfbf_mapping'], ['queue','url_hash'],
     ['queue',"status='processing'"], ['safety','INNODB'], ['safety','attribute_group'], ['safety','manufacturer_shop'],
