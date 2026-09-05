@@ -18,6 +18,7 @@ final class ImageFailureClassifier
             'unsupported image mime',
             'invalid or oversized image dimensions',
             'invalid image url port',
+            'image url credentials are not allowed',
         ] as $permanent) {
             if (str_contains($message, $permanent)) {
                 return false;
