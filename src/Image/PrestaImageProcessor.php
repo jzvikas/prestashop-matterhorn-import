@@ -57,7 +57,7 @@ final class PrestaImageProcessor
         }
         $this->shopContext->activate($shopId);
         $db = \Db::getInstance();
-        $valid = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage` WHERE id_product=%d AND id_image IN (%d,%d)', _DB_PREFIX_, $productId, $oldImageId, $newImageId));
+        $valid = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage` WHERE id_product=%d AND id_image IN (%d,%d)', _DB_PREFIX_, $productId, $oldImageId, $newImageId), false);
         if ($valid !== 2) {
             throw new \RuntimeException('Cannot transfer cover between invalid product images');
         }
@@ -67,7 +67,7 @@ final class PrestaImageProcessor
         if (!$db->execute(sprintf('UPDATE `%simage_shop` SET cover=1 WHERE id_image=%d AND id_product=%d AND id_shop=%d', _DB_PREFIX_, $newImageId, $productId, $shopId))) {
             throw new \RuntimeException('Cannot set replacement target-shop cover');
         }
-        $oldShopCount = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $oldImageId));
+        $oldShopCount = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $oldImageId), false);
         if ($oldShopCount === 1) {
             if (!$db->execute(sprintf('UPDATE `%simage` SET cover=NULL WHERE id_product=%d AND cover=1', _DB_PREFIX_, $productId))) {
                 throw new \RuntimeException('Cannot clear previous global cover');
@@ -89,10 +89,31 @@ final class PrestaImageProcessor
         if (!\Validate::isLoadedObject($image) || (int) $image->id_product !== $productId) {
             return false;
         }
-        $shopRows = $db->executeS(sprintf('SELECT id_shop FROM `%simage_shop` WHERE id_image=%d AND id_product=%d ORDER BY id_shop', _DB_PREFIX_, $idImage, $productId)) ?: [];
+
+        // Global Image::delete() is destructive. Always inspect live shop ownership instead of
+        // PrestaShop's query cache; another worker/reconcile pass may have changed image_shop.
+        $shopRows = $db->executeS(sprintf(
+            'SELECT id_shop FROM `%simage_shop` WHERE id_image=%d AND id_product=%d ORDER BY id_shop',
+            _DB_PREFIX_, $idImage, $productId
+        ), true, false) ?: [];
         if (count($shopRows) !== 1 || (int) $shopRows[0]['id_shop'] !== $shopId) {
             return false;
         }
+
+        // Revalidate immediately before the destructive ObjectModel call. This narrows the
+        // select-to-delete race for GC paths that can run outside the import transaction.
+        $exclusive = (int) $db->getValue(sprintf(
+            'SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d AND id_product=%d AND id_shop=%d',
+            _DB_PREFIX_, $idImage, $productId, $shopId
+        ), false);
+        $allShops = (int) $db->getValue(sprintf(
+            'SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d AND id_product=%d',
+            _DB_PREFIX_, $idImage, $productId
+        ), false);
+        if ($exclusive !== 1 || $allShops !== 1) {
+            return false;
+        }
+
         if (!$image->delete()) {
             throw new \RuntimeException('Cannot delete image ' . $idImage);
         }
@@ -136,11 +157,11 @@ final class PrestaImageProcessor
             $valid = (bool) $db->getValue(sprintf(
                 'SELECT 1 FROM `%simage` i INNER JOIN `%simage_shop` ish ON ish.id_image=i.id_image AND ish.id_shop=%d WHERE i.id_image=%d AND i.id_product=%d',
                 _DB_PREFIX_, _DB_PREFIX_, $shopId, $idImage, $productId
-            ));
+            ), false);
             if (!$valid) {
                 throw new \RuntimeException('Cannot reconcile missing product image ' . $idImage);
             }
-            $shopCount = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage));
+            $shopCount = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage), false);
             if ($shopCount === 1 && !$db->execute(sprintf(
                 'UPDATE `%simage` SET position=%d WHERE id_image=%d AND id_product=%d',
                 _DB_PREFIX_, $placement['position'] + 1, $idImage, $productId
