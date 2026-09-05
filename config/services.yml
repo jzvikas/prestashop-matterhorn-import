@@ -16,6 +16,8 @@ services:
     alias: Lp\MatterhornImport\Product\MatterhornProductWriter
   Lp\MatterhornImport\Contract\OutOfFeedPolicyInterface:
     alias: Lp\MatterhornImport\Product\DeactivateOutOfFeedPolicy
+  Lp\MatterhornImport\Command\RunCommand:
+    tags: ['console.command']
   Lp\MatterhornImport\Command\ReadCommand:
     tags: ['console.command']
   Lp\MatterhornImport\Command\ImportCommand:
