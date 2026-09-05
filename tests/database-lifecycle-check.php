@@ -1,0 +1,76 @@
+<?php
+
+declare(strict_types=1);
+
+$host = getenv('LP_DB_HOST') ?: '127.0.0.1';
+$port = (int) (getenv('LP_DB_PORT') ?: 3306);
+$user = getenv('LP_DB_USER') ?: 'root';
+$pass = getenv('LP_DB_PASSWORD') ?: 'root';
+$name = getenv('LP_DB_NAME') ?: 'matterhorn_test';
+$prefix = getenv('LP_DB_PREFIX') ?: 'mh_';
+$root = dirname(__DIR__);
+
+$db = new mysqli($host, $user, $pass, $name, $port);
+if ($db->connect_errno) { fwrite(STDERR, "DB connect failed: {$db->connect_error}\n"); exit(1); }
+$db->set_charset('utf8mb4');
+
+$parse = static function (string $file) use ($root, $prefix): array {
+    $sql = file_get_contents($root . '/sql/' . $file);
+    if ($sql === false) { throw new RuntimeException('Cannot read ' . $file); }
+    $parts = preg_split('/;\s*(?:\r?\n|$)/', str_replace('PREFIX_', $prefix, $sql));
+    if (!is_array($parts)) { throw new RuntimeException('Cannot parse ' . $file); }
+    return array_values(array_filter(array_map('trim', $parts), static fn(string $statement): bool => $statement !== ''));
+};
+$execFile = static function (string $file) use ($parse, $db): void {
+    foreach ($parse($file) as $statement) {
+        if (!$db->query($statement)) { throw new RuntimeException($file . ': ' . $db->error . "\nSQL: " . $statement); }
+    }
+};
+
+$installFiles = ['install.sql', 'attribute-mapping.sql'];
+$uninstallFiles = ['uninstall-attribute-mapping.sql', 'uninstall.sql'];
+$expected = [
+    'li_matterhornim_99dfbf_run','li_matterhornim_99dfbf_snapshot','li_matterhornim_99dfbf_mapping',
+    'li_matterhornim_99dfbf_category_mapping','li_matterhornim_99dfbf_feature_mapping','li_matterhornim_99dfbf_feature_value_mapping',
+    'li_matterhornim_99dfbf_feature_state','li_matterhornim_99dfbf_combination_mapping','li_matterhornim_99dfbf_specific_price_state',
+    'li_matterhornim_99dfbf_new_product_queue','li_matterhornim_99dfbf_error','li_matterhornim_99dfbf_image_state','li_matterhornim_99dfbf_image_queue',
+    'li_matterhornim_99dfbf_attribute_group_mapping','li_matterhornim_99dfbf_attribute_value_mapping',
+];
+
+try {
+    foreach ($uninstallFiles as $file) { $execFile($file); }
+    foreach ($installFiles as $file) { $execFile($file); }
+    foreach ($installFiles as $file) { $execFile($file); }
+
+    foreach ($expected as $suffix) {
+        $table = $prefix . $suffix;
+        $quoted = $db->real_escape_string($table);
+        $row = $db->query("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='{$quoted}'")?->fetch_assoc();
+        if (!$row) { throw new RuntimeException('Missing installed table ' . $table); }
+        if (strtoupper((string) $row['ENGINE']) !== 'INNODB') { throw new RuntimeException('Non-InnoDB table ' . $table); }
+    }
+
+    $mapping = $prefix . 'li_matterhornim_99dfbf_mapping';
+    if (!$db->query("SHOW COLUMNS FROM `{$mapping}` LIKE 'out_of_feed'")?->fetch_assoc()) { throw new RuntimeException('Mapping out_of_feed column missing'); }
+    if (!$db->query("SHOW INDEX FROM `{$mapping}` WHERE Key_name='idx_feed_state'")?->fetch_assoc()) { throw new RuntimeException('Mapping idx_feed_state missing'); }
+
+    $imageQueue = $prefix . 'li_matterhornim_99dfbf_image_queue';
+    foreach (['id_shop','source','source_key','id_product','url_hash','status','locked_by','locked_until','available_at'] as $columnName) {
+        $safe = $db->real_escape_string($columnName);
+        if (!$db->query("SHOW COLUMNS FROM `{$imageQueue}` LIKE '{$safe}'")?->fetch_assoc()) { throw new RuntimeException('Image queue column missing: ' . $columnName); }
+    }
+
+    foreach ($uninstallFiles as $file) { $execFile($file); }
+    foreach ($expected as $suffix) {
+        $table = $db->real_escape_string($prefix . $suffix);
+        $row = $db->query("SELECT COUNT(*) qty FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='{$table}'")?->fetch_assoc();
+        if ((int) ($row['qty'] ?? 0) !== 0) { throw new RuntimeException('Uninstall left table ' . $prefix . $suffix); }
+    }
+
+    echo "Matterhorn database lifecycle: OK\n";
+} catch (Throwable $e) {
+    fwrite(STDERR, 'FAIL: ' . $e->getMessage() . "\n");
+    exit(1);
+} finally {
+    $db->close();
+}
