@@ -19,6 +19,10 @@ combinationCheck(str_contains($mapping, 'li_matterhornim_99dfbf_combination_mapp
 combinationCheck(!str_contains($mapping, 'lp_import_combination_mapping'), 'generic combination DB token does not leak');
 combinationCheck(str_contains($attributeResolver, "$" . "row['attribute_ids'] = $" . "attributeIds"), 'supplier attributes resolve to numeric ids before sync');
 combinationCheck(str_contains($sync, 'combinations_authoritative'), 'authoritative combination removal supported');
+combinationCheck(str_contains($sync, '$authoritative = !empty($product->extra'), 'authoritative state must be explicit for default healing');
+combinationCheck(str_contains($sync, 'COALESCE(('), 'authoritative empty-survivor path must derive cached default from live associations');
+combinationCheck(str_contains($sync, 'pas.default_on=1'), 'manual live default must be preserved after authoritative removal');
+combinationCheck(str_contains($sync, 'cache_default_attribute=COALESCE'), 'product_shop cached default must be synchronized after authoritative removal');
 combinationCheck(str_contains($sync, 'Refusing to mutate global fields of shared combination'), 'shared combination global mutation fails closed');
 combinationCheck(str_contains($sync, 'Refusing to override default combination owned outside Matterhorn'), 'external manual default combination conflict fails closed');
 combinationCheck(str_contains($sync, 'pa.id_product_attribute NOT IN'), 'default healing must inspect non-Matterhorn target-shop combinations');
