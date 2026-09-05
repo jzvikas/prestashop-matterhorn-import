@@ -8,22 +8,53 @@ final class SnapshotRepository
     private const TABLE = 'li_matterhornim_99dfbf_snapshot';
     private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';
     private const MAX_FETCH_PAYLOAD_BYTES = 8388608;
+    private const MAX_WRITE_SQL_BYTES = 8388608; // 8 MiB including SQL syntax and escaped payloads
 
     /** @param list<ProductData> $products */
     public function upsertBatch(int $runId, array $products): void
     {
         if ($products === []) { return; }
-        $values = [];
-        foreach ($products as $product) {
-            if (!$product instanceof ProductData) { throw new \InvalidArgumentException('Snapshot batch contains non-ProductData item'); }
-            $values[] = sprintf("(%d,'%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s')",
-                $runId,pSQL($product->sourceKey),pSQL($product->reference),pSQL($product->payloadHash()),pSQL($product->coreHash()),pSQL($product->priceHash()),
-                pSQL($product->stockHash()),pSQL($product->attributeHash()),pSQL($product->featureHash()),pSQL($product->categoryHash()),pSQL($product->combinationHash()),
-                pSQL($product->combinationStockHash()),pSQL($product->specificPriceHash()),pSQL($product->imageHash()),pSQL($product->toJson(), true));
+
+        $prefix = sprintf(
+            "INSERT INTO `%s%s` (`id_run`,`source_key`,`reference`,`payload_hash`,`core_hash`,`price_hash`,`stock_hash`,`attribute_hash`,`feature_hash`,`category_hash`,`combination_hash`,`combination_stock_hash`,`specific_price_hash`,`image_hash`,`payload`) VALUES ",
+            _DB_PREFIX_,
+            self::TABLE
+        );
+        $suffix = " ON DUPLICATE KEY UPDATE `reference`=VALUES(`reference`),`payload_hash`=VALUES(`payload_hash`),`core_hash`=VALUES(`core_hash`),`price_hash`=VALUES(`price_hash`),`stock_hash`=VALUES(`stock_hash`),`attribute_hash`=VALUES(`attribute_hash`),`feature_hash`=VALUES(`feature_hash`),`category_hash`=VALUES(`category_hash`),`combination_hash`=VALUES(`combination_hash`),`combination_stock_hash`=VALUES(`combination_stock_hash`),`specific_price_hash`=VALUES(`specific_price_hash`),`image_hash`=VALUES(`image_hash`),`payload`=VALUES(`payload`)";
+        $valuesBudget = self::MAX_WRITE_SQL_BYTES - strlen($prefix) - strlen($suffix);
+        if ($valuesBudget <= 0) {
+            throw new \RuntimeException('Matterhorn snapshot SQL write budget is smaller than statement overhead');
         }
-        $sql = sprintf("INSERT INTO `%s%s` (`id_run`,`source_key`,`reference`,`payload_hash`,`core_hash`,`price_hash`,`stock_hash`,`attribute_hash`,`feature_hash`,`category_hash`,`combination_hash`,`combination_stock_hash`,`specific_price_hash`,`image_hash`,`payload`) VALUES %s " .
-            "ON DUPLICATE KEY UPDATE `reference`=VALUES(`reference`),`payload_hash`=VALUES(`payload_hash`),`core_hash`=VALUES(`core_hash`),`price_hash`=VALUES(`price_hash`),`stock_hash`=VALUES(`stock_hash`),`attribute_hash`=VALUES(`attribute_hash`),`feature_hash`=VALUES(`feature_hash`),`category_hash`=VALUES(`category_hash`),`combination_hash`=VALUES(`combination_hash`),`combination_stock_hash`=VALUES(`combination_stock_hash`),`specific_price_hash`=VALUES(`specific_price_hash`),`image_hash`=VALUES(`image_hash`),`payload`=VALUES(`payload`)", _DB_PREFIX_, self::TABLE, implode(',', $values));
-        if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Matterhorn snapshot batch upsert failed'); }
+
+        $values = [];
+        $valuesBytes = 0;
+        foreach ($products as $product) {
+            if (!$product instanceof ProductData) {
+                throw new \InvalidArgumentException('Snapshot batch contains non-ProductData item');
+            }
+            $row = $this->valueRow($runId, $product);
+            $rowBytes = strlen($row);
+            if ($rowBytes > $valuesBudget) {
+                throw new \RuntimeException(
+                    'Escaped Matterhorn snapshot row exceeds SQL write budget for source key ' . $product->sourceKey
+                );
+            }
+
+            $separatorBytes = $values === [] ? 0 : 1;
+            if ($values !== [] && $valuesBytes + $separatorBytes + $rowBytes > $valuesBudget) {
+                $this->executeValueChunk($prefix, $suffix, $values);
+                $values = [];
+                $valuesBytes = 0;
+                $separatorBytes = 0;
+            }
+
+            $values[] = $row;
+            $valuesBytes += $separatorBytes + $rowBytes;
+        }
+
+        if ($values !== []) {
+            $this->executeValueChunk($prefix, $suffix, $values);
+        }
     }
 
     public function purgeRun(int $runId): int { return (int) \Db::getInstance()->delete(self::TABLE, 'id_run=' . (int) $runId); }
@@ -88,6 +119,40 @@ final class SnapshotRepository
             true,
             false
         ) ?: [];
+    }
+
+    private function valueRow(int $runId, ProductData $product): string
+    {
+        return sprintf(
+            "(%d,'%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s')",
+            $runId,
+            pSQL($product->sourceKey),
+            pSQL($product->reference),
+            pSQL($product->payloadHash()),
+            pSQL($product->coreHash()),
+            pSQL($product->priceHash()),
+            pSQL($product->stockHash()),
+            pSQL($product->attributeHash()),
+            pSQL($product->featureHash()),
+            pSQL($product->categoryHash()),
+            pSQL($product->combinationHash()),
+            pSQL($product->combinationStockHash()),
+            pSQL($product->specificPriceHash()),
+            pSQL($product->imageHash()),
+            pSQL($product->toJson(), true)
+        );
+    }
+
+    /** @param list<string> $values */
+    private function executeValueChunk(string $prefix, string $suffix, array $values): void
+    {
+        $sql = $prefix . implode(',', $values) . $suffix;
+        if (strlen($sql) > self::MAX_WRITE_SQL_BYTES) {
+            throw new \RuntimeException('Matterhorn snapshot batch SQL exceeded configured write budget');
+        }
+        if (!\Db::getInstance()->execute($sql)) {
+            throw new \RuntimeException('Matterhorn snapshot batch upsert failed');
+        }
     }
 
     private function payloadWindow(string $sql,string $cursorField):?array
