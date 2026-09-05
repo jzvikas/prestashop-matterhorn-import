@@ -10,17 +10,19 @@ $files = [
     'src/NewProduct/NewProductWorker.php',
     'src/Command/NewProductsEnqueueCommand.php',
     'src/Command/NewProductsCommand.php',
+    'src/Util/ItemTransactionGuard.php',
 ];
 foreach ($files as $file) {
     if (!is_file($root . '/' . $file)) { fwrite(STDERR, "Missing new-product file: {$file}\n"); exit(1); }
 }
 
-$queue = file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
-$worker = file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
-$enqueue = file_get_contents($root . '/src/Command/NewProductsEnqueueCommand.php');
-$command = file_get_contents($root . '/src/Command/NewProductsCommand.php');
-$services = file_get_contents($root . '/config/services.yml');
-$specific = file_get_contents($root . '/src/SpecificPrice/SpecificPriceSynchronizer.php');
+$queue = (string) file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
+$worker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
+$enqueue = (string) file_get_contents($root . '/src/Command/NewProductsEnqueueCommand.php');
+$command = (string) file_get_contents($root . '/src/Command/NewProductsCommand.php');
+$services = (string) file_get_contents($root . '/config/services.yml');
+$specific = (string) file_get_contents($root . '/src/SpecificPrice/SpecificPriceSynchronizer.php');
+$guard = (string) file_get_contents($root . '/src/Util/ItemTransactionGuard.php');
 
 $checks = [
     [$queue, "private const TABLE = 'li_matterhornim_99dfbf_new_product_queue'", 'module-owned new-product queue'],
@@ -38,12 +40,18 @@ $checks = [
     [$worker, 'existing_updated', 'latest generation must update existing mapping'],
     [$worker, 'generation_requeued', 'generation handoff metrics'],
     [$worker, 'writer->update($idProduct, $product, $jobShop)', 'existing product receives latest payload'],
-    [$worker, 'done($idQueue, $token, $idProduct, $expectedRunId)', 'completion generation fence'],
+    [$worker, 'ItemTransactionGuard', 'shared transaction recovery guard'],
+    [$worker, '$this->transactionGuard->arm($db)', 'worker transaction guard arm'],
+    [$worker, '$this->transactionGuard->restoreAfterExternalCommit()', 'nested hook recovery'],
+    [$worker, '$this->transactionGuard->recoveryCount()', 'nested recovery metric'],
+    [$worker, 'done($idQueue,', 'completion generation fence'],
     [$worker, 'fail($idQueue, $token, $e->getMessage(), $retryable, $expectedRunId)', 'failure generation fence'],
-    [$worker, 'transactionIsActive', 'hook transaction recovery'],
+    [$worker, "getValue('SELECT @@session.in_transaction', false)", 'live transaction-state read'],
     [$worker, 'combinationAttributes->resolve', 'Size/combo attribute resolution'],
     [$worker, 'images->enqueue', 'separate image pipeline'],
     [$worker, 'TransientDatabaseFailure::isRetryable', 'transient retry classification'],
+    [$guard, 'private int $recoveryCount = 0', 'guard recovery counter'],
+    [$guard, "getValue('SELECT @@session.in_transaction', false)", 'guard live connection-state read'],
     [$specific, "array_key_exists('specific_prices'", 'specific-price no-op unless explicitly supplied'],
     [$enqueue, "parent::__construct('matterhornimport:new-products:enqueue')", 'enqueue command name'],
     [$enqueue, "remove_status'] !== 'pending'", 'enqueue/remove safety gate'],
@@ -55,10 +63,24 @@ $checks = [
 ];
 
 foreach ($checks as [$haystack, $needle, $label]) {
-    if (!is_string($haystack) || !str_contains($haystack, $needle)) {
+    if (!str_contains($haystack, $needle)) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+
+$donePos = strpos($worker, '$finalizedGeneration = $this->queue->done(');
+$commitPos = strpos($worker, "execute('COMMIT')");
+if ($donePos === false || $commitPos === false || $donePos >= $commitPos) {
+    fwrite(STDERR, "FAIL: queue generation finalization must be inside the worker transaction before COMMIT\n");
+    exit(1);
+}
+
+$mappingPos = strpos($worker, '$this->mapping->save(');
+$imagePos = strpos($worker, '$this->images->enqueue(');
+if ($mappingPos === false || $imagePos === false || $mappingPos >= $donePos || $imagePos >= $donePos) {
+    fwrite(STDERR, "FAIL: mapping/image durability must precede queue finalization in one transaction\n");
+    exit(1);
 }
 
 echo "New-product worker contract: OK\n";
