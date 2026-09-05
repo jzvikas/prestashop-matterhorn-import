@@ -51,6 +51,44 @@ final class ProductShopAssociationManager
         }
     }
 
+    /**
+     * PrestaShop keeps duplicated copies of selected shop fields in ps_product and ps_product_shop.
+     * Product::update() may overwrite the ps_product copy even when a non-default shop is targeted.
+     * Restore only the small allow-list of fields Matterhorn changes on shared products.
+     *
+     * @param list<string> $fields
+     */
+    public function restoreDefaultShopShadows(int $productId, int $updatedShopId, array $fields): void
+    {
+        if ($productId <= 0 || $updatedShopId <= 0) { throw new \InvalidArgumentException('Product and shop IDs must be positive'); }
+        $allowed = ['price' => true, 'active' => true];
+        $fields = array_values(array_unique(array_filter(
+            array_map(static fn(mixed $field): string => trim((string) $field), $fields),
+            static fn(string $field): bool => isset($allowed[$field])
+        )));
+        if ($fields === []) { return; }
+
+        $db = \Db::getInstance();
+        $defaultShopId = (int) $db->getValue('SELECT id_shop_default FROM `' . _DB_PREFIX_ . 'product` WHERE id_product=' . $productId);
+        if ($defaultShopId <= 0) { throw new \RuntimeException('Product #' . $productId . ' has no valid default shop'); }
+        if ($defaultShopId === $updatedShopId) { return; }
+
+        $quoted = implode(',', array_map(static fn(string $field): string => '`' . $field . '`', $fields));
+        $row = $db->getRow('SELECT ' . $quoted . ' FROM `' . _DB_PREFIX_ . 'product_shop` WHERE id_product=' . $productId . ' AND id_shop=' . $defaultShopId);
+        if (!is_array($row) || $row === []) {
+            throw new \RuntimeException('Product #' . $productId . ' default-shop shadow source is missing for shop #' . $defaultShopId);
+        }
+
+        $data = [];
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $row)) { throw new \RuntimeException('Missing product-shop shadow field ' . $field); }
+            $data[$field] = $field === 'active' ? (int) $row[$field] : (float) $row[$field];
+        }
+        if (!$db->update('product', $data, 'id_product=' . $productId)) {
+            throw new \RuntimeException('Could not restore default-shop product shadow fields for product #' . $productId);
+        }
+    }
+
     private function rowExists(string $sql): bool { $rows = \Db::getInstance()->executeS($sql, true, false) ?: []; return isset($rows[0]); }
 
     private function copyShopRows(string $table, int $productId, int $sourceShopId, int $targetShopId): void
