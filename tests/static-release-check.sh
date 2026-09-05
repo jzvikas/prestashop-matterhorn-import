@@ -14,6 +14,7 @@ php tests/product-persistence-contract-check.php
 bash tests/product-shop-partial-language-recovery-check.sh
 php tests/feature-sync-contract-check.php
 php tests/combination-sync-contract-check.php
+bash tests/item-transaction-guard-check.sh
 php tests/read-orchestration-contract-check.php
 php tests/import-orchestration-contract-check.php
 php tests/update-orchestration-contract-check.php
