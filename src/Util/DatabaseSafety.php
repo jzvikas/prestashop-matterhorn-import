@@ -6,7 +6,7 @@ final class DatabaseSafety
     private const TABLES = [
         'product','product_shop','product_lang','stock_available',
         'category','category_shop','category_lang','category_product',
-        'manufacturer','manufacturer_shop',
+        'manufacturer','manufacturer_shop','manufacturer_lang',
         'feature','feature_shop','feature_lang','feature_value','feature_value_lang','feature_product',
         'attribute_group','attribute_group_shop','attribute_group_lang','attribute','attribute_shop','attribute_lang',
         'product_attribute','product_attribute_shop','product_attribute_combination','product_attribute_image',
