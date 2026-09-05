@@ -72,13 +72,22 @@ final class ImageStateRepository
 
     public function touchNotModified(array $queueRow, int $idImage): void
     {
+        if ($idImage <= 0) { throw new \InvalidArgumentException('Image state revalidation requires a live image ID'); }
+        $db = \Db::getInstance();
+        $state = _DB_PREFIX_ . self::TABLE;
+        $image = _DB_PREFIX_ . 'image';
+        $imageShop = _DB_PREFIX_ . 'image_shop';
         $sql = sprintf(
-            "UPDATE `%s%s` SET position=%d,is_cover=%d,last_seen_run_id=%d,updated_at=NOW() WHERE id_shop=%d AND source='%s' AND source_key='%s' AND url_hash='%s' AND id_product=%d AND id_image=%d",
-            _DB_PREFIX_, self::TABLE, (int) $queueRow['position'], (int) $queueRow['is_cover'], (int) $queueRow['id_run'],
+            "UPDATE `%s` s INNER JOIN `%s` i ON i.id_image=s.id_image AND i.id_product=s.id_product INNER JOIN `%s` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop SET s.position=%d,s.is_cover=%d,s.last_seen_run_id=%d,s.updated_at=NOW() WHERE s.id_shop=%d AND s.source='%s' AND s.source_key='%s' AND s.url_hash='%s' AND s.id_product=%d AND s.id_image=%d",
+            $state, $image, $imageShop, (int) $queueRow['position'], (int) $queueRow['is_cover'], (int) $queueRow['id_run'],
             (int) $queueRow['id_shop'], pSQL((string) $queueRow['source']), pSQL((string) $queueRow['source_key']), pSQL((string) $queueRow['url_hash']), (int) $queueRow['id_product'], $idImage
         );
-        $db = \Db::getInstance();
         if (!$db->execute($sql) || (int) $db->Affected_Rows() > 1) { throw new \RuntimeException('Image state revalidation update failed'); }
+        $live = (bool) $db->getValue(sprintf(
+            "SELECT 1 FROM `%s` s INNER JOIN `%s` i ON i.id_image=s.id_image AND i.id_product=s.id_product INNER JOIN `%s` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop WHERE s.id_shop=%d AND s.source='%s' AND s.source_key='%s' AND s.url_hash='%s' AND s.id_product=%d AND s.id_image=%d FOR UPDATE",
+            $state, $image, $imageShop, (int) $queueRow['id_shop'], pSQL((string) $queueRow['source']), pSQL((string) $queueRow['source_key']), pSQL((string) $queueRow['url_hash']), (int) $queueRow['id_product'], $idImage
+        ), false);
+        if (!$live) { throw new \RuntimeException('Image state revalidation lost its live PrestaShop image association'); }
     }
 
     public function save(array $queueRow, int $idImage, DownloadedImage $download): void
