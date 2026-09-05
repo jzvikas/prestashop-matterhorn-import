@@ -222,7 +222,7 @@ final class CategoryAutoMapper
     private function acquireLock(\Db $db, int $shopId, int $parentId, string $name): string
     {
         $scope = $shopId . ':' . $parentId . ':' . $this->normalizeSegment($name);
-        $lock = 'matterhorn:cat:' . substr(hash('sha256', $scope), 0, 40);
+        $lock = 'lpimp:cat:' . substr(hash('sha256', $scope), 0, 40);
         if ((int) $db->getValue(
             "SELECT GET_LOCK('" . pSQL($lock) . "'," . self::LOCK_TIMEOUT_SECONDS . ')',
             false
