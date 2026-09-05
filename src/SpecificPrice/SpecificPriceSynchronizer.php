@@ -67,8 +67,8 @@ final class SpecificPriceSynchronizer
                 'from_quantity'=>max(1,(int)($row['from_quantity']??1)), 'from'=>$this->date((string)($row['from']??'')), 'to'=>$this->date((string)($row['to']??'')),
                 'price'=>$price, 'reduction'=>$reduction, 'reduction_tax'=>!empty($row['reduction_tax'])?1:0, 'reduction_type'=>$type,
             ];
-            if ($n['id_product_attribute'] > 0 && (int) \Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product_attribute` WHERE id_product_attribute=' . $n['id_product_attribute'] . ' AND id_product=' . $productId) !== 1) {
-                throw new \RuntimeException('Specific price references combination outside product ' . $productId);
+            if ($n['id_product_attribute'] > 0 && !$this->combinationBelongsToShopProduct($n['id_product_attribute'], $productId, $shopId)) {
+                throw new \RuntimeException('Specific price references combination outside target shop/product ' . $productId . '/' . $shopId);
             }
             $key = hash('sha256', json_encode([$shopId,$n['id_product_attribute'],$n['id_currency'],$n['id_country'],$n['id_group'],$n['id_customer'],$n['from_quantity'],$n['from'],$n['to']], JSON_THROW_ON_ERROR));
             if (isset($out[$key])) { throw new \InvalidArgumentException('Duplicate semantic specific-price scope'); }
@@ -76,6 +76,14 @@ final class SpecificPriceSynchronizer
         }
         ksort($out, SORT_STRING);
         return $out;
+    }
+
+    private function combinationBelongsToShopProduct(int $attributeId, int $productId, int $shopId): bool
+    {
+        return (bool) \Db::getInstance()->getValue(sprintf(
+            'SELECT 1 FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product_attribute=%d AND pa.id_product=%d LIMIT 1',
+            _DB_PREFIX_, _DB_PREFIX_, $shopId, $attributeId, $productId
+        ));
     }
 
     private function date(string $value): string
