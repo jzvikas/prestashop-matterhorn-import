@@ -189,7 +189,8 @@ final class MatterhornProductMapper implements ProductMapperInterface
             $seenSizes[$semantic] = true;
 
             $stockRaw = trim((string) ($option['stock'] ?? '0'));
-            $stock = filter_var($stockRaw, FILTER_VALIDATE_INT);
+            $canonicalStock = $this->canonicalInteger($stockRaw);
+            $stock = $canonicalStock === null ? false : filter_var($canonicalStock, FILTER_VALIDATE_INT);
             if ($stock === false) { throw new \InvalidArgumentException('Matterhorn option ' . $optionId . ' has invalid stock for product ' . $sourceKey); }
             if ((int) $stock > self::MAX_PRESTASHOP_STOCK) {
                 throw new \InvalidArgumentException(
@@ -245,6 +246,23 @@ final class MatterhornProductMapper implements ProductMapperInterface
         }
 
         return new ProductData($sourceKey, $reference, ['default' => $name], $price, 0, true, $images, $extra);
+    }
+
+    private function canonicalInteger(string $value): ?string
+    {
+        if ($value === '' || preg_match('/^[+-]?\d+$/D', $value) !== 1) {
+            return null;
+        }
+        $sign = '';
+        if ($value[0] === '+' || $value[0] === '-') {
+            $sign = $value[0];
+            $value = substr($value, 1);
+        }
+        $digits = ltrim($value, '0');
+        if ($digits === '') {
+            return '0';
+        }
+        return $sign . $digits;
     }
 
     private function assertCatalogText(string $value, string $label, string $sourceKey): void
