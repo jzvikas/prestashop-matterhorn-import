@@ -9,6 +9,10 @@ final class CategoryAutoMapper
 {
     /** @var array<int,array<string,int>> */
     private array $pathMap = [];
+    /** @var array<int,array<string,string>> */
+    private array $preparedMetadata = [];
+    /** @var array<string,bool> */
+    private array $availabilityCache = [];
 
     public function __construct(private CategoryMappingRepository $mapping, private ShopContextManager $shopContext) {}
 
@@ -29,14 +33,30 @@ final class CategoryAutoMapper
             }
             if ($name === '') { $name = $key; }
             if ($path === '') { $path = $name; }
-            $this->mapping->upsertMetadata($shopId, $key, $name, $parentKey ?: null, $path, true);
+
+            $metadataFingerprint = hash('xxh3', json_encode([
+                'name' => $name,
+                'parent_key' => $parentKey ?: null,
+                'path' => $path,
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $previousFingerprint = $this->preparedMetadata[$shopId][$key] ?? null;
+            if ($previousFingerprint !== null && !hash_equals($previousFingerprint, $metadataFingerprint)) {
+                throw new \RuntimeException('Conflicting Matterhorn category metadata for supplier key ' . $key);
+            }
+            if ($previousFingerprint === null) {
+                $this->mapping->upsertMetadata($shopId, $key, $name, $parentKey ?: null, $path, true);
+                $this->preparedMetadata[$shopId][$key] = $metadataFingerprint;
+            }
 
             $current = $this->mapping->resolveActiveCategoryIds([$key], $shopId)[$key] ?? 0;
             if ($current > 0 && $this->categoryExistsInShop($current, $shopId)) { continue; }
             $normalizedPath = $this->normalizePath($path);
             $categoryId = $this->pathMap($shopId)[$normalizedPath] ?? 0;
             if ($categoryId <= 0 && !empty($raw['auto_create'])) { $categoryId = $this->createPath($path, $shopId); }
-            if ($categoryId > 0) { $this->mapping->assign($shopId, $key, $categoryId, true); }
+            if ($categoryId > 0) {
+                $this->availabilityCache[$this->availabilityKey($shopId, $categoryId)] = true;
+                $this->mapping->assign($shopId, $key, $categoryId, true);
+            }
         }
     }
 
@@ -59,7 +79,10 @@ final class CategoryAutoMapper
         foreach ($rows as $row) {
             $path = $this->normalizePath((string) ($row['category_path'] ?? ''));
             $id = (int) ($row['id_category'] ?? 0);
-            if ($path !== '' && $id > 0 && !isset($map[$path])) { $map[$path] = $id; }
+            if ($path !== '' && $id > 0 && !isset($map[$path])) {
+                $map[$path] = $id;
+                $this->availabilityCache[$this->availabilityKey($shopId, $id)] = true;
+            }
         }
         return $this->pathMap[$shopId] = $map;
     }
@@ -79,6 +102,7 @@ final class CategoryAutoMapper
             if ($existing > 0) {
                 $parentId = $existing;
                 $this->pathMap[$shopId][$normalized] = $existing;
+                $this->availabilityCache[$this->availabilityKey($shopId, $existing)] = true;
                 continue;
             }
             $category = new \Category();
@@ -98,6 +122,7 @@ final class CategoryAutoMapper
             if (!$category->add() || (int) $category->id <= 0) { throw new \RuntimeException('Could not create category path segment: ' . $part); }
             $parentId = (int) $category->id;
             $this->pathMap[$shopId][$normalized] = $parentId;
+            $this->availabilityCache[$this->availabilityKey($shopId, $parentId)] = true;
         }
         return $parentId;
     }
@@ -118,8 +143,17 @@ final class CategoryAutoMapper
 
     private function categoryExistsInShop(int $categoryId, int $shopId): bool
     {
+        $cacheKey = $this->availabilityKey($shopId, $categoryId);
+        if (array_key_exists($cacheKey, $this->availabilityCache)) {
+            return $this->availabilityCache[$cacheKey];
+        }
         $category = new \Category($categoryId, $this->languageId($shopId), $shopId);
-        return \Validate::isLoadedObject($category) && $category->existsInShop($shopId);
+        return $this->availabilityCache[$cacheKey] = \Validate::isLoadedObject($category) && $category->existsInShop($shopId);
+    }
+
+    private function availabilityKey(int $shopId, int $categoryId): string
+    {
+        return $shopId . ':' . $categoryId;
     }
 
     private function rootCategoryId(int $shopId): int
