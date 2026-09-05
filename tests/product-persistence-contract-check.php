@@ -49,7 +49,12 @@ persistenceCheck(str_contains($specificPrice, "'`id_specific_price`=' . \$id") &
 persistenceCheck(str_contains($specificPrice, "\"`price`='\"") && str_contains($specificPrice, "\"`reduction`='\""), 'specific-price delete fence must include mutable price/reduction values');
 persistenceCheck(str_contains($specificPrice, '$db->Affected_Rows() > 1'), 'specific-price optimistic delete must reject impossible multi-row deletion');
 persistenceCheck(str_contains($specificPrice, 'getRow(') && str_contains($specificPrice, "false\n        );"), 'specific-price live row fetch must bypass Db query cache');
-persistenceCheck(str_contains($specificPrice, 'executeS(') && str_contains($specificPrice, "true,\n            false"), 'specific-price semantic-match scan must bypass Db query cache');
+persistenceCheck(str_contains($specificPrice, 'SELECT id_specific_price FROM `%sspecific_price`'), 'specific-price semantic lookup must project only identifiers');
+persistenceCheck(str_contains($specificPrice, 'AND id_product_attribute=%d AND id_currency=%d AND id_country=%d AND id_group=%d'), 'specific-price semantic identity must be pushed into SQL');
+persistenceCheck(str_contains($specificPrice, 'AND id_customer=%d AND from_quantity=%d AND `from`=\'%s\' AND `to`=\'%s\''), 'specific-price customer/quantity/date identity must be pushed into SQL');
+persistenceCheck(str_contains($specificPrice, 'ORDER BY id_specific_price LIMIT 2'), 'specific-price semantic lookup must materialize at most ambiguity threshold');
+persistenceCheck(!str_contains($specificPrice, "SELECT * FROM `" . '_DB_PREFIX_' . " . 'specific_price` WHERE id_product="), 'specific-price semantic lookup must not materialize all product rules');
+persistenceCheck(str_contains($specificPrice, '), true, false) ?: [];'), 'specific-price semantic-match scan must bypass Db query cache');
 persistenceCheck(str_contains($specificPrice, '), false);'), 'specific-price combination ownership read must bypass Db query cache');
 persistenceCheck(str_contains($outOfFeed, 'disable($productId, $shopId)'), 'out-of-feed must deactivate/zero stock through writer');
 
