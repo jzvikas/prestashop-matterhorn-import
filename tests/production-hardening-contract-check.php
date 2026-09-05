@@ -97,6 +97,9 @@ if (!str_contains($categoryAuto, 'unset($this->childMap[$shopId][$lockedParentId
 if (substr_count($categoryAuto, '), true, false)') < 2) {
     $fail('category path/child reads must bypass Db query cache');
 }
+if (!str_contains($categoryAuto, '_DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, _DB_PREFIX_, $langId, $shopId, $rootId, $homeId')) {
+    $fail('category path SQL must bind every table-prefix and scalar sprintf placeholder');
+}
 if (!str_contains($categoryAuto, 'RELEASE_LOCK') || !str_contains($categoryAuto, "')\", false);")) {
     $fail('category resolver lock release must bypass Db query cache');
 }
