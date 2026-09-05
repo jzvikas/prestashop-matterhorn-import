@@ -45,6 +45,7 @@ check(($first['attributes'][0]['group_key'] ?? '') === 'matterhorn:size', 'Size 
 check(($first['attributes'][0]['value_key'] ?? '') === 'matterhorn:size:xs', 'Size value supplier key');
 check(($first['quantity'] ?? -1) === 2, 'combination stock');
 check(($first['ean13'] ?? '') === '5902934981668', 'combination EAN');
+check(($first['matterhorn_available_in'] ?? '') === '3', 'avaible_in must survive mapping as supplier metadata');
 check(($first['default'] ?? false) === true, 'stable sorted first option is default');
 check(!class_exists('Context', false), 'pure READ mapper must not require PrestaShop Context');
 
@@ -55,6 +56,13 @@ check($product->combinationStockHash() !== $stockChanged->combinationStockHash()
 foreach (['core','price','stock','attribute','feature','category','combination','specific_price','image'] as $domain) {
     check($product->domainHashes()[$domain] === $stockChanged->domainHashes()[$domain], 'stock change leaves ' . $domain . ' unchanged');
 }
+
+$availabilityRow = $rows[0];
+$availabilityRow['options'][0]['available_in'] = '9';
+$availabilityChanged = $mapper->map($availabilityRow);
+check(($availabilityChanged->extra['combinations'][0]['matterhorn_available_in'] ?? '') === '9', 'changed avaible_in metadata must be preserved');
+check($product->payloadHash() !== $availabilityChanged->payloadHash(), 'avaible_in metadata change must remain observable in payload hash');
+check($product->domainHashes() === $availabilityChanged->domainHashes(), 'avaible_in metadata must not affect catalog domain hashes');
 
 $priceChanged = new ProductData($product->sourceKey, $product->reference, $product->name, 15.9, $product->quantity, $product->active, $product->images, $product->extra);
 check($product->priceHash() !== $priceChanged->priceHash(), 'price change changes price hash');
