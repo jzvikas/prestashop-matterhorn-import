@@ -20,7 +20,7 @@ final class ImagesCommand extends Command
         $this
             ->addOption('shop', null, InputOption::VALUE_OPTIONAL, 'Only this shop')
             ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Jobs per tick', '20')
-            ->addOption('worker', null, InputOption::VALUE_REQUIRED, 'Worker label', gethostname() . '-' . getmypid())
+            ->addOption('worker', null, InputOption::VALUE_REQUIRED, 'Worker label', (gethostname() ?: 'host') . '-' . getmypid())
             ->addOption('max-runtime', null, InputOption::VALUE_REQUIRED, 'Seconds; 0 = single tick', '0')
             ->addOption('idle-sleep-ms', null, InputOption::VALUE_REQUIRED, 'Sleep between empty polls', '250');
     }
@@ -33,18 +33,34 @@ final class ImagesCommand extends Command
         $idleSleepMs = CommandInput::nonNegativeInt($input->getOption('idle-sleep-ms'), '--idle-sleep-ms', 60000);
         $worker = CommandInput::workerLabel($input->getOption('worker'));
         $started = microtime(true);
-        $total = ['processed'=>0,'done'=>0,'failed'=>0,'lost'=>0,'deduplicated'=>0,'not_modified'=>0];
+        $total = [
+            'processed' => 0,
+            'done' => 0,
+            'failed' => 0,
+            'lost' => 0,
+            'deduplicated' => 0,
+            'not_modified' => 0,
+            'replaced_deleted' => 0,
+            'replacement_cleanup_failed' => 0,
+            'hook_commit_recoveries' => 0,
+            'attached_rollback_deleted' => 0,
+            'attached_rollback_delete_failed' => 0,
+        ];
 
         do {
             $result = $this->worker->tick($worker, $limit, $shopId);
-            foreach (array_keys($total) as $key) { $total[$key] += (int) ($result[$key] ?? 0); }
-            if ($maxRuntime === 0) { break; }
-            if ((int) ($result['processed'] ?? 0) === 0) { usleep($idleSleepMs * 1000); }
+            foreach (array_keys($total) as $key) {
+                $total[$key] += (int) ($result[$key] ?? 0);
+            }
+            if ($maxRuntime === 0) {
+                break;
+            }
+            if ((int) ($result['processed'] ?? 0) === 0) {
+                usleep($idleSleepMs * 1000);
+            }
         } while ((microtime(true) - $started) < $maxRuntime);
 
-        $json = json_encode($total, JSON_UNESCAPED_SLASHES);
-        if ($json === false) { throw new \RuntimeException('Could not encode image worker result'); }
-        $output->writeln($json);
+        $output->writeln((string) json_encode($total, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
         return $total['failed'] > 0 ? Command::FAILURE : Command::SUCCESS;
     }
 }
