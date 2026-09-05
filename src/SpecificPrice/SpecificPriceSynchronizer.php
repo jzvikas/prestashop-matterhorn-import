@@ -43,6 +43,7 @@ final class SpecificPriceSynchronizer
                 }
             }
             $this->update($id, $row, $productId, $shopId);
+            $this->assertAppliedRule($id, $row, $productId, $shopId);
             $this->state->save($shopId, $source, $product->sourceKey, $productId, $semanticKey, $id, $this->ruleHash($row), $runId);
             unset($owned[$semanticKey]);
         }
@@ -122,6 +123,20 @@ final class SpecificPriceSynchronizer
     private function update(int $id, array $row, int $productId, int $shopId): void
     {
         if (!\Db::getInstance()->update('specific_price', $this->dbData($row, $productId, $shopId), 'id_specific_price=' . $id . ' AND id_product=' . $productId . ' AND id_shop=' . $shopId)) { throw new \RuntimeException('Could not update specific price ' . $id); }
+    }
+
+    private function assertAppliedRule(int $id, array $row, int $productId, int $shopId): void
+    {
+        $live = $this->fetchLive($id, $productId, $shopId);
+        if (
+            $live === null
+            || (int) ($live['id_specific_price_rule'] ?? -1) !== 0
+            || (int) ($live['id_cart'] ?? -1) !== 0
+            || (int) ($live['id_shop_group'] ?? -1) !== 0
+            || !hash_equals($this->ruleHash($row), $this->ruleHash($this->normalizeLiveRule($live)))
+        ) {
+            throw new \RuntimeException('Specific price write verification failed for ' . $id);
+        }
     }
 
     private function dbData(array $row, int $productId, int $shopId): array
