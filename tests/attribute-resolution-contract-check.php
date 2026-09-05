@@ -21,6 +21,9 @@ attrCheck(!str_contains($sizeSource, 'Db::') && !str_contains($sizeSource, 'Cont
 $mapping = (string) file_get_contents(dirname(__DIR__) . '/src/Repository/AttributeMappingRepository.php');
 $sql = (string) file_get_contents(dirname(__DIR__) . '/sql/attribute-mapping.sql');
 attrCheck(str_contains($mapping, 'li_matterhornim_99dfbf_attribute_value_mapping'), 'runtime uses generated Matterhorn attribute mapping token');
+attrCheck(str_contains($mapping, 'private array $pairCache'), 'attribute mapping lookups must use process-local cache');
+attrCheck(str_contains($mapping, 'array_key_exists($cacheKey, $this->pairCache)'), 'cached misses and hits must both be reused');
+attrCheck(str_contains($mapping, "$this->pairCache[$this->cacheKey"), 'newly saved mappings must seed process-local cache');
 attrCheck(str_contains($sql, 'PREFIX_li_matterhornim_99dfbf_attribute_group_mapping'), 'schema uses generated Matterhorn table token');
 attrCheck(!str_contains($mapping, 'lp_import_attribute_'), 'generic skeleton table token must not leak into standalone module');
 attrCheck(!str_contains($sql, 'PREFIX_lp_import_attribute_'), 'generic install table token must not leak into standalone module');
@@ -28,5 +31,7 @@ attrCheck(!str_contains($sql, 'PREFIX_lp_import_attribute_'), 'generic install t
 $resolver = (string) file_get_contents(dirname(__DIR__) . '/src/Combination/CombinationAttributeResolver.php');
 attrCheck(str_contains($resolver, "unset(\$row['attributes'])"), 'persistence resolver replaces supplier descriptors with numeric attribute_ids');
 attrCheck(str_contains($resolver, "\$row['attribute_ids'] = \$attributeIds"), 'numeric attribute ids are persisted only after resolution');
+attrCheck(str_contains($resolver, 'private array $availabilityCache'), 'shop attribute availability must be cached per process');
+attrCheck(str_contains($resolver, 'availabilityKey($shopId, $attributeId)'), 'availability cache must be shop-scoped');
 
 echo "Attribute resolution contract checks: OK\n";
