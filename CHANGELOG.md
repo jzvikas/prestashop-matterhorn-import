@@ -4,6 +4,9 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 
 ## Unreleased
 
+- Fenced image processing to the exact active `(shop, source, source_key, id_product)` mapping before download and before state persistence; retained unresolved rows whose mapping is already `out_of_feed=1` are superseded and no longer block authoritative reconciliation, with static and MariaDB regression coverage.
+- Optimized GitHub Actions release validation with read-only permissions, concurrency cancellation, explicit timeouts, cheap-static-first gating, parallel MariaDB/PrestaShop lifecycle jobs, checkout v5 and parallel Docker image pre-pull without weakening the full PR/main test suite.
+
 ## 0.1.7
 
 - Enforced exclusive PrestaShop product ownership per shop with `uq_shop_product_owner (id_shop, id_product)` so two supplier sources cannot manage the same product silently.
