@@ -112,7 +112,7 @@ final class Installer
             );
             if (!$columnExists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($table) . '` ADD COLUMN `out_of_feed` TINYINT(1) NOT NULL DEFAULT 0 AFTER `image_hash`'
-            )) {
+            ) && (int) $db->getNumberError() !== 1060) {
                 throw new \RuntimeException('Could not add Matterhorn out_of_feed mapping state: ' . $db->getMsgError());
             }
 
@@ -123,7 +123,7 @@ final class Installer
             );
             if (!$indexExists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($table) . '` ADD KEY `idx_feed_state` (`id_shop`,`source`,`out_of_feed`,`last_seen_run_id`)'
-            )) {
+            ) && (int) $db->getNumberError() !== 1061) {
                 throw new \RuntimeException('Could not add Matterhorn feed-state index: ' . $db->getMsgError());
             }
             return true;
