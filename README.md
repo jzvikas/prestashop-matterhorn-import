@@ -4,7 +4,7 @@ Standalone high-throughput Matterhorn Wholesale supplier import module for **Pre
 
 ## Status
 
-Work in progress. The first implementation slice establishes the standalone module identity, Matterhorn XML streaming adapter, mapper, category path normalization, HTML sanitization, Size resolution contract/PrestaShop resolver, deterministic fixture and PHP 8.4 CI. Full skeleton orchestration/DB/image/new-product infrastructure is still being restored into this standalone module and must be green before PROD is declared.
+Work in progress. The supplier adapter now has a streaming Matterhorn XML reader, semantic mapper, category path normalization, safe HTML handling and **pure READ-time Size descriptors**. READ no longer queries or mutates PrestaShop attributes. Numeric Size attribute IDs are resolved later by the generic skeleton persistence resolver, matching the current upstream architecture. Full skeleton orchestration/DB/image/new-product infrastructure is still being restored and must be green before PROD is declared.
 
 Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IMPORT_BUILD_PROMPT.md).
 
@@ -23,14 +23,14 @@ Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IM
 | `description` | sanitized product description HTML |
 | `images/image_url` | ordered persistent image queue manifest |
 | `options/option/@id` | combination reference |
-| `option_name` | PrestaShop `Size` attribute value |
+| `option_name` | semantic `matterhorn:size:<value>` descriptor, resolved to PrestaShop `Size` later |
 | `STOCK` | combination quantity |
 | `ean` | combination EAN13 when valid |
-| `avaible_in` | supplier metadata only; not stock |
+| `avaible_in` | raw supplier metadata only; not stock |
 
 ## Streaming model
 
-Matterhorn XML is read with `XMLReader` and `LIBXML_NONET`; only one `<product>` payload is materialized at a time. The adapter supports record checkpoint resume and a source fingerprint. It never downloads images during READ.
+Matterhorn XML is read with `XMLReader` and `LIBXML_NONET`; only one `<product>` payload is materialized at a time. The adapter supports record checkpoint resume and a source fingerprint. It never downloads images or writes catalog attributes during READ.
 
 ## Development checks
 
@@ -40,7 +40,7 @@ composer install --no-dev --prefer-dist --no-interaction --no-progress --optimiz
 bash tests/static-release-check.sh
 ```
 
-The current CI uses PHP 8.4 and verifies PHP syntax plus the Matterhorn parser/mapper fixture and core domain-hash isolation.
+The current CI uses PHP 8.4 and verifies PHP syntax, Matterhorn parser/mapper behavior and domain-hash isolation.
 
 ## Planned final CLI
 

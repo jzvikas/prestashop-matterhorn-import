@@ -5,124 +5,32 @@ use Lp\MatterhornImport\Contract\SizeResolverInterface;
 
 final class MatterhornSizeResolver implements SizeResolverInterface
 {
-    /** @var array<string,int> */
-    private array $cache = [];
-    private int $groupId = 0;
-
-    public function resolve(string $size): int
+    public function __construct(private readonly string $groupName = 'Size')
     {
-        $size = trim($size);
-        if ($size === '') {
+    }
+
+    public function attribute(string $size): array
+    {
+        $display = trim(preg_replace('/\s+/u', ' ', $size) ?? $size);
+        if ($display === '') {
             throw new \InvalidArgumentException('Matterhorn size cannot be empty');
         }
-        $key = $this->normalize($size);
-        if (isset($this->cache[$key])) {
-            return $this->cache[$key];
+        if (strlen($display) > 128) {
+            throw new \InvalidArgumentException('Matterhorn size exceeds PrestaShop 128-byte limit');
         }
 
-        [$shopId, $shopGroupId] = $this->shopContext();
-        $langId = $this->languageId($shopId, $shopGroupId);
-        $groupId = $this->groupId($shopId, $shopGroupId, $langId);
-        $db = \Db::getInstance();
-        $id = (int) $db->getValue(sprintf(
-            "SELECT a.id_attribute FROM `%sattribute` a " .
-            "INNER JOIN `%sattribute_lang` al ON al.id_attribute=a.id_attribute AND al.id_lang=%d " .
-            "INNER JOIN `%sattribute_shop` ash ON ash.id_attribute=a.id_attribute AND ash.id_shop=%d " .
-            "WHERE a.id_attribute_group=%d AND LOWER(TRIM(al.name))=LOWER('%s')",
-            _DB_PREFIX_, _DB_PREFIX_, _DB_PREFIX_, $langId, $shopId, $groupId, pSQL($size)
-        ));
-        if ($id > 0) {
-            return $this->cache[$key] = $id;
+        $groupName = trim($this->groupName);
+        if ($groupName === '' || strlen($groupName) > 64) {
+            throw new \InvalidArgumentException('Matterhorn Size group name is invalid');
         }
 
-        $attribute = new \ProductAttribute();
-        $attribute->id_attribute_group = $groupId;
-        $attribute->id_shop_list = [$shopId];
-        foreach (\Language::getLanguages(false, $shopId) as $language) {
-            $idLang = (int) ($language['id_lang'] ?? 0);
-            if ($idLang > 0) {
-                $attribute->name[$idLang] = mb_substr($size, 0, 128, 'UTF-8');
-            }
-        }
-        if (!$attribute->add() || (int) $attribute->id <= 0) {
-            throw new \RuntimeException('Could not create Matterhorn Size attribute value: ' . $size);
-        }
-        return $this->cache[$key] = (int) $attribute->id;
-    }
+        $identity = mb_strtolower($display, 'UTF-8');
 
-    private function groupId(int $shopId, int $shopGroupId, int $langId): int
-    {
-        if ($this->groupId > 0) {
-            return $this->groupId;
-        }
-        $name = trim((string) \Configuration::get(
-            'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME',
-            null,
-            $shopGroupId,
-            $shopId
-        ));
-        if ($name === '') {
-            $name = 'Size';
-        }
-        $db = \Db::getInstance();
-        $id = (int) $db->getValue(sprintf(
-            "SELECT ag.id_attribute_group FROM `%sattribute_group` ag " .
-            "INNER JOIN `%sattribute_group_lang` agl ON agl.id_attribute_group=ag.id_attribute_group AND agl.id_lang=%d " .
-            "INNER JOIN `%sattribute_group_shop` ags ON ags.id_attribute_group=ag.id_attribute_group AND ags.id_shop=%d " .
-            "WHERE LOWER(TRIM(agl.name))=LOWER('%s')",
-            _DB_PREFIX_, _DB_PREFIX_, _DB_PREFIX_, $langId, $shopId, pSQL($name)
-        ));
-        if ($id > 0) {
-            return $this->groupId = $id;
-        }
-
-        $group = new \AttributeGroup();
-        $group->group_type = 'select';
-        $group->id_shop_list = [$shopId];
-        foreach (\Language::getLanguages(false, $shopId) as $language) {
-            $idLang = (int) ($language['id_lang'] ?? 0);
-            if ($idLang > 0) {
-                $label = mb_substr($name, 0, 128, 'UTF-8');
-                $group->name[$idLang] = $label;
-                $group->public_name[$idLang] = $label;
-            }
-        }
-        if (!$group->add() || (int) $group->id <= 0) {
-            throw new \RuntimeException('Could not create Matterhorn Size attribute group');
-        }
-        return $this->groupId = (int) $group->id;
-    }
-
-    /** @return array{0:int,1:int} */
-    private function shopContext(): array
-    {
-        $shop = \Context::getContext()->shop ?? null;
-        if (!$shop instanceof \Shop) {
-            throw new \RuntimeException('Matterhorn Size resolver requires an explicit shop context');
-        }
-        $shopId = (int) $shop->id;
-        $shopGroupId = (int) $shop->id_shop_group;
-        if ($shopId <= 0 || $shopGroupId <= 0) {
-            throw new \RuntimeException('Matterhorn Size resolver requires a valid shop and shop group');
-        }
-        return [$shopId, $shopGroupId];
-    }
-
-    private function languageId(int $shopId, int $shopGroupId): int
-    {
-        $id = (int) \Configuration::get('PS_LANG_DEFAULT', null, $shopGroupId, $shopId);
-        if ($id <= 0) {
-            $id = (int) \Configuration::get('PS_LANG_DEFAULT');
-        }
-        if ($id <= 0) {
-            throw new \RuntimeException('Could not resolve target-shop language for Matterhorn Size attributes');
-        }
-        return $id;
-    }
-
-    private function normalize(string $value): string
-    {
-        $value = mb_strtolower(trim($value), 'UTF-8');
-        return preg_replace('/\s+/u', ' ', $value) ?? $value;
+        return [
+            'group_key' => 'matterhorn:size',
+            'value_key' => 'matterhorn:size:' . $identity,
+            'group_name' => $groupName,
+            'value' => $display,
+        ];
     }
 }
