@@ -78,6 +78,11 @@ $check(str_contains($categoryAuto, "'lpimp:cat:'"), 'category auto-create must u
 $check(substr_count($categoryAuto, '), true, false)') >= 2, 'category live path/child reads must bypass Db query cache');
 $check(str_contains($categoryMapping, '), true, false)'), 'category mapping preload must bypass Db query cache');
 $check(str_contains($categorySync, 'private array $hierarchyCache'), 'category ancestor hierarchy cache missing');
+$check(str_contains($categorySync, 'private function liveHierarchy'), 'category hierarchy cache must have a fresh topology fence');
+$check(str_contains($categorySync, 'leaf.nleft BETWEEN parent.nleft AND parent.nright'), 'category hierarchy fence must use current nested-set topology');
+$check(str_contains($categorySync, 'leaf_shop') && str_contains($categorySync, 'parent_shop'), 'category hierarchy fence must stay target-shop scoped for leaf and ancestors');
+$check(str_contains($categorySync, '), true, false);'), 'category hierarchy live read must bypass Db query cache');
+$check(str_contains($categorySync, 'Mapped category is unavailable in target shop'), 'category hierarchy cache must fail closed on deleted/unassociated leaves');
 $check(str_contains($featureMapping, 'private array $pairCache'), 'feature mapping process cache missing');
 $check(str_contains($featureMapping, '$this->pairCache[$this->cacheKey'), 'feature auto-create must seed process cache');
 
