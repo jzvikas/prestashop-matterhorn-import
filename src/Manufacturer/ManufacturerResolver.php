@@ -1,13 +1,18 @@
 <?php
 namespace Lp\MatterhornImport\Manufacturer;
 
+use Lp\MatterhornImport\Util\ItemTransactionGuard;
 use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class ManufacturerResolver
 {
     /** @var array<string,int> */
     private array $cache = [];
-    public function __construct(private ShopContextManager $shopContext) {}
+
+    public function __construct(
+        private ShopContextManager $shopContext,
+        private ItemTransactionGuard $transactionGuard
+    ) {}
 
     public function resolve(?string $name, int $shopId, bool $autoCreate = true): int
     {
@@ -33,9 +38,12 @@ final class ManufacturerResolver
                 $manufacturer->name = $name;
                 $manufacturer->active = true;
                 if (!$manufacturer->add()) { throw new \RuntimeException('Cannot create manufacturer: ' . $name); }
+                $this->transactionGuard->restoreAfterExternalCommit();
                 $id = (int) $manufacturer->id;
             }
-            $db->execute('INSERT IGNORE INTO `' . _DB_PREFIX_ . 'manufacturer_shop` (id_manufacturer,id_shop) VALUES (' . $id . ',' . $shopId . ')');
+            if (!$db->execute('INSERT IGNORE INTO `' . _DB_PREFIX_ . 'manufacturer_shop` (id_manufacturer,id_shop) VALUES (' . $id . ',' . $shopId . ')')) {
+                throw new \RuntimeException('Cannot associate manufacturer #' . $id . ' to shop #' . $shopId);
+            }
             if (!(bool) $db->getValue(
                 'SELECT 1 FROM `' . _DB_PREFIX_ . 'manufacturer_shop` WHERE id_manufacturer=' . $id . ' AND id_shop=' . $shopId,
                 false
