@@ -29,6 +29,10 @@ $guard = (string) file_get_contents($root . '/src/Util/ItemTransactionGuard.php'
 $checks = [
     [$queue, "private const TABLE = 'li_matterhornim_99dfbf_new_product_queue'", 'module-owned new-product queue'],
     [$queue, 'locked_until', 'lease fencing'],
+    [$queue, 'private const MAX_WRITE_VALUES_BYTES = 7340032', 'escaped queue write byte budget'],
+    [$queue, '$valueBytes = strlen($value)', 'escaped queue row size accounting'],
+    [$queue, '$valuesBytes + $separatorBytes + $valueBytes > self::MAX_WRITE_VALUES_BYTES', 'escaped queue batch byte fence'],
+    [$queue, 'Escaped new-product queue row exceeds SQL write budget', 'oversized single queue row rejection'],
     [$queue, 'public function claim(string $worker, string $source', 'new-product claims must require source scope'],
     [$queue, 'scopeWhere = " AND source=', 'new-product claim predicate must include source'],
     [$queue, 'public function retryFailed(string $source', 'new-product retry must require source scope'],
@@ -99,6 +103,30 @@ foreach ($checks as [$haystack, $needle, $label]) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+
+$enqueueBatchStart = strpos($queue, 'public function enqueueBatch(int $runId, int $shopId, string $source, array $rows): int');
+$claimStart = strpos($queue, 'public function claim(string $worker, string $source', $enqueueBatchStart === false ? 0 : $enqueueBatchStart);
+if ($enqueueBatchStart === false || $claimStart === false || $enqueueBatchStart >= $claimStart) {
+    fwrite(STDERR, "FAIL: new-product enqueue batch method boundaries missing\n");
+    exit(1);
+}
+$enqueueBatch = substr($queue, $enqueueBatchStart, $claimStart - $enqueueBatchStart);
+$escapePos = strpos($enqueueBatch, "pSQL((string) \$row['payload'], true)");
+$valueBytesPos = strpos($enqueueBatch, '$valueBytes = strlen($value);');
+$singleGuardPos = strpos($enqueueBatch, 'if ($valueBytes > self::MAX_WRITE_VALUES_BYTES)');
+$separatorPos = strpos($enqueueBatch, '$separatorBytes = $values === [] ? 0 : 1;');
+$countGuardPos = strpos($enqueueBatch, 'count($values) >= self::ENQUEUE_CHUNK');
+$byteGuardPos = strpos($enqueueBatch, '$valuesBytes + $separatorBytes + $valueBytes > self::MAX_WRITE_VALUES_BYTES');
+$flushPos = strpos($enqueueBatch, '$this->insertValues($values);', $byteGuardPos === false ? 0 : $byteGuardPos);
+$appendPos = strpos($enqueueBatch, '$values[] = $value;', $flushPos === false ? 0 : $flushPos);
+if (
+    in_array(false, [$escapePos,$valueBytesPos,$singleGuardPos,$separatorPos,$countGuardPos,$byteGuardPos,$flushPos,$appendPos], true)
+    || !($escapePos < $valueBytesPos && $valueBytesPos < $singleGuardPos && $singleGuardPos < $separatorPos
+        && $separatorPos < $countGuardPos && $countGuardPos < $byteGuardPos && $byteGuardPos < $flushPos && $flushPos < $appendPos)
+) {
+    fwrite(STDERR, "FAIL: escaped new-product SQL byte budget ordering regressed\n");
+    exit(1);
 }
 
 $renewStart = strpos($queue, 'public function renew(int $id, string $token): bool');
