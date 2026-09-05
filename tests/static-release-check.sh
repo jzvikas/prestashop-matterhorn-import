@@ -21,6 +21,7 @@ php tests/import-orchestration-contract-check.php
 php tests/update-orchestration-contract-check.php
 php tests/remove-orchestration-contract-check.php
 php tests/run-orchestration-contract-check.php
+bash tests/snapshot-write-sql-budget-check.sh
 php tests/image-pipeline-foundation-contract-check.php
 php tests/image-pipeline-worker-contract-check.php
 php tests/image-queue-batch-lease-contract-check.php
