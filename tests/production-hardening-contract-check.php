@@ -54,13 +54,18 @@ foreach ([
     [$update, "getValue('SELECT @@session.in_transaction', false)", 'UPDATE transaction state must bypass Db query cache'],
     [$remove, "getValue('SELECT @@session.in_transaction', false)", 'REMOVE transaction state must bypass Db query cache'],
     [$newWorker, "getValue('SELECT @@session.in_transaction', false)", 'new-product transaction state must bypass Db query cache'],
-    [$importLock, '), false);', 'advisory import lock reads must bypass Db query cache'],
     [$importLock, "RELEASE_LOCK('" , 'advisory import lock release missing'],
     [$imageWorker, "getValue('SELECT @@session.in_transaction', false)", 'image transaction state must bypass Db query cache'],
     [$imageWorker, 'GET_LOCK', 'image content lock acquisition missing'],
     [$imageWorker, 'false', 'image lock/session reads must bypass Db query cache'],
 ] as [$source, $needle, $label]) {
     if (!str_contains($source, $needle)) { $fail($label); }
+}
+if (!preg_match('/GET_LOCK\([^\n]+\).*?\n\s*false\s*\n\s*\)/s', $importLock)) {
+    $fail('advisory import lock reads must bypass Db query cache');
+}
+if (!str_contains($importLock, "RELEASE_LOCK('") || !str_contains($importLock, "')\", false)")) {
+    $fail('advisory import lock release must bypass Db query cache');
 }
 
 if (!str_contains($manufacturer, 'GET_LOCK') || !str_contains($manufacturer, "', 10)\", false)")) {
