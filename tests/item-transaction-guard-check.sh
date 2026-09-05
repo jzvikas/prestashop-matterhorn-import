@@ -63,8 +63,8 @@ require_literal "$new_worker" 'transactionGuard->recoveryCount()' 'new-product w
 for file in "$base_writer" "$matterhorn_writer" "$category" "$manufacturer" "$feature_resolver" "$combination"; do
   require_literal "$file" 'transactionGuard->restoreAfterExternalCommit()' 'PrestaShop-facing writer/resolver must restore stage-owned transactions after ObjectModel/API calls'
 done
-require_literal "$feature_sync" "$db->delete(" 'FeatureSynchronizer must keep feature replacement on the direct-DB path'
-require_literal "$feature_sync" "$db->insert('feature_product'" 'FeatureSynchronizer must keep feature assignment on the direct-DB path'
+require_literal "$feature_sync" '$db->delete(' 'FeatureSynchronizer must keep feature replacement on the direct-DB path'
+require_literal "$feature_sync" '$db->insert('"'"'feature_product'"'"'' 'FeatureSynchronizer must keep feature assignment on the direct-DB path'
 reject_literal "$feature_sync" 'new \Feature(' 'FeatureSynchronizer must not introduce an unguarded Feature ObjectModel write'
 reject_literal "$feature_sync" 'new \FeatureValue(' 'FeatureSynchronizer must not introduce an unguarded FeatureValue ObjectModel write'
 
