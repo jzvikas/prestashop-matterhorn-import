@@ -111,7 +111,9 @@ The persistent image queue keeps its own fail-closed admission guard even after 
 
 The downloader blocks private/reserved destinations, validates DNS and the connected endpoint, follows no redirects, validates MIME/dimensions/byte limits, supports HTTP conditional revalidation and deduplicates content. Image URLs above 16 KiB are rejected before URL parsing, DNS resolution or network access as a final worker-side defense as well.
 
-After a complete catalog run and after **all image jobs for that shop/source** have drained, reconcile the authoritative image manifest. For large shops, use a bounded invocation:
+Before downloading and again before persisting image state, the worker verifies that the exact `(shop, source, source_key, id_product)` mapping still actively owns the product with `out_of_feed=0`. A retained queue row whose mapping has moved out of feed is superseded instead of downloading or committing stale image state.
+
+After a complete catalog run and after all unresolved image jobs that still belong to an **active exact mapping (`out_of_feed=0`)** for that shop/source have drained, reconcile the authoritative image manifest. Retained unresolved queue rows for mappings already marked out of feed do not block reconciliation. For large shops, use a bounded invocation:
 
 ```bash
 php bin/console matterhornimport:images:reconcile \
@@ -128,8 +130,8 @@ Reconciliation is blocked when:
 
 - the run is not the latest run for the shop/source;
 - READ/IMPORT/UPDATE/REMOVE are not completed;
-- the selected run still has unresolved image jobs;
-- any older/newer image job for the same shop/source is unresolved.
+- the selected run still has an unresolved image job whose exact mapping remains active;
+- any older/newer unresolved image job for the same shop/source still belongs to an active exact mapping.
 
 An unchanged image manifest may legitimately reuse a live image state from an earlier run; current-run freshness is not required when the state still belongs to the same shop/product and the desired URL exists. HTTP `304 Not Modified` is accepted only when the corresponding live image state is still valid; a stale/missing-state race fails closed and is retried instead of silently accepting an unverifiable cached asset.
 
