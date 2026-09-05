@@ -92,14 +92,12 @@ final class ImageQueueRepository
 
     public function retryFailed(?int $shopId = null, int $limit = 1000): int
     {
+        $limit = max(1, min(100000, $limit));
         $where = "status='failed'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
         $db = \Db::getInstance();
-        $ids = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . max(1, $limit), true, false) ?: [];
+        $ids = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . $limit, true, false) ?: [];
         if ($ids === []) { return 0; }
         $list = implode(',', array_map(static fn(array $row): int => (int) $row['id_queue'], $ids));
-        // Revalidate the mutable status in the UPDATE itself. Another retry process may have
-        // already reopened one of these rows and a worker may have claimed it after our SELECT.
-        // Without this fence the stale ID list could clear that worker's active lease.
         if (!$db->execute("UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE status='failed' AND id_queue IN (" . $list . ')')) {
             throw new \RuntimeException('Matterhorn image queue retry reset failed');
         }
@@ -132,9 +130,12 @@ final class ImageQueueRepository
         return (int) \Db::getInstance()->delete(self::TABLE, "status='done' AND updated_at < DATE_SUB(NOW(), INTERVAL " . max(0, $days) . ' DAY)');
     }
 
-    public function counts(?int $shopId = null): array
+    public function counts(?int $shopId = null, ?string $source = null): array
     {
-        $where = $shopId === null ? '' : ' WHERE id_shop=' . (int) $shopId;
+        $clauses = [];
+        if ($shopId !== null) { $clauses[] = 'id_shop=' . (int) $shopId; }
+        if ($source !== null && trim($source) !== '') { $clauses[] = "source='" . pSQL(trim($source)) . "'"; }
+        $where = $clauses === [] ? '' : ' WHERE ' . implode(' AND ', $clauses);
         return \Db::getInstance()->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . self::TABLE . '`' . $where . ' GROUP BY status', true, false) ?: [];
     }
 
