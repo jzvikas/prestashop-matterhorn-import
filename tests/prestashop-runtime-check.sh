@@ -73,11 +73,13 @@ bootstrap_action install
 
 table_count="$(docker exec "$DB_CONTAINER" mariadb -N -uroot -proot prestashop -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='prestashop' AND table_name LIKE 'ps_li_matterhornim_99dfbf_%'" )"
 [[ "$table_count" -eq 16 ]] || { echo "Expected 16 module tables, got $table_count" >&2; exit 4; }
+revalidate_index="$(docker exec "$DB_CONTAINER" mariadb -N -uroot -proot prestashop -e "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema='prestashop' AND table_name='ps_li_matterhornim_99dfbf_image_state' AND index_name='idx_revalidate'" )"
+[[ "$revalidate_index" -eq 4 ]] || { echo "Expected 4 idx_revalidate columns, got $revalidate_index" >&2; exit 4; }
 
 commands="$(docker exec "$PS_CONTAINER" sh -lc 'cd /var/www/html && APP_ENV=prod APP_DEBUG=0 php -d memory_limit=512M bin/console list matterhornimport --raw')"
 for command in \
   matterhornimport:doctor matterhornimport:run matterhornimport:read matterhornimport:import matterhornimport:update matterhornimport:remove \
-  matterhornimport:images matterhornimport:images:reconcile matterhornimport:new-products:enqueue matterhornimport:new-products \
+  matterhornimport:images matterhornimport:images:reconcile matterhornimport:images:revalidate matterhornimport:new-products:enqueue matterhornimport:new-products \
   matterhornimport:retry matterhornimport:status matterhornimport:gc; do
   grep -q "^${command}\b" <<<"$commands" || { echo "Missing console command: $command" >&2; exit 5; }
 done
@@ -139,6 +141,15 @@ docker exec "$PS_CONTAINER" php -d memory_limit=512M -r '
   $manager->ensure($idProduct, $shop2Id);
   $after = (int) $db->getValue("SELECT active FROM `" . _DB_PREFIX_ . "product_shop` WHERE id_product=" . $idProduct . " AND id_shop=" . $shop2Id);
   if ($after !== $targetActive) { throw new RuntimeException("ensure overwrote existing target-shop state"); }
+
+  $db->update("product_shop", ["price" => 11.25], "id_product=" . $idProduct . " AND id_shop=1");
+  $db->update("product_shop", ["price" => 22.50], "id_product=" . $idProduct . " AND id_shop=" . $shop2Id);
+  $db->update("product", ["price" => 22.50], "id_product=" . $idProduct);
+  $manager->restoreDefaultShopShadows($idProduct, $shop2Id, ["price"]);
+  $globalPrice = (float) $db->getValue("SELECT price FROM `" . _DB_PREFIX_ . "product` WHERE id_product=" . $idProduct);
+  $shop2Price = (float) $db->getValue("SELECT price FROM `" . _DB_PREFIX_ . "product_shop` WHERE id_product=" . $idProduct . " AND id_shop=" . $shop2Id);
+  if (abs($globalPrice - 11.25) > 0.000001) { throw new RuntimeException("Default-shop global price shadow repair failed"); }
+  if (abs($shop2Price - 22.50) > 0.000001) { throw new RuntimeException("Shadow repair changed target-shop price"); }
   echo "MULTISHOP_OK shop2={$shop2Id} product={$idProduct}\n";
 '
 
