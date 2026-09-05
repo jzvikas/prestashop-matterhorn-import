@@ -7,11 +7,13 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_run` (
   `import_status` VARCHAR(16) NOT NULL DEFAULT 'pending',
   `update_status` VARCHAR(16) NOT NULL DEFAULT 'pending',
   `remove_status` VARCHAR(16) NOT NULL DEFAULT 'pending',
+  `image_reconcile_status` VARCHAR(16) NOT NULL DEFAULT 'pending',
   `source_total` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `source_valid` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `source_invalid` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `source_duplicate` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `read_checkpoint` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `image_reconcile_checkpoint` VARCHAR(191) NULL,
   `source_fingerprint` CHAR(64) NULL,
   `source_policy_hash` CHAR(64) NULL,
   `import_done` BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -21,6 +23,7 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_run` (
   `update_failed` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `remove_done` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `remove_failed` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `image_reconcile_done` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `started_at` DATETIME NOT NULL,
   `finished_at` DATETIME NULL,
   PRIMARY KEY (`id_run`),
@@ -245,5 +248,6 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_image_queue` (
   KEY `idx_claim` (`status`,`available_at`,`locked_until`,`id_queue`),
   KEY `idx_shop_claim` (`id_shop`,`status`,`available_at`,`id_queue`),
   KEY `idx_run` (`id_run`,`status`),
+  KEY `idx_shop_source_status` (`id_shop`,`source`,`status`,`id_queue`),
   KEY `idx_product` (`id_product`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
