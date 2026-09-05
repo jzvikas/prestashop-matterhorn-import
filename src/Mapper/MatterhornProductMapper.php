@@ -13,6 +13,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
     private const MAX_IMAGE_URL_BYTES = 16384;
     private const MAX_PRESTASHOP_REFERENCE_BYTES = 64;
     private const MAX_PRESTASHOP_STOCK = 2147483647;
+    private const PRESTASHOP_PRICE_PATTERN = '/^[0-9]{1,10}(?:\.[0-9]{1,9})?$/D';
     private const MAX_MANUFACTURER_NAME_CHARS = 64;
     private const MAX_CATEGORY_NAME_CHARS = 128;
     private const MAX_FEATURE_VALUE_CHARS = 255;
@@ -46,6 +47,11 @@ final class MatterhornProductMapper implements ProductMapperInterface
         if ($priceRaw === '' || !is_numeric($priceRaw)) { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' has invalid price'); }
         $price = (float) $priceRaw;
         if (!is_finite($price) || $price < 0.0) { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' has invalid price'); }
+        if (!preg_match(self::PRESTASHOP_PRICE_PATTERN, (string) $price)) {
+            throw new \InvalidArgumentException(
+                'Matterhorn product ' . $sourceKey . ' price cannot be represented by the PrestaShop price validator'
+            );
+        }
 
         $warnings = [];
         foreach ((array) ($row['supplier_warnings'] ?? []) as $warningRaw) {
