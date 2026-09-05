@@ -72,6 +72,19 @@ final class Diagnostics
             $queueIndex === $expectedIndex ? implode(',', $expectedIndex) : 'expected=' . implode(',', $expectedIndex) . ' actual=' . implode(',', $queueIndex)
         );
 
+        $revalidateIndexRows = $db->executeS(
+            "SELECT COLUMN_NAME,SEQ_IN_INDEX FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
+            "AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . 'li_matterhornim_99dfbf_image_state') . "' " .
+            "AND INDEX_NAME='idx_revalidate' ORDER BY SEQ_IN_INDEX"
+        ) ?: [];
+        $revalidateIndex = array_map(static fn(array $row): string => (string)($row['COLUMN_NAME'] ?? ''), $revalidateIndexRows);
+        $expectedRevalidateIndex = ['id_shop','source','updated_at','source_key'];
+        $checks[] = $this->check(
+            'image-revalidation-index',
+            $revalidateIndex === $expectedRevalidateIndex ? 'ok' : 'error',
+            $revalidateIndex === $expectedRevalidateIndex ? implode(',', $expectedRevalidateIndex) : 'expected=' . implode(',', $expectedRevalidateIndex) . ' actual=' . implode(',', $revalidateIndex)
+        );
+
         $brokenGroups = (int)$db->getValue(
             'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_attribute_group_mapping` m ' .
             'LEFT JOIN `' . _DB_PREFIX_ . 'attribute_group` ag ON ag.id_attribute_group=m.id_attribute_group ' .
