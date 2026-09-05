@@ -192,6 +192,21 @@ final class RunRepository
         );
     }
 
+    public function assertLatestCompletedReadGeneration(int $runId, int $shopId, string $source): void
+    {
+        if ($runId <= 0 || $shopId <= 0 || trim($source) === '') {
+            throw new \InvalidArgumentException('READ generation fence requires run/shop/source');
+        }
+        $latestRunId = $this->latestCompletedReadId($shopId, $source);
+        if ($latestRunId > $runId) {
+            throw new \RuntimeException(sprintf(
+                'Run #%d is stale; newer completed READ generation #%d exists for this shop/source',
+                $runId,
+                $latestRunId
+            ));
+        }
+    }
+
     public function latest(int $shopId, string $source): ?array
     {
         $row = \Db::getInstance()->getRow(
