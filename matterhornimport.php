@@ -1,80 +1,16 @@
 <?php
-if (!defined('_PS_VERSION_')) {
-    exit;
-}
-
-require_once __DIR__ . '/autoload.php';
-if (is_file(__DIR__ . '/vendor/autoload.php')) {
-    require_once __DIR__ . '/vendor/autoload.php';
-}
-
+if (!defined('_PS_VERSION_')) { exit; }
+require_once __DIR__ . '/autoload.php'; if (is_file(__DIR__ . '/vendor/autoload.php')) { require_once __DIR__ . '/vendor/autoload.php'; }
 use Lp\MatterhornImport\Installer;
-
 class MatterhornImport extends Module
 {
-    public function __construct()
-    {
-        $this->name = 'matterhornimport';
-        $this->tab = 'administration';
-        $this->version = '0.1.0';
-        $this->author = 'LP';
-        $this->need_instance = 0;
-        $this->bootstrap = true;
-        parent::__construct();
-        $this->displayName = $this->trans('Matterhorn Wholesale Import', [], 'Modules.Matterhornimport.Admin');
-        $this->description = $this->trans('High-throughput Matterhorn Wholesale supplier import for PrestaShop 9.1.x.', [], 'Modules.Matterhornimport.Admin');
-        $this->ps_versions_compliancy = ['min' => '9.1.0', 'max' => '9.1.99'];
-    }
-
-    public function install(): bool
-    {
-        return parent::install() && (new Installer())->install();
-    }
-
-    public function uninstall(): bool
-    {
-        return (new Installer())->uninstall() && parent::uninstall();
-    }
-
-    public function getContent(): string
-    {
-        $shopId = (int) ($this->context->shop->id ?? 0);
-        $shopGroupId = (int) ($this->context->shop->id_shop_group ?? 0);
-        if ($shopId <= 0 || $shopGroupId <= 0) {
-            return $this->displayError($this->trans(
-                'Select one concrete shop before configuring Matterhorn Import.',
-                [],
-                'Modules.Matterhornimport.Admin'
-            ));
-        }
-
-        $output = '';
-        if (\Tools::isSubmit('submitMatterhornImport')) {
-            $source = trim((string) \Tools::getValue('MATTERHORNIMPORT_SOURCE_FILE', ''));
-            $sizeGroup = trim((string) \Tools::getValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', 'Size'));
-            if ($source !== '' && (!is_file($source) || !is_readable($source))) {
-                $output .= $this->displayError($this->trans('Source XML file is not readable.', [], 'Modules.Matterhornimport.Admin'));
-            } elseif ($sizeGroup === '') {
-                $output .= $this->displayError($this->trans('Size attribute group name cannot be empty.', [], 'Modules.Matterhornimport.Admin'));
-            } else {
-                $ok = \Configuration::updateValue('MATTERHORNIMPORT_SOURCE_FILE', $source, false, $shopGroupId, $shopId);
-                $ok = \Configuration::updateValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', $sizeGroup, false, $shopGroupId, $shopId) && $ok;
-                $output .= $ok
-                    ? $this->displayConfirmation($this->trans('Matterhorn settings saved.', [], 'Modules.Matterhornimport.Admin'))
-                    : $this->displayError($this->trans('Could not save Matterhorn settings.', [], 'Modules.Matterhornimport.Admin'));
-            }
-        }
-
-        $source = (string) \Configuration::get('MATTERHORNIMPORT_SOURCE_FILE', null, $shopGroupId, $shopId);
-        $sizeGroup = (string) \Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', null, $shopGroupId, $shopId);
-        if ($sizeGroup === '') { $sizeGroup = 'Size'; }
-
-        $output .= '<div class="panel"><h3>' . $this->trans('Matterhorn Wholesale Import', [], 'Modules.Matterhornimport.Admin') . '</h3>';
-        $output .= '<form method="post">';
-        $output .= '<div class="form-group"><label>Source XML file</label><input class="form-control" type="text" name="MATTERHORNIMPORT_SOURCE_FILE" value="' . htmlspecialchars($source, ENT_QUOTES, 'UTF-8') . '"></div>';
-        $output .= '<div class="form-group"><label>Size attribute group</label><input class="form-control" type="text" name="MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME" value="' . htmlspecialchars($sizeGroup, ENT_QUOTES, 'UTF-8') . '"></div>';
-        $output .= '<button class="btn btn-primary" type="submit" name="submitMatterhornImport">' . $this->trans('Save', [], 'Modules.Matterhornimport.Admin') . '</button>';
-        $output .= '</form></div>';
-        return $output;
-    }
+    public function __construct(){ $this->name='matterhornimport';$this->tab='administration';$this->version='0.1.1';$this->author='LP';$this->need_instance=0;$this->bootstrap=true;parent::__construct();$this->displayName=$this->trans('Matterhorn Wholesale Import',[],'Modules.Matterhornimport.Admin');$this->description=$this->trans('High-throughput Matterhorn Wholesale supplier import for PrestaShop 9.1.x.',[],'Modules.Matterhornimport.Admin');$this->ps_versions_compliancy=['min'=>'9.1.0','max'=>'9.1.99'];}
+    public function install():bool{return parent::install()&&(new Installer())->install();}
+    public function uninstall():bool{return(new Installer())->uninstall()&&parent::uninstall();}
+    public function getContent():string
+    {$shopId=(int)($this->context->shop->id??0);$shopGroupId=(int)($this->context->shop->id_shop_group??0);if($shopId<=0||$shopGroupId<=0){return$this->displayError($this->trans('Select one concrete shop before configuring Matterhorn Import.',[],'Modules.Matterhornimport.Admin'));}$output='';
+        if(\Tools::isSubmit('submitMatterhornImport')){$source=trim((string)\Tools::getValue('MATTERHORNIMPORT_SOURCE_FILE',''));$sizeGroup=trim((string)\Tools::getValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME','Size'));$maxRemoveRaw=trim((string)\Tools::getValue('MATTERHORNIMPORT_MAX_REMOVE_PERCENT','25'));$maxRemove=filter_var($maxRemoveRaw,FILTER_VALIDATE_INT,['options'=>['min_range'=>1,'max_range'=>100]]);
+            if($source!==''&&(!is_file($source)||!is_readable($source))){$output.=$this->displayError($this->trans('Source XML file is not readable.',[],'Modules.Matterhornimport.Admin'));}elseif($sizeGroup===''){$output.=$this->displayError($this->trans('Size attribute group name cannot be empty.',[],'Modules.Matterhornimport.Admin'));}elseif($maxRemove===false){$output.=$this->displayError($this->trans('Maximum REMOVE percentage must be an integer from 1 to 100.',[],'Modules.Matterhornimport.Admin'));}else{$ok=\Configuration::updateValue('MATTERHORNIMPORT_SOURCE_FILE',$source,false,$shopGroupId,$shopId);$ok=\Configuration::updateValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME',$sizeGroup,false,$shopGroupId,$shopId)&&$ok;$ok=\Configuration::updateValue('MATTERHORNIMPORT_MAX_REMOVE_PERCENT',(string)$maxRemove,false,$shopGroupId,$shopId)&&$ok;$output.=$ok?$this->displayConfirmation($this->trans('Matterhorn settings saved.',[],'Modules.Matterhornimport.Admin')):$this->displayError($this->trans('Could not save Matterhorn settings.',[],'Modules.Matterhornimport.Admin'));}}
+        $source=(string)\Configuration::get('MATTERHORNIMPORT_SOURCE_FILE',null,$shopGroupId,$shopId);$sizeGroup=(string)\Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME',null,$shopGroupId,$shopId);if($sizeGroup===''){$sizeGroup='Size';}$maxRemove=(int)\Configuration::get('MATTERHORNIMPORT_MAX_REMOVE_PERCENT',null,$shopGroupId,$shopId);if($maxRemove<1||$maxRemove>100){$maxRemove=25;}
+        $output.='<div class="panel"><h3>'.$this->trans('Matterhorn Wholesale Import',[],'Modules.Matterhornimport.Admin').'</h3><form method="post">';$output.='<div class="form-group"><label>Source XML file</label><input class="form-control" type="text" name="MATTERHORNIMPORT_SOURCE_FILE" value="'.htmlspecialchars($source,ENT_QUOTES,'UTF-8').'"></div>';$output.='<div class="form-group"><label>Size attribute group</label><input class="form-control" type="text" name="MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME" value="'.htmlspecialchars($sizeGroup,ENT_QUOTES,'UTF-8').'"></div>';$output.='<div class="form-group"><label>Maximum REMOVE percentage</label><input class="form-control" type="number" min="1" max="100" name="MATTERHORNIMPORT_MAX_REMOVE_PERCENT" value="'.$maxRemove.'"><p class="help-block">REMOVE is blocked when missing feed products exceed this share of currently in-feed mapped products.</p></div>';$output.='<button class="btn btn-primary" type="submit" name="submitMatterhornImport">'.$this->trans('Save',[],'Modules.Matterhornimport.Admin').'</button></form></div>';return$output;}
 }
