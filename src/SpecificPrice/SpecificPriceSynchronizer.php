@@ -42,9 +42,7 @@ final class SpecificPriceSynchronizer
             $id = (int) $ownedRow['id_specific_price'];
             $live = $this->fetchLive($id, $productId, $shopId);
             if ($live !== null && hash_equals((string) $ownedRow['applied_hash'], $this->ruleHash($this->normalizeLiveRule($live)))) {
-                if (!\Db::getInstance()->delete('specific_price', 'id_specific_price=' . $id . ' AND id_product=' . $productId . ' AND id_shop=' . $shopId)) {
-                    throw new \RuntimeException('Could not remove owned specific price ' . $id);
-                }
+                $this->deleteOwnedIfUnchanged($live, $id, $productId, $shopId);
             }
             $this->state->delete($shopId, $source, $product->sourceKey, (string) $semanticKey);
         }
@@ -83,7 +81,7 @@ final class SpecificPriceSynchronizer
         return (bool) \Db::getInstance()->getValue(sprintf(
             'SELECT 1 FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product_attribute=%d AND pa.id_product=%d LIMIT 1',
             _DB_PREFIX_, _DB_PREFIX_, $shopId, $attributeId, $productId
-        ));
+        ), false);
     }
 
     private function date(string $value): string
@@ -113,15 +111,54 @@ final class SpecificPriceSynchronizer
         return ['id_specific_price_rule'=>0,'id_cart'=>0,'id_product'=>$productId,'id_shop'=>$shopId,'id_shop_group'=>0,'id_currency'=>$row['id_currency'],'id_country'=>$row['id_country'],'id_group'=>$row['id_group'],'id_customer'=>$row['id_customer'],'id_product_attribute'=>$row['id_product_attribute'],'price'=>$row['price'],'from_quantity'=>$row['from_quantity'],'reduction'=>$row['reduction'],'reduction_tax'=>$row['reduction_tax'],'reduction_type'=>pSQL($row['reduction_type']),'from'=>pSQL($row['from']),'to'=>pSQL($row['to'])];
     }
 
+    /** @param array<string,mixed> $live */
+    private function deleteOwnedIfUnchanged(array $live, int $id, int $productId, int $shopId): void
+    {
+        $db = \Db::getInstance();
+        $where = implode(' AND ', [
+            '`id_specific_price`=' . $id,
+            '`id_product`=' . $productId,
+            '`id_shop`=' . $shopId,
+            '`id_specific_price_rule`=' . (int) ($live['id_specific_price_rule'] ?? 0),
+            '`id_cart`=' . (int) ($live['id_cart'] ?? 0),
+            '`id_shop_group`=' . (int) ($live['id_shop_group'] ?? 0),
+            '`id_currency`=' . (int) ($live['id_currency'] ?? 0),
+            '`id_country`=' . (int) ($live['id_country'] ?? 0),
+            '`id_group`=' . (int) ($live['id_group'] ?? 0),
+            '`id_customer`=' . (int) ($live['id_customer'] ?? 0),
+            '`id_product_attribute`=' . (int) ($live['id_product_attribute'] ?? 0),
+            '`from_quantity`=' . max(1, (int) ($live['from_quantity'] ?? 1)),
+            "`from`='" . pSQL((string) ($live['from'] ?? '0000-00-00 00:00:00')) . "'",
+            "`to`='" . pSQL((string) ($live['to'] ?? '0000-00-00 00:00:00')) . "'",
+            "`price`='" . pSQL((string) ($live['price'] ?? '-1')) . "'",
+            "`reduction`='" . pSQL((string) ($live['reduction'] ?? '0')) . "'",
+            '`reduction_tax`=' . (int) ($live['reduction_tax'] ?? 0),
+            "`reduction_type`='" . pSQL((string) ($live['reduction_type'] ?? 'amount')) . "'",
+        ]);
+        if (!$db->delete('specific_price', $where)) {
+            throw new \RuntimeException('Could not remove owned specific price ' . $id);
+        }
+        if ((int) $db->Affected_Rows() > 1) {
+            throw new \RuntimeException('Unexpected specific-price delete count for ' . $id);
+        }
+    }
+
     private function fetchLive(int $id, int $productId, int $shopId): ?array
     {
-        $row = \Db::getInstance()->getRow('SELECT * FROM `' . _DB_PREFIX_ . 'specific_price` WHERE id_specific_price=' . $id . ' AND id_product=' . $productId . ' AND id_shop=' . $shopId);
+        $row = \Db::getInstance()->getRow(
+            'SELECT * FROM `' . _DB_PREFIX_ . 'specific_price` WHERE id_specific_price=' . $id . ' AND id_product=' . $productId . ' AND id_shop=' . $shopId,
+            false
+        );
         return is_array($row) && $row !== [] ? $row : null;
     }
 
     private function findSemanticMatches(array $desired, int $productId, int $shopId): array
     {
-        $rows = \Db::getInstance()->executeS('SELECT * FROM `' . _DB_PREFIX_ . 'specific_price` WHERE id_product=' . $productId . ' AND id_shop=' . $shopId . ' AND id_specific_price_rule=0 AND id_cart=0') ?: [];
+        $rows = \Db::getInstance()->executeS(
+            'SELECT * FROM `' . _DB_PREFIX_ . 'specific_price` WHERE id_product=' . $productId . ' AND id_shop=' . $shopId . ' AND id_specific_price_rule=0 AND id_cart=0',
+            true,
+            false
+        ) ?: [];
         $matches = [];
         foreach ($rows as $row) { if ($this->sameIdentity($desired, $this->normalizeLiveRule($row))) { $matches[] = (int) $row['id_specific_price']; } }
         return $matches;
