@@ -12,6 +12,7 @@ use Lp\MatterhornImport\Repository\ImageQueueRepository;
 use Lp\MatterhornImport\Repository\MappingRepository;
 use Lp\MatterhornImport\Repository\RunRepository;
 use Lp\MatterhornImport\Repository\SnapshotRepository;
+use Lp\MatterhornImport\SpecificPrice\SpecificPriceSynchronizer;
 use Lp\MatterhornImport\Util\DatabaseSafety;
 use Lp\MatterhornImport\Util\ExecutionBudget;
 use Lp\MatterhornImport\Util\RunFailureRecorder;
@@ -27,6 +28,7 @@ final class ImportStage
         private FeatureSynchronizer $features,
         private CombinationAttributeResolver $combinationAttributes,
         private CombinationSynchronizer $combinations,
+        private SpecificPriceSynchronizer $specificPrices,
         private RunRepository $runs,
         private SnapshotRepository $snapshots,
         private MappingRepository $mapping,
@@ -58,7 +60,8 @@ final class ImportStage
             while (!$this->budget->shouldStop() && ($rows = $this->snapshots->newRows($runId, $shopId, $source, $cursor, $batch)) !== []) {
                 $db = \Db::getInstance();
                 if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start IMPORT batch transaction'); }
-                $done = 0; $batchFailures = 0;
+                $done = 0;
+                $batchFailures = 0;
                 try {
                     foreach ($rows as $row) {
                         if ($this->budget->shouldStop()) { $paused = true; break; }
@@ -74,6 +77,7 @@ final class ImportStage
                             $this->features->sync($runId, $shopId, $source, $productId, $product);
                             $resolved = $this->combinationAttributes->resolve($product, $shopId, $source);
                             $this->combinations->sync($runId, $shopId, $source, $productId, $resolved);
+                            $this->specificPrices->sync($runId, $shopId, $source, $productId, $product);
                             $this->restoreItemSavepointAfterExternalCommit($db);
                             $this->mapping->save($shopId, $source, $runId, $productId, $product);
                             $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images);
@@ -147,8 +151,6 @@ final class ImportStage
     {
         if ((string) $run['read_status'] !== 'completed') { throw new \RuntimeException('READ must complete before IMPORT'); }
         if ((string) $run['import_status'] === 'completed') { throw new \RuntimeException('IMPORT is already completed for this run'); }
-        if ((string) $run['update_status'] !== 'pending' || (string) $run['remove_status'] !== 'pending') {
-            throw new \RuntimeException('IMPORT retry blocked because downstream stages already started');
-        }
+        if ((string) $run['update_status'] !== 'pending' || (string) $run['remove_status'] !== 'pending') { throw new \RuntimeException('IMPORT retry blocked because downstream stages already started'); }
     }
 }
