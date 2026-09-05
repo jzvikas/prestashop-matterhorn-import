@@ -46,7 +46,6 @@ final class ImageReconciler
         $placementsSynced = 0;
 
         try {
-            // Re-check after acquiring the same shop/source lock used by all import stages.
             $this->assertReady($runId, $shopId, $source);
 
             while (true) {
@@ -133,15 +132,19 @@ final class ImageReconciler
             ];
         }
 
+        // statesForProduct() joins against live image + image_shop rows, so every returned state is
+        // already proven to belong to this product/shop. Unchanged image manifests intentionally do
+        // not enqueue work every run, therefore a valid desired state may have last_seen_run_id from
+        // an earlier generation. Changed/new manifests remain fail-closed because the run queue must
+        // be fully drained and every desired URL still needs a live state here.
         $states = $this->state->statesForProduct($shopId, $source, $sourceKey, $productId);
         $byHash = [];
         foreach ($states as $state) {
             $byHash[(string) $state['url_hash']] = $state;
         }
 
-        // Never remove/reorder while even one desired URL lacks a successful state from this run.
         foreach ($desired as $urlHash => $placement) {
-            if (!isset($byHash[$urlHash]) || (int) $byHash[$urlHash]['last_seen_run_id'] !== $runId) {
+            if (!isset($byHash[$urlHash]) || (int) ($byHash[$urlHash]['last_seen_run_id'] ?? 0) <= 0) {
                 throw new \RuntimeException('Desired image state is incomplete for ' . $sourceKey);
             }
         }
