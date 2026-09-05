@@ -83,7 +83,7 @@ final class CategoryAutoMapper
             "INNER JOIN `%scategory` parent ON leaf.nleft BETWEEN parent.nleft AND parent.nright " .
             "INNER JOIN `%scategory_lang` parent_lang ON parent_lang.id_category=parent.id_category AND parent_lang.id_lang=%d AND parent_lang.id_shop=%d " .
             "WHERE parent.id_category NOT IN (%d,%d) GROUP BY leaf.id_category",
-            _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $langId, $shopId, $rootId, $homeId
+            _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, _DB_PREFIX_, $langId, $shopId, $rootId, $homeId
         ), true, false) ?: [];
         $map = [];
         foreach ($rows as $row) {
