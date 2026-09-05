@@ -39,7 +39,10 @@ final class Diagnostics
         }
 
         foreach ([
-            'li_matterhornim_99dfbf_run' => ['read_checkpoint','source_fingerprint','source_policy_hash'],
+            'li_matterhornim_99dfbf_run' => [
+                'read_checkpoint','source_fingerprint','source_policy_hash',
+                'image_reconcile_status','image_reconcile_checkpoint','image_reconcile_done',
+            ],
             'li_matterhornim_99dfbf_mapping' => ['combination_stock_hash','out_of_feed','last_seen_run_id'],
             'li_matterhornim_99dfbf_image_queue' => ['id_run','available_at','locked_by','locked_until'],
             'li_matterhornim_99dfbf_new_product_queue' => ['id_run','id_product','available_at','locked_by','locked_until'],
@@ -55,6 +58,19 @@ final class Diagnostics
                 $missing === [] ? 'required columns present' : 'missing: ' . implode(',', $missing)
             );
         }
+
+        $queueIndexRows = $db->executeS(
+            "SELECT COLUMN_NAME,SEQ_IN_INDEX FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
+            "AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . 'li_matterhornim_99dfbf_image_queue') . "' " .
+            "AND INDEX_NAME='idx_shop_source_status' ORDER BY SEQ_IN_INDEX"
+        ) ?: [];
+        $queueIndex = array_map(static fn(array $row): string => (string)($row['COLUMN_NAME'] ?? ''), $queueIndexRows);
+        $expectedIndex = ['id_shop','source','status','id_queue'];
+        $checks[] = $this->check(
+            'image-source-queue-index',
+            $queueIndex === $expectedIndex ? 'ok' : 'error',
+            $queueIndex === $expectedIndex ? implode(',', $expectedIndex) : 'expected=' . implode(',', $expectedIndex) . ' actual=' . implode(',', $queueIndex)
+        );
 
         $brokenGroups = (int)$db->getValue(
             'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_attribute_group_mapping` m ' .
@@ -99,8 +115,18 @@ final class Diagnostics
         $orphanRow = is_array($orphanRow) ? $orphanRow : [];
         $orphanTotal = (int)($orphanRow['total'] ?? 0);
         $checks[] = $this->check('image-orphans', $orphanTotal > 0 ? 'warning' : 'ok', sprintf('total=%d due=%d', $orphanTotal, (int)($orphanRow['due'] ?? 0)));
-        $latest=$db->getRow('SELECT id_run,status,read_status,import_status,update_status,remove_status FROM `' . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='" . pSQL($this->source->name()) . "' ORDER BY id_run DESC");
-        $checks[] = !$latest ? $this->check('latest-run','warning','no runs yet') : $this->check('latest-run',(string)$latest['status']==='failed'?'warning':'ok',sprintf('#%d %s [%s/%s/%s/%s]',(int)$latest['id_run'],(string)$latest['status'],(string)$latest['read_status'],(string)$latest['import_status'],(string)$latest['update_status'],(string)$latest['remove_status']));
+
+        $latest=$db->getRow('SELECT id_run,status,read_status,import_status,update_status,remove_status,image_reconcile_status,image_reconcile_checkpoint,image_reconcile_done FROM `' . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='" . pSQL($this->source->name()) . "' ORDER BY id_run DESC");
+        $checks[] = !$latest ? $this->check('latest-run','warning','no runs yet') : $this->check(
+            'latest-run',
+            (string)$latest['status']==='failed' || (string)($latest['image_reconcile_status'] ?? '')==='failed' ? 'warning' : 'ok',
+            sprintf(
+                '#%d %s [%s/%s/%s/%s] image_reconcile=%s done=%d checkpoint=%s',
+                (int)$latest['id_run'],(string)$latest['status'],(string)$latest['read_status'],(string)$latest['import_status'],
+                (string)$latest['update_status'],(string)$latest['remove_status'],(string)($latest['image_reconcile_status'] ?? 'pending'),
+                (int)($latest['image_reconcile_done'] ?? 0),(string)(($latest['image_reconcile_checkpoint'] ?? '') ?: '-')
+            )
+        );
         return $checks;
     }
 
