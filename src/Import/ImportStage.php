@@ -45,6 +45,7 @@ final class ImportStage
     {
         $this->safety->assertTransactionalCore();
         $run = $this->runs->assertContext($runId, $shopId, $source);
+        $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
         $this->assertRunnable($run);
         $this->budget->start($maxItems, $timeLimitSeconds);
         $recoverInterrupted = in_array((string) $run['import_status'], ['running','failed'], true);
