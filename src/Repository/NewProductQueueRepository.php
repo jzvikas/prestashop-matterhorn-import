@@ -7,14 +7,47 @@ final class NewProductQueueRepository
     private const LEASE_MINUTES = 10;
     private const MAX_ATTEMPTS = 5;
     private const ENQUEUE_CHUNK = 500;
+    private const MAX_WRITE_VALUES_BYTES = 7340032; // 7 MiB escaped VALUES; reserve ~1 MiB for SQL syntax
 
     public function enqueueBatch(int $runId, int $shopId, string $source, array $rows): int
     {
         if ($rows === []) { return 0; }
         $values = [];
+        $valuesBytes = 0;
         foreach ($rows as $row) {
-            $values[] = sprintf("(%d,%d,'%s','%s','%s','%s','pending',0,NULL,NULL,NULL,NULL,NOW(),NOW())", $runId, $shopId, pSQL($source), pSQL((string) $row['source_key']), pSQL((string) $row['payload'], true), pSQL((string) $row['payload_hash']));
-            if (count($values) >= self::ENQUEUE_CHUNK) { $this->insertValues($values); $values = []; }
+            $value = sprintf(
+                "(%d,%d,'%s','%s','%s','%s','pending',0,NULL,NULL,NULL,NULL,NOW(),NOW())",
+                $runId,
+                $shopId,
+                pSQL($source),
+                pSQL((string) $row['source_key']),
+                pSQL((string) $row['payload'], true),
+                pSQL((string) $row['payload_hash'])
+            );
+            $valueBytes = strlen($value);
+            if ($valueBytes > self::MAX_WRITE_VALUES_BYTES) {
+                throw new \RuntimeException(
+                    'Escaped new-product queue row exceeds SQL write budget for source key ' .
+                    (string) $row['source_key']
+                );
+            }
+
+            $separatorBytes = $values === [] ? 0 : 1;
+            if (
+                $values !== []
+                && (
+                    count($values) >= self::ENQUEUE_CHUNK
+                    || $valuesBytes + $separatorBytes + $valueBytes > self::MAX_WRITE_VALUES_BYTES
+                )
+            ) {
+                $this->insertValues($values);
+                $values = [];
+                $valuesBytes = 0;
+                $separatorBytes = 0;
+            }
+
+            $values[] = $value;
+            $valuesBytes += $separatorBytes + $valueBytes;
         }
         if ($values !== []) { $this->insertValues($values); }
         return count($rows);
