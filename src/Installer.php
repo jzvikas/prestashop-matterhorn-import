@@ -7,6 +7,24 @@ final class Installer
     private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';
     private const RUN_TABLE = 'li_matterhornim_99dfbf_run';
     private const IMAGE_QUEUE_TABLE = 'li_matterhornim_99dfbf_image_queue';
+    private const OWNED_TABLES = [
+        'li_matterhornim_99dfbf_run',
+        'li_matterhornim_99dfbf_snapshot',
+        'li_matterhornim_99dfbf_mapping',
+        'li_matterhornim_99dfbf_category_mapping',
+        'li_matterhornim_99dfbf_feature_mapping',
+        'li_matterhornim_99dfbf_feature_value_mapping',
+        'li_matterhornim_99dfbf_feature_state',
+        'li_matterhornim_99dfbf_combination_mapping',
+        'li_matterhornim_99dfbf_specific_price_state',
+        'li_matterhornim_99dfbf_new_product_queue',
+        'li_matterhornim_99dfbf_error',
+        'li_matterhornim_99dfbf_image_state',
+        'li_matterhornim_99dfbf_image_queue',
+        'li_matterhornim_99dfbf_image_orphan',
+        'li_matterhornim_99dfbf_attribute_group_mapping',
+        'li_matterhornim_99dfbf_attribute_value_mapping',
+    ];
     private const CONFIG_KEYS = [
         'MATTERHORNIMPORT_SOURCE_FILE',
         'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID',
@@ -32,7 +50,9 @@ final class Installer
         $defaults = [];
         $schemaPreExisted = true;
         try {
-            $schemaPreExisted = $this->tableExists(self::RUN_TABLE);
+            // Preserve retained or partially-created module data on a failed reinstall/repair.
+            // Destructive rollback is only safe when no Matterhorn-owned table existed before this call.
+            $schemaPreExisted = $this->anyOwnedTableExists();
             foreach (self::INSTALL_SQL as $file) {
                 foreach ($this->statements($file) as $sql) {
                     if (!\Db::getInstance()->execute($sql)) {
@@ -213,6 +233,14 @@ final class Installer
             $ok = \Configuration::deleteByName($key) && $ok;
         }
         return $ok;
+    }
+
+    private function anyOwnedTableExists(): bool
+    {
+        foreach (self::OWNED_TABLES as $suffix) {
+            if ($this->tableExists($suffix)) { return true; }
+        }
+        return false;
     }
 
     private function tableExists(string $suffix): bool
