@@ -5,6 +5,8 @@ use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class AttributeResolver
 {
+    private const LOCK_TIMEOUT_SECONDS = 10;
+
     public function __construct(private ShopContextManager $shopContext) {}
 
     /** @return array{id_attribute_group:int,id_attribute:int} */
@@ -22,10 +24,23 @@ final class AttributeResolver
         $langId = (int) \Configuration::get('PS_LANG_DEFAULT', null, null, $shopId);
         if ($langId <= 0) { throw new \RuntimeException('Target shop has no valid default language for attribute resolution'); }
 
-        $groupId = $this->findGroup($shopId, $langId, $groupName);
-        if ($groupId <= 0) { $groupId = $this->createGroup($shopId, $groupName); }
-        $attributeId = $this->findAttribute($shopId, $langId, $groupId, $valueName);
-        if ($attributeId <= 0) { $attributeId = $this->createAttribute($shopId, $groupId, $valueName); }
+        $db = \Db::getInstance();
+        $groupLock = $this->acquireLock($db, 'group:' . $shopId . ':' . mb_strtolower($groupName, 'UTF-8'));
+        try {
+            $groupId = $this->findGroup($shopId, $langId, $groupName);
+            if ($groupId <= 0) { $groupId = $this->createGroup($shopId, $groupName); }
+        } finally {
+            $this->releaseLock($db, $groupLock);
+        }
+
+        $valueLock = $this->acquireLock($db, 'value:' . $shopId . ':' . $groupId . ':' . mb_strtolower($valueName, 'UTF-8'));
+        try {
+            $attributeId = $this->findAttribute($shopId, $langId, $groupId, $valueName);
+            if ($attributeId <= 0) { $attributeId = $this->createAttribute($shopId, $groupId, $valueName); }
+        } finally {
+            $this->releaseLock($db, $valueLock);
+        }
+
         return ['id_attribute_group' => $groupId, 'id_attribute' => $attributeId];
     }
 
@@ -93,5 +108,19 @@ final class AttributeResolver
             throw new \RuntimeException('Could not associate attribute to shop: ' . $value);
         }
         return $attributeId;
+    }
+
+    private function acquireLock(\Db $db, string $scope): string
+    {
+        $name = 'matterhorn:attr:' . substr(hash('sha256', $scope), 0, 40);
+        if ((int) $db->getValue("SELECT GET_LOCK('" . pSQL($name) . "'," . self::LOCK_TIMEOUT_SECONDS . ')') !== 1) {
+            throw new \RuntimeException('Could not acquire Matterhorn attribute resolver lock');
+        }
+        return $name;
+    }
+
+    private function releaseLock(\Db $db, string $name): void
+    {
+        try { $db->getValue("SELECT RELEASE_LOCK('" . pSQL($name) . "')"); } catch (\Throwable) {}
     }
 }
