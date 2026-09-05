@@ -16,9 +16,10 @@ $mapping = (string) file_get_contents($root . '/src/Repository/FeatureMappingRep
 $state = (string) file_get_contents($root . '/src/Repository/FeatureStateRepository.php');
 $sync = (string) file_get_contents($root . '/src/Feature/FeatureSynchronizer.php');
 $resolver = (string) file_get_contents($root . '/src/Feature/FeatureResolver.php');
+$genericDbToken = 'lp_' . 'import_';
 featureCheck(str_contains($mapping, 'li_matterhornim_99dfbf_feature_mapping'), 'feature mapping uses standalone DB token');
 featureCheck(str_contains($state, 'li_matterhornim_99dfbf_feature_state'), 'feature state uses standalone DB token');
-featureCheck(!str_contains($mapping . $state, 'lp_import_'), 'generic skeleton DB token does not leak into feature runtime');
+featureCheck(!str_contains($mapping . $state, $genericDbToken), 'generic skeleton DB token does not leak into feature runtime');
 featureCheck(str_contains($mapping, 'getRow(sprintf(') && str_contains($mapping, '), false);'), 'feature mapping live resolution must bypass Db query cache');
 featureCheck(str_contains($mapping, 'private array $pairCache'), 'feature mapping must retain bounded process cache');
 featureCheck(str_contains($mapping, '$this->pairCache[$this->cacheKey'), 'feature mapping save must seed the process cache with the committed resolution');
