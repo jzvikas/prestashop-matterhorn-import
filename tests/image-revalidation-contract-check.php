@@ -35,6 +35,7 @@ $checks = [
     [$scheduler, 'payload_window_deferred', 'bounded payload-window visibility'],
     [$state, 'updated_at<=DATE_SUB(NOW(),INTERVAL %d HOUR)', 'age-based stale selection'],
     [$state, 'm.out_of_feed=0', 'revalidation excludes out-of-feed products'],
+    [$state, 'q.id_shop=s.id_shop AND q.id_product=s.id_product', 'unresolved-job fence must use indexed product prefix'],
     [$state, "q.status<>'done'", 'revalidation avoids products with unresolved image work'],
     [$state, 'GROUP BY s.source_key', 'stale scan bounded per product'],
     [$snapshots, 'function imageManifestRowsForSourceKeys', 'bounded keyed manifest lookup'],
