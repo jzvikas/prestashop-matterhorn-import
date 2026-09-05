@@ -146,6 +146,27 @@ $longCategoryId['category']['id'] = str_repeat('K', 180);
 try { $mapper->map($longCategoryId); check(false, 'generated category supplier key over 191 characters must fail in READ'); }
 catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'category supplier key exceeds module 191-character limit'), 'category-key bound error clarity'); }
 
+$tooLongFeature = $rows[0];
+$tooLongFeature['color'] = str_repeat('F', 256);
+try { $mapper->map($tooLongFeature); check(false, 'feature value over 255 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'Color value exceeds PrestaShop 255-character limit'), 'feature value bound error clarity'); }
+
+$longFeature = $rows[0];
+$longFeature['color'] = str_repeat('f', 180);
+$longFeatureMapped = $mapper->map($longFeature);
+$longFeatureRow = $longFeatureMapped->extra['features'][0] ?? [];
+$longFeatureKey = (string) ($longFeatureRow['value_key'] ?? '');
+check(($longFeatureRow['value'] ?? '') === str_repeat('f', 180), 'long valid feature display value must remain lossless');
+check($longFeatureKey !== '' && mb_strlen($longFeatureKey, 'UTF-8') <= 191, 'long feature semantic key must fit module mapping schema');
+$longFeatureMappedAgain = $mapper->map($longFeature);
+check($longFeatureKey === (string) ($longFeatureMappedAgain->extra['features'][0]['value_key'] ?? ''), 'long feature semantic key must be deterministic');
+
+$punctuationFeature = $rows[0];
+$punctuationFeature['color'] = '!!!';
+$punctuationFeatureMapped = $mapper->map($punctuationFeature);
+$punctuationKey = (string) ($punctuationFeatureMapped->extra['features'][0]['value_key'] ?? '');
+check(str_starts_with($punctuationKey, 'matterhorn:color:hash-'), 'punctuation-only feature value must use non-empty hash identity');
+
 $simple = $rows[0]; $simple['options'] = [];
 $simpleMapped = $mapper->map($simple);
 check($simpleMapped->quantity === 0 && !isset($simpleMapped->extra['combinations']), 'simple product has zero stock and no invented combinations');
