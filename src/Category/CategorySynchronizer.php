@@ -53,24 +53,49 @@ final class CategorySynchronizer
     {
         $keyIds = array_values(array_unique(array_filter(array_map('intval', $leafIds), static fn(int $id): bool => $id > 0)));
         sort($keyIds, SORT_NUMERIC);
-        $cacheKey = $shopId . ':' . implode(',', $keyIds);
-        if (isset($this->hierarchyCache[$cacheKey])) {
-            return $this->hierarchyCache[$cacheKey];
-        }
+        if ($keyIds === []) { return []; }
 
-        $langId = (int) \Configuration::get('PS_LANG_DEFAULT', null, null, $shopId);
-        if ($langId <= 0) { $langId = (int) \Configuration::get('PS_LANG_DEFAULT'); }
         $rootId = (int) \Configuration::get('PS_ROOT_CATEGORY', null, null, $shopId);
         if ($rootId <= 0) { $rootId = (int) \Configuration::get('PS_ROOT_CATEGORY'); }
+        $current = $this->liveHierarchy($keyIds, $shopId, $rootId);
+        $cacheKey = $shopId . ':' . implode(',', $keyIds);
+        if (isset($this->hierarchyCache[$cacheKey]) && $this->hierarchyCache[$cacheKey] === $current) {
+            return $this->hierarchyCache[$cacheKey];
+        }
+        return $this->hierarchyCache[$cacheKey] = $current;
+    }
+
+    /** @param list<int> $leafIds @return list<int> */
+    private function liveHierarchy(array $leafIds, int $shopId, int $rootId): array
+    {
+        $rows = \Db::getInstance()->executeS(sprintf(
+            "SELECT leaf.id_category AS leaf_id,parent.id_category " .
+            "FROM `%scategory` leaf " .
+            "INNER JOIN `%scategory_shop` leaf_shop ON leaf_shop.id_category=leaf.id_category AND leaf_shop.id_shop=%d " .
+            "INNER JOIN `%scategory` parent ON leaf.nleft BETWEEN parent.nleft AND parent.nright " .
+            "INNER JOIN `%scategory_shop` parent_shop ON parent_shop.id_category=parent.id_category AND parent_shop.id_shop=%d " .
+            "WHERE leaf.id_category IN (%s) AND parent.id_category<>%d " .
+            "ORDER BY leaf.id_category,parent.nleft,parent.id_category",
+            _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, _DB_PREFIX_, $shopId,
+            implode(',', array_map('intval', $leafIds)), $rootId
+        ), true, false);
+        if (!is_array($rows)) {
+            throw new \RuntimeException('Could not inspect live target-shop category hierarchy');
+        }
+
+        $seenLeaves = [];
         $ids = [];
-        foreach ($keyIds as $leafId) {
-            $category = new \Category($leafId, $langId, $shopId);
-            if (!\Validate::isLoadedObject($category) || !$category->existsInShop($shopId)) { throw new \RuntimeException('Mapped category is unavailable in target shop: ' . $leafId); }
-            foreach ($category->getParentsCategories($langId) as $row) {
-                $id = (int) ($row['id_category'] ?? 0);
-                if ($id > 0 && $id !== $rootId) { $ids[$id] = $id; }
+        foreach ($rows as $row) {
+            $leafId = (int) ($row['leaf_id'] ?? 0);
+            $categoryId = (int) ($row['id_category'] ?? 0);
+            if ($leafId > 0) { $seenLeaves[$leafId] = true; }
+            if ($categoryId > 0 && $categoryId !== $rootId) { $ids[$categoryId] = $categoryId; }
+        }
+        foreach ($leafIds as $leafId) {
+            if (!isset($seenLeaves[$leafId])) {
+                throw new \RuntimeException('Mapped category is unavailable in target shop: ' . $leafId);
             }
         }
-        return $this->hierarchyCache[$cacheKey] = array_values($ids);
+        return array_values($ids);
     }
 }
