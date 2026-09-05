@@ -3,6 +3,7 @@ namespace Lp\MatterhornImport\Category;
 
 use Lp\MatterhornImport\DTO\ProductData;
 use Lp\MatterhornImport\Repository\CategoryMappingRepository;
+use Lp\MatterhornImport\Util\ItemTransactionGuard;
 use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class CategoryAutoMapper
@@ -19,7 +20,11 @@ final class CategoryAutoMapper
     /** @var array<string,bool> */
     private array $availabilityCache = [];
 
-    public function __construct(private CategoryMappingRepository $mapping, private ShopContextManager $shopContext) {}
+    public function __construct(
+        private CategoryMappingRepository $mapping,
+        private ShopContextManager $shopContext,
+        private ItemTransactionGuard $transactionGuard
+    ) {}
 
     public function prepare(ProductData $data, int $shopId): void
     {
@@ -139,6 +144,7 @@ final class CategoryAutoMapper
                     $category->link_rewrite[$idLang] = $rewrite;
                 }
                 if (!$category->add() || (int) $category->id <= 0) { throw new \RuntimeException('Could not create category path segment: ' . $part); }
+                $this->transactionGuard->restoreAfterExternalCommit();
                 $parentId = (int) $category->id;
                 $this->pathMap[$shopId][$normalized] = $parentId;
                 $this->availabilityCache[$this->availabilityKey($shopId, $parentId)] = true;
@@ -174,26 +180,19 @@ final class CategoryAutoMapper
             $this->childMap[$shopId][$parentId] = $children;
         }
         $id = $this->childMap[$shopId][$parentId][$normalized] ?? 0;
-        if ($id < 0) {
-            throw new \RuntimeException('Ambiguous exact category child name under parent #' . $parentId . ': ' . $name);
-        }
+        if ($id < 0) { throw new \RuntimeException('Ambiguous exact category child name under parent #' . $parentId . ': ' . $name); }
         return $id;
     }
 
     private function categoryExistsInShop(int $categoryId, int $shopId): bool
     {
         $cacheKey = $this->availabilityKey($shopId, $categoryId);
-        if (array_key_exists($cacheKey, $this->availabilityCache)) {
-            return $this->availabilityCache[$cacheKey];
-        }
+        if (array_key_exists($cacheKey, $this->availabilityCache)) { return $this->availabilityCache[$cacheKey]; }
         $category = new \Category($categoryId, $this->languageId($shopId), $shopId);
         return $this->availabilityCache[$cacheKey] = \Validate::isLoadedObject($category) && $category->existsInShop($shopId);
     }
 
-    private function availabilityKey(int $shopId, int $categoryId): string
-    {
-        return $shopId . ':' . $categoryId;
-    }
+    private function availabilityKey(int $shopId, int $categoryId): string { return $shopId . ':' . $categoryId; }
 
     private function rootCategoryId(int $shopId): int
     {
@@ -223,10 +222,7 @@ final class CategoryAutoMapper
     {
         $scope = $shopId . ':' . $parentId . ':' . $this->normalizeSegment($name);
         $lock = 'lpimp:cat:' . substr(hash('sha256', $scope), 0, 40);
-        if ((int) $db->getValue(
-            "SELECT GET_LOCK('" . pSQL($lock) . "'," . self::LOCK_TIMEOUT_SECONDS . ')',
-            false
-        ) !== 1) {
+        if ((int) $db->getValue("SELECT GET_LOCK('" . pSQL($lock) . "'," . self::LOCK_TIMEOUT_SECONDS . ')', false) !== 1) {
             throw new \RuntimeException('Could not acquire category path resolver lock');
         }
         return $lock;
@@ -242,9 +238,7 @@ final class CategoryAutoMapper
     {
         $parts = preg_split('/\s*>\s*/u', trim($path)) ?: [];
         $parts = array_values(array_filter(array_map(static fn(string $part): string => trim(ltrim(trim($part), '@')), $parts), static fn(string $part): bool => $part !== ''));
-        if (count($parts) > self::MAX_PATH_DEPTH) {
-            throw new \InvalidArgumentException('Category path depth exceeds operational limit of ' . self::MAX_PATH_DEPTH);
-        }
+        if (count($parts) > self::MAX_PATH_DEPTH) { throw new \InvalidArgumentException('Category path depth exceeds operational limit of ' . self::MAX_PATH_DEPTH); }
         return $parts;
     }
     private function normalizePath(string $path): string { return implode(' > ', array_map(fn(string $part): string => $this->normalizeSegment($part), $this->splitPath($path))); }
