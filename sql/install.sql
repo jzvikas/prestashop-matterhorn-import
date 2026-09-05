@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_mapping` (
   `last_seen_run_id` BIGINT UNSIGNED NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id_shop`,`source`,`source_key`),
-  UNIQUE KEY `uq_shop_source_product` (`id_shop`,`source`,`id_product`),
+  UNIQUE KEY `uq_shop_product_owner` (`id_shop`,`id_product`),
   KEY `idx_seen` (`id_shop`,`source`,`last_seen_run_id`),
   KEY `idx_feed_state` (`id_shop`,`source`,`out_of_feed`,`last_seen_run_id`),
   KEY `idx_feed_product` (`id_shop`,`source`,`out_of_feed`,`id_product`),
