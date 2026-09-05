@@ -221,7 +221,8 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_image_state` (
   PRIMARY KEY (`id_shop`,`source`,`source_key`,`url_hash`),
   KEY `idx_product` (`id_product`),
   KEY `idx_image` (`id_image`),
-  KEY `idx_content` (`id_shop`,`source`,`id_product`,`content_hash`)
+  KEY `idx_content` (`id_shop`,`source`,`id_product`,`content_hash`),
+  KEY `idx_revalidate` (`id_shop`,`source`,`updated_at`,`source_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_image_queue` (
