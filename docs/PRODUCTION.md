@@ -6,8 +6,9 @@ This module targets **PrestaShop 9.1.x**, **PHP 8.4+** and MariaDB/MySQL with th
 
 Open the Matterhorn Wholesale Import module configuration while a concrete shop is selected. Configure:
 
-- supplier XML path;
+- supplier XML path and source language;
 - supplier `Size` attribute-group name;
+- category/feature auto-create policies;
 - maximum REMOVE percentage guard;
 - stage batch size, max-items and time limit;
 - image worker batch/runtime;
@@ -23,7 +24,7 @@ php bin/console matterhornimport:doctor --shop=1
 php bin/console matterhornimport:status --shop=1
 ```
 
-Do not schedule production writes while `doctor` reports errors.
+Do not schedule production writes while `doctor` reports errors. `doctor` also validates the current module schema, Size mapping references and the source-scoped image reconciliation queue index.
 
 ## 2. Normal import cycle
 
@@ -70,7 +71,7 @@ php bin/console matterhornimport:new-products --shop=1
 
 This lane uses the same shop/source lock as IMPORT, so it must not mutate the same shop concurrently with `run`/`import`/`update`/`remove`. After the queue has been drained, still run the normal IMPORT stage for the same run. IMPORT will skip products already mapped by the worker, create any remaining rows, and mark the IMPORT stage complete before UPDATE is allowed.
 
-The queue is restart-safe: leases are fenced, expired leases can be reclaimed, interrupted creates are recovered, and retryable database failures use backoff.
+The queue is restart-safe: leases are fenced, expired leases can be reclaimed, interrupted creates are recovered, retryable database failures use backoff, and a newer run can hand a newer payload to an already-processing source key without losing that generation. If an older generation creates the product first, the requeued newer generation updates that same mapped product rather than creating a duplicate.
 
 ## 4. Images
 
@@ -82,13 +83,34 @@ php bin/console matterhornimport:images --shop=1
 
 The downloader blocks private/reserved destinations, validates DNS and the connected endpoint, follows no redirects, validates MIME/dimensions/byte limits, supports HTTP revalidation and deduplicates content.
 
-After a complete catalog run and after its image queue has no unresolved jobs, reconcile the authoritative image manifest:
+After a complete catalog run and after **all image jobs for that shop/source** have drained, reconcile the authoritative image manifest. For large shops, use a bounded invocation:
 
 ```bash
-php bin/console matterhornimport:images:reconcile --shop=1 --run=123
+php bin/console matterhornimport:images:reconcile \
+  --shop=1 \
+  --run=123 \
+  --batch=500 \
+  --max-items=5000 \
+  --time-limit=300
 ```
 
-Reconciliation is intentionally blocked for an old run or while image jobs remain unresolved.
+The command persists `image_reconcile_status`, `image_reconcile_checkpoint` and cumulative `image_reconcile_done` on the run. If it returns `paused`, execute the **same command with the same run ID** again; it resumes after the last fully reconciled source key. A crash before a checkpoint deliberately replays that one product, and per-product reconciliation is designed to be idempotent.
+
+Reconciliation is blocked when:
+
+- the run is not the latest run for the shop/source;
+- READ/IMPORT/UPDATE/REMOVE are not completed;
+- the selected run still has unresolved image jobs;
+- any older/newer image job for the same shop/source is unresolved.
+
+An unchanged image manifest may legitimately reuse a live image state from an earlier run; current-run freshness is not required when the state still belongs to the same shop/product and the desired URL exists.
+
+Check reconciliation progress with:
+
+```bash
+php bin/console matterhornimport:status --shop=1
+php bin/console matterhornimport:doctor --shop=1
+```
 
 ## 5. Retry, status and GC
 
@@ -111,7 +133,7 @@ Run bounded metadata GC separately:
 php bin/console matterhornimport:gc --shop=1 --keep-run=123 --json
 ```
 
-GC is row/time bounded and only removes safe module-owned history/queue state; it is not a catalog deletion command.
+GC is row/time bounded and only removes safe module-owned history/queue state; it is not a catalog deletion command. The latest shop/source snapshot is retained because authoritative image reconciliation reads its desired image manifest directly from snapshot payloads. Once a newer generation exists, older snapshots can become collectible according to the GC retention boundary.
 
 ## 6. Recommended cron layout
 
@@ -135,7 +157,7 @@ Example for shop `1` when Back Office runtime limits are configured:
 43 3 * * * cd /var/www/prestashop && php bin/console matterhornimport:gc --shop=1 --keep-run=0 --json >> var/log/matterhorn-gc.log 2>&1
 ```
 
-Use separate lock/log files for each shop. Image workers can be scheduled separately because their queue has its own lease/fencing model, but image reconciliation must only run for a fully completed latest run with no unresolved image jobs.
+Use separate lock/log files for each shop. Image workers can be scheduled separately because their queue has its own lease/fencing model. Image reconciliation needs the latest completed run ID, so normally invoke it from your orchestration after checking `status`, rather than hard-coding a stale run ID in cron. Repeated bounded invocations for the same current run are safe because progress is checkpointed.
 
 ## 7. Deployment gate
 
@@ -149,7 +171,7 @@ php tests/database-lifecycle-check.php   # against MariaDB 10.11+
 bash tests/prestashop-runtime-check.sh   # Docker; PrestaShop 9.1.5 / PHP 8.4
 ```
 
-GitHub Actions contains equivalent static, MariaDB lifecycle and real PrestaShop lifecycle jobs.
+GitHub Actions contains equivalent static, MariaDB lifecycle and real PrestaShop lifecycle jobs. Do not disable a failing gate or mark the module release-green until all current gates execute successfully.
 
 ## 8. Uninstall retention
 
