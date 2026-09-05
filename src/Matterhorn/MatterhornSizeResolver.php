@@ -1,13 +1,15 @@
 <?php
 namespace Lp\MatterhornImport\Matterhorn;
 
+use Lp\MatterhornImport\Config\MatterhornPolicy;
 use Lp\MatterhornImport\Contract\SizeResolverInterface;
 
 final class MatterhornSizeResolver implements SizeResolverInterface
 {
-    public function __construct(private readonly string $groupName = 'Size')
-    {
-    }
+    public function __construct(
+        private readonly ?MatterhornPolicy $policy = null,
+        private readonly string $fallbackGroupName = 'Size'
+    ) {}
 
     public function attribute(string $size): array
     {
@@ -19,7 +21,8 @@ final class MatterhornSizeResolver implements SizeResolverInterface
             throw new \InvalidArgumentException('Matterhorn size exceeds PrestaShop 128-byte limit');
         }
 
-        $groupName = trim($this->groupName);
+        $policy = $this->policy?->current();
+        $groupName = trim((string) ($policy['size_attribute_group_name'] ?? $this->fallbackGroupName));
         if ($groupName === '' || strlen($groupName) > 64) {
             throw new \InvalidArgumentException('Matterhorn Size group name is invalid');
         }
