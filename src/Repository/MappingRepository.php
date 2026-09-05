@@ -9,18 +9,85 @@ final class MappingRepository
 
     public function save(int $shopId, string $source, int $runId, int $productId, ProductData $product): void
     {
-        if ($shopId <= 0 || $runId <= 0 || $productId <= 0 || trim($source) === '') { throw new \InvalidArgumentException('Mapping save requires valid shop/source/run/product'); }
-        $sql = sprintf(
-            "INSERT INTO `%s%s` (`id_shop`,`source`,`source_key`,`id_product`,`payload_hash`,`core_hash`,`price_hash`,`stock_hash`,`attribute_hash`,`feature_hash`,`category_hash`,`combination_hash`,`combination_stock_hash`,`specific_price_hash`,`image_hash`,`out_of_feed`,`last_seen_run_id`,`updated_at`) VALUES (%d,'%s','%s',%d,'%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s',0,%d,'%s') ON DUPLICATE KEY UPDATE `id_product`=VALUES(`id_product`),`payload_hash`=VALUES(`payload_hash`),`core_hash`=VALUES(`core_hash`),`price_hash`=VALUES(`price_hash`),`stock_hash`=VALUES(`stock_hash`),`attribute_hash`=VALUES(`attribute_hash`),`feature_hash`=VALUES(`feature_hash`),`category_hash`=VALUES(`category_hash`),`combination_hash`=VALUES(`combination_hash`),`combination_stock_hash`=VALUES(`combination_stock_hash`),`specific_price_hash`=VALUES(`specific_price_hash`),`image_hash`=VALUES(`image_hash`),`out_of_feed`=0,`last_seen_run_id`=VALUES(`last_seen_run_id`),`updated_at`=VALUES(`updated_at`)",
-            _DB_PREFIX_, self::TABLE, $shopId, pSQL($source), pSQL($product->sourceKey), $productId,
-            pSQL($product->payloadHash()), pSQL($product->coreHash()), pSQL($product->priceHash()), pSQL($product->stockHash()), pSQL($product->attributeHash()), pSQL($product->featureHash()), pSQL($product->categoryHash()), pSQL($product->combinationHash()), pSQL($product->combinationStockHash()), pSQL($product->specificPriceHash()), pSQL($product->imageHash()), $runId, date('Y-m-d H:i:s')
+        $source = trim($source);
+        if ($shopId <= 0 || $runId <= 0 || $productId <= 0 || $source === '' || trim($product->sourceKey) === '') {
+            throw new \InvalidArgumentException('Mapping save requires valid shop/source/run/product');
+        }
+
+        $db = \Db::getInstance();
+        $where = sprintf(
+            "id_shop=%d AND source='%s' AND source_key='%s'",
+            $shopId,
+            pSQL($source),
+            pSQL($product->sourceKey)
         );
-        if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Matterhorn mapping save failed'); }
+        $data = $this->data($runId, $productId, $product);
+
+        // Update only the exact existing owner identity. Never use ON DUPLICATE KEY UPDATE here:
+        // uq_shop_product_owner(id_shop,id_product) intentionally rejects a different source/key
+        // claiming the same PrestaShop product, and ON DUPLICATE KEY would otherwise mutate that
+        // foreign owner's hash state instead of surfacing the ownership conflict.
+        if (!$db->update(self::TABLE, $data, $where, 0, true)) {
+            throw new \RuntimeException('Matterhorn exact-owner mapping update failed: ' . $db->getMsgError());
+        }
+
+        $existingProductId = $this->findProductId($shopId, $source, $product->sourceKey);
+        if ($existingProductId > 0) {
+            if ($existingProductId !== $productId) {
+                throw new \RuntimeException('Matterhorn mapping ownership changed while saving source key ' . $product->sourceKey);
+            }
+            return;
+        }
+
+        $insert = ['id_shop' => $shopId, 'source' => pSQL($source), 'source_key' => pSQL($product->sourceKey)] + $data;
+        if ($db->insert(self::TABLE, $insert, false, true, \Db::INSERT)) {
+            return;
+        }
+
+        // A concurrent same-owner insert may have won between the exact-owner read and INSERT.
+        // Re-read without cache and accept it only when the complete owner identity is now ours.
+        $afterRace = $this->findProductId($shopId, $source, $product->sourceKey);
+        if ($afterRace === $productId) {
+            if (!$db->update(self::TABLE, $data, $where, 0, true)) {
+                throw new \RuntimeException('Matterhorn concurrent mapping refresh failed: ' . $db->getMsgError());
+            }
+            return;
+        }
+
+        $owner = $this->findOwnerByProduct($shopId, $productId);
+        if ($owner !== null) {
+            throw new \RuntimeException(sprintf(
+                'Matterhorn product ownership conflict: shop %d product %d is already owned by %s/%s',
+                $shopId,
+                $productId,
+                $owner['source'],
+                $owner['source_key']
+            ));
+        }
+
+        throw new \RuntimeException('Matterhorn mapping insert failed: ' . $db->getMsgError());
     }
 
     public function findProductId(int $shopId, string $source, string $sourceKey): int
     {
-        return (int) \Db::getInstance()->getValue(sprintf("SELECT id_product FROM `%s%s` WHERE id_shop=%d AND source='%s' AND source_key='%s'", _DB_PREFIX_, self::TABLE, $shopId, pSQL($source), pSQL($sourceKey)));
+        return (int) \Db::getInstance()->getValue(sprintf(
+            "SELECT id_product FROM `%s%s` WHERE id_shop=%d AND source='%s' AND source_key='%s'",
+            _DB_PREFIX_, self::TABLE, $shopId, pSQL($source), pSQL($sourceKey)
+        ), false);
+    }
+
+    /** @return array{source:string,source_key:string}|null */
+    public function findOwnerByProduct(int $shopId, int $productId): ?array
+    {
+        if ($shopId <= 0 || $productId <= 0) { return null; }
+        $row = \Db::getInstance()->getRow(sprintf(
+            "SELECT source,source_key FROM `%s%s` WHERE id_shop=%d AND id_product=%d LIMIT 1",
+            _DB_PREFIX_, self::TABLE, $shopId, $productId
+        ), false);
+        if (!is_array($row) || trim((string) ($row['source'] ?? '')) === '' || trim((string) ($row['source_key'] ?? '')) === '') {
+            return null;
+        }
+        return ['source' => (string) $row['source'], 'source_key' => (string) $row['source_key']];
     }
 
     public function ownsProduct(int $shopId, string $source, string $sourceKey, int $productId): bool
@@ -66,11 +133,32 @@ final class MappingRepository
 
     public function countSource(int $shopId, string $source): int
     {
-        return (int) \Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` WHERE id_shop=%d AND source='%s'", _DB_PREFIX_, self::TABLE, $shopId, pSQL($source)));
+        return (int) \Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` WHERE id_shop=%d AND source='%s'", _DB_PREFIX_, self::TABLE, $shopId, pSQL($source)), false);
     }
 
     public function countInFeedSource(int $shopId, string $source): int
     {
-        return (int) \Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` WHERE id_shop=%d AND source='%s' AND out_of_feed=0", _DB_PREFIX_, self::TABLE, $shopId, pSQL($source)));
+        return (int) \Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` WHERE id_shop=%d AND source='%s' AND out_of_feed=0", _DB_PREFIX_, self::TABLE, $shopId, pSQL($source)), false);
+    }
+
+    private function data(int $runId, int $productId, ProductData $product): array
+    {
+        return [
+            'id_product' => $productId,
+            'payload_hash' => pSQL($product->payloadHash()),
+            'core_hash' => pSQL($product->coreHash()),
+            'price_hash' => pSQL($product->priceHash()),
+            'stock_hash' => pSQL($product->stockHash()),
+            'attribute_hash' => pSQL($product->attributeHash()),
+            'feature_hash' => pSQL($product->featureHash()),
+            'category_hash' => pSQL($product->categoryHash()),
+            'combination_hash' => pSQL($product->combinationHash()),
+            'combination_stock_hash' => pSQL($product->combinationStockHash()),
+            'specific_price_hash' => pSQL($product->specificPriceHash()),
+            'image_hash' => pSQL($product->imageHash()),
+            'out_of_feed' => 0,
+            'last_seen_run_id' => $runId,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
     }
 }
