@@ -58,7 +58,6 @@ final class UpdateStage
             while (!$this->budget->shouldStop() && ($rows = $this->snapshots->changedRows($runId, $shopId, $source, $cursor, $batch)) !== []) {
                 $db = \Db::getInstance();
                 if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start UPDATE batch transaction'); }
-                $done = 0;
                 $batchFailures = 0;
                 try {
                     foreach ($rows as $row) {
@@ -114,20 +113,21 @@ final class UpdateStage
 
                             if (!$imagesSame) { $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images); }
                             $this->mapping->save($shopId, $source, $runId, $productId, $product);
+                            // Keep progress beside the mapping/hash write so a later ObjectModel hook
+                            // cannot commit this item while leaving update_done behind in memory.
+                            $this->runs->increment($runId, 'update_done', 1);
                             if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not release UPDATE item savepoint'); }
                             $this->transactionGuard->disarm();
-                            $done++;
                             $this->budget->markItem();
                         } catch (\Throwable $itemError) {
                             if (TransientDatabaseFailure::isRetryable($itemError)) { throw $itemError; }
                             $this->rollbackItemSavepoint($db, $itemError);
                             $batchFailures++;
+                            $this->runs->increment($runId, 'update_failed', 1);
                             $this->budget->markItem();
                             $this->errors->add($runId, 'update', $product?->sourceKey ?? (string) ($row['source_key'] ?? ''), $itemError);
                         }
                     }
-                    if ($done > 0) { $this->runs->increment($runId, 'update_done', $done); }
-                    if ($batchFailures > 0) { $this->runs->increment($runId, 'update_failed', $batchFailures); }
                     if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit UPDATE batch'); }
                 } catch (\Throwable $batchError) {
                     $this->transactionGuard->disarm();
