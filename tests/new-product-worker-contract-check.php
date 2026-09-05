@@ -73,7 +73,6 @@ $checks = [
     [$worker, '$this->transactionGuard->arm($db)', 'worker transaction guard arm'],
     [$worker, '$this->transactionGuard->restoreAfterExternalCommit()', 'nested hook recovery'],
     [$worker, '$this->transactionGuard->recoveryCount()', 'nested recovery metric'],
-    [$worker, 'done($idQueue,', 'completion generation fence'],
     [$worker, 'fail($idQueue, $token, $e->getMessage(), $retryable, $expectedRunId)', 'failure generation fence'],
     [$worker, "getValue('SELECT @@session.in_transaction', false)", 'live transaction-state read'],
     [$worker, 'combinationAttributes->resolve', 'Size/combo attribute resolution'],
@@ -105,6 +104,14 @@ if (!preg_match(
     $runs
 )) {
     fwrite(STDERR, "FAIL: latest completed READ lookup must bypass Db query cache\n");
+    exit(1);
+}
+
+if (!preg_match(
+    '/\$this->queue->done\(\s*\$idQueue\s*,\s*\$token\s*,\s*\$idProduct\s*,\s*\$expectedRunId\s*\)/s',
+    $worker
+)) {
+    fwrite(STDERR, "FAIL: completion generation fence\n");
     exit(1);
 }
 
