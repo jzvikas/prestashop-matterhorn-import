@@ -20,7 +20,7 @@ $fail = static function (string $message): never {
 };
 
 $commands = [
-    'RunCommand','ReadCommand','ImportCommand','UpdateCommand','RemoveCommand','ImagesCommand','ImagesReconcileCommand',
+    'RunCommand','ReadCommand','ImportCommand','UpdateCommand','RemoveCommand','ImagesCommand','ImagesReconcileCommand','ImagesRevalidateCommand',
     'NewProductsEnqueueCommand','NewProductsCommand','RetryCommand','DoctorCommand','StatusCommand','GcCommand',
 ];
 foreach ($commands as $command) {
@@ -41,6 +41,7 @@ foreach ([[$import, '$this->specificPrices->sync', 'IMPORT specific-price parity
 if (!str_contains($update, "'specific_price'")) { $fail('UPDATE does not route specific_price hash domain'); }
 if (!str_contains($production, 'READ -> IMPORT -> UPDATE -> REMOVE')) { $fail('production stage order missing'); }
 if (!str_contains($production, 'matterhornimport:images:reconcile')) { $fail('production image reconciliation documentation missing'); }
+if (!str_contains($production, 'matterhornimport:images:revalidate')) { $fail('production image revalidation documentation missing'); }
 if (!str_contains($production, 'flock -n')) { $fail('production overlap guard example missing'); }
 
 foreach ([
