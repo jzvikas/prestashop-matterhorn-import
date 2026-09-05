@@ -100,6 +100,12 @@ if (!str_contains($categoryAuto, 'RELEASE_LOCK') || !str_contains($categoryAuto,
 if (!str_contains($categoryMapping, '), true, false)')) {
     $fail('category mapping preload must bypass Db query cache');
 }
+if (!str_contains($categoryMapping, 'getRow(sprintf(') || !str_contains($categoryMapping, 'Category mapping assignment could not be verified after write')) {
+    $fail('category mapping assignment must verify the durable row before seeding process cache');
+}
+if (!str_contains($categoryMapping, "SELECT id_category,active FROM `%sli_matterhornim_99dfbf_category_mapping`") || !str_contains($categoryMapping, '), false);')) {
+    $fail('category mapping assignment verification must bypass Db query cache');
+}
 
 if (!str_contains($snapshots, "WHERE id_run=' . (int) \$runId, false)")) {
     $fail('snapshot run count must bypass Db query cache');
