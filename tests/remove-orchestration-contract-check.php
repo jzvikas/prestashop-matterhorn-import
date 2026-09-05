@@ -40,7 +40,7 @@ foreach ($checks as [$haystack, $needle]) {
     }
 }
 
-if (!preg_match("/\\$this->version\\s*=\\s*'([^']+)'/", $module, $versionMatch)) {
+if (!preg_match('/\$this->version\s*=\s*\'([^\']+)\'/', $module, $versionMatch)) {
     throw new RuntimeException('REMOVE contract cannot resolve current module version');
 }
 if (version_compare((string) $versionMatch[1], '0.1.1', '<')) {
