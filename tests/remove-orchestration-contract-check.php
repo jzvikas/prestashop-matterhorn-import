@@ -30,7 +30,6 @@ $checks = [
     [$installer, 'upgradeMappingState'],
     [$installer, 'idx_feed_state'],
     [$upgrade, 'upgrade_module_0_1_1'],
-    [$module, "version='0.1.1'"],
     [$module, 'Maximum REMOVE percentage'],
     [$command, 'matterhornimport:remove'],
     [$command, 'dry-run'],
@@ -39,6 +38,13 @@ foreach ($checks as [$haystack, $needle]) {
     if (!str_contains($haystack, $needle)) {
         throw new RuntimeException('REMOVE contract missing: ' . $needle);
     }
+}
+
+if (!preg_match("/\\$this->version\\s*=\\s*'([^']+)'/", $module, $versionMatch)) {
+    throw new RuntimeException('REMOVE contract cannot resolve current module version');
+}
+if (version_compare((string) $versionMatch[1], '0.1.1', '<')) {
+    throw new RuntimeException('Current module version predates required REMOVE mapping-state upgrade');
 }
 
 if (str_contains($stage, 'SAVEPOINT matterhorn_remove_item') || str_contains($stage, 'private const SAVEPOINT')) {
