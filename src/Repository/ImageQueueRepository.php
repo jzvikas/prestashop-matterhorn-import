@@ -43,10 +43,17 @@ final class ImageQueueRepository
     public function renew(int $id, string $token): bool
     {
         $db = \Db::getInstance();
-        if (!$db->execute(sprintf("UPDATE `%s%s` SET locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, self::LEASE_MINUTES, $id, pSQL($token)))) {
+        // One claim token owns a bounded batch that ImageWorker consumes sequentially. Heartbeat
+        // every still-active sibling whenever the current image renews so a slow download/attach
+        // cannot let untouched rows expire and consume their retry budget before they are attempted.
+        // Expired rows stay excluded, so renewal never steals ownership back from another worker.
+        if (!$db->execute(sprintf(
+            "UPDATE `%s%s` SET locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),updated_at=NOW() WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()",
+            _DB_PREFIX_, self::TABLE, self::LEASE_MINUTES, pSQL($token)
+        ))) {
             throw new \RuntimeException('Matterhorn image queue lease renewal failed');
         }
-        return (int) $db->Affected_Rows() > 0 || $this->ownsActiveLease($id, $token);
+        return $this->ownsActiveLease($id, $token);
     }
 
     /** @return array<string,mixed> */
