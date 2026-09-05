@@ -23,7 +23,7 @@ $sql = (string) file_get_contents(dirname(__DIR__) . '/sql/attribute-mapping.sql
 attrCheck(str_contains($mapping, 'li_matterhornim_99dfbf_attribute_value_mapping'), 'runtime uses generated Matterhorn attribute mapping token');
 attrCheck(str_contains($mapping, 'private array $pairCache'), 'attribute mapping lookups must use process-local cache');
 attrCheck(str_contains($mapping, 'array_key_exists($cacheKey, $this->pairCache)'), 'cached misses and hits must both be reused');
-attrCheck(str_contains($mapping, "$this->pairCache[$this->cacheKey"), 'newly saved mappings must seed process-local cache');
+attrCheck(str_contains($mapping, "\$this->pairCache[\$this->cacheKey"), 'newly saved mappings must seed process-local cache');
 attrCheck(str_contains($mapping, '), false);'), 'attribute mapping live resolution must bypass Db query cache');
 attrCheck(str_contains($mapping, 'Supplier attribute mapping could not be verified after write'), 'attribute mapping writes must fail closed when durable rows differ from intended resolution');
 attrCheck(str_contains($mapping, 'AS group_id,vm.id_attribute_group AS value_group_id,vm.id_attribute'), 'attribute mapping verification must compare group/value identity together');
@@ -47,8 +47,8 @@ attrCheck(str_contains($autoCreate, 'LOCK_TIMEOUT_SECONDS'), 'attribute auto-cre
 attrCheck(str_contains($autoCreate, "GET_LOCK('"), 'attribute auto-create must serialize duplicate creation');
 attrCheck(str_contains($autoCreate, "'lpimp:attr:'"), 'attribute auto-create must use shared cross-import advisory lock namespace');
 attrCheck(!str_contains($autoCreate, "'matterhorn:attr:'"), 'supplier-specific attribute advisory locks would not serialize cross-module creation');
-attrCheck(str_contains($autoCreate, "'group:' . $shopId"), 'attribute group lock must be shop/name scoped');
-attrCheck(str_contains($autoCreate, "'value:' . $shopId . ':' . $groupId"), 'attribute value lock must be shop/group/name scoped');
+attrCheck(str_contains($autoCreate, "'group:' . \$shopId"), 'attribute group lock must be shop/name scoped');
+attrCheck(str_contains($autoCreate, "'value:' . \$shopId . ':' . \$groupId"), 'attribute value lock must be shop/group/name scoped');
 attrCheck(substr_count($autoCreate, '$this->findGroup(') >= 1 && substr_count($autoCreate, '$this->findAttribute(') >= 1, 'resolver must recheck state while holding creation locks');
 attrCheck(substr_count($autoCreate, '), true, false)') >= 2, 'attribute exact group/value reads must bypass Db query cache');
 attrCheck(str_contains($autoCreate, 'RELEASE_LOCK'), 'attribute auto-create locks must always be releasable');
