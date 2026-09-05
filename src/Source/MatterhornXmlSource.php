@@ -8,6 +8,7 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
     private const FINGERPRINT_WINDOW = 65536;
     private const MAX_SOURCE_RECORD_BYTES = 4194304; // 4 MiB decoded text per product
     private const MAX_SOURCE_FIELD_BYTES = 2097152; // 2 MiB per scalar field
+    private const MAX_SOURCE_ATTRIBUTE_BYTES = 191; // supplier identity attributes persisted by module tables
     private const MAX_IMAGE_URL_BYTES = 16384;
     private const MAX_IMAGES_PER_PRODUCT = 1000;
     private const MAX_OPTIONS_PER_PRODUCT = 5000;
@@ -105,8 +106,9 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
     /** @return array<string,mixed> */
     private function readProduct(\XMLReader $reader, int $record): array
     {
+        $recordBytes = 0;
         $row = [
-            'id' => trim((string) $reader->getAttribute('id')),
+            'id' => $this->readBoundedAttribute($reader, 'id', $record, 'product/@id', $recordBytes),
             'name' => '',
             'creation_date' => '',
             'brand' => '',
@@ -125,7 +127,6 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
         }
 
         $productDepth = $reader->depth;
-        $recordBytes = 0;
         while ($reader->read()) {
             if (
                 $reader->nodeType === \XMLReader::END_ELEMENT
@@ -151,7 +152,7 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
             }
             if ($field === 'category') {
                 $row['category'] = [
-                    'id' => trim((string) $reader->getAttribute('id')),
+                    'id' => $this->readBoundedAttribute($reader, 'id', $record, 'category/@id', $recordBytes),
                     'name' => trim($this->readScalarElement(
                         $reader,
                         $record,
@@ -307,7 +308,7 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
     private function readOption(\XMLReader $reader, int $record, int &$recordBytes): array
     {
         $option = [
-            'id' => trim((string) $reader->getAttribute('id')),
+            'id' => $this->readBoundedAttribute($reader, 'id', $record, 'options/option/@id', $recordBytes),
             'name' => '',
             'stock' => '',
             'available_in' => '',
@@ -344,6 +345,26 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
             ));
         }
         throw new \RuntimeException('Unexpected EOF inside Matterhorn <option> at source record ' . $record);
+    }
+
+    private function readBoundedAttribute(
+        \XMLReader $reader,
+        string $attribute,
+        int $record,
+        string $field,
+        int &$recordBytes
+    ): string {
+        $value = (string) $reader->getAttribute($attribute);
+        $bytes = strlen($value);
+        if ($bytes > self::MAX_SOURCE_ATTRIBUTE_BYTES) {
+            throw new \RuntimeException(
+                'Matterhorn source attribute ' . $field . ' exceeds limit of ' .
+                self::MAX_SOURCE_ATTRIBUTE_BYTES . ' bytes at source record ' . $record
+            );
+        }
+        $recordBytes += $bytes;
+        $this->assertRecordBytes($recordBytes, $record);
+        return trim($value);
     }
 
     private function readScalarElement(
