@@ -175,7 +175,7 @@ final class UpdateStage
             if (!$this->sameHash($row, 'old_' . $domain . '_hash', $domain . '_hash')) { $domains[] = $domain; }
         }
         if (!$this->sameHash($row, 'old_combination_hash', 'combination_hash') || !$this->sameHash($row, 'old_combination_stock_hash', 'combination_stock_hash')) { $domains[] = 'combination'; }
-        if ($domains === [] && !$this->sameHash($row, 'old_payload_hash', 'payload_hash')) { $domains[] = 'core'; }
+        // Payload-only changes are supplier/runtime metadata. Catalog-affecting data must belong to an explicit domain hash.
         return $domains;
     }
 
