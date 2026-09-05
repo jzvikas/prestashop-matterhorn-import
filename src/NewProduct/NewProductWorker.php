@@ -4,6 +4,7 @@ namespace Lp\MatterhornImport\NewProduct;
 use Lp\MatterhornImport\Combination\CombinationAttributeResolver;
 use Lp\MatterhornImport\Combination\CombinationSynchronizer;
 use Lp\MatterhornImport\Contract\ProductWriterInterface;
+use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\DTO\ProductData;
 use Lp\MatterhornImport\Feature\FeatureSynchronizer;
 use Lp\MatterhornImport\Lock\ImportLock;
@@ -21,6 +22,7 @@ final class NewProductWorker
 {
     public function __construct(
         private NewProductQueueRepository $queue,
+        private SourceInterface $sourceAdapter,
         private ProductWriterInterface $writer,
         private InterruptedCreateRecovery $createRecovery,
         private FeatureSynchronizer $features,
@@ -39,7 +41,9 @@ final class NewProductWorker
     public function tick(string $worker, int $limit = 20, ?int $shopId = null): array
     {
         $this->safety->assertTransactionalCore();
-        $jobs = $this->queue->claim($worker, $limit, $shopId);
+        $sourceName = trim($this->sourceAdapter->name());
+        if ($sourceName === '') { throw new \RuntimeException('New-product worker source name is empty'); }
+        $jobs = $this->queue->claim($worker, $sourceName, $limit, $shopId);
         $stats = [
             'processed' => 0,
             'done' => 0,
@@ -58,7 +62,7 @@ final class NewProductWorker
             $expectedRunId = (int) $job['id_run'];
             $token = (string) $job['locked_by'];
             $jobShop = (int) $job['id_shop'];
-            $source = (string) $job['source'];
+            $source = $sourceName;
 
             if (!$this->queue->renew($idQueue, $token)) {
                 $stats['lost']++;
