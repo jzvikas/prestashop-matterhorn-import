@@ -38,6 +38,13 @@ final class CombinationSynchronizer
             $candidates = $actual[$semanticKey] ?? [];
             $mappedRow = $mapped[$semanticKey] ?? null;
             $mappedId = (int) ($mappedRow['id_product_attribute'] ?? 0);
+            if ($mappedRow !== null) {
+                if ($mappedId <= 0) { throw new \RuntimeException('Mapped combination has invalid product attribute id for ' . $product->sourceKey); }
+                $owner = $this->mapping->ownerForAttribute($shopId, $mappedId);
+                if ($owner === null) { throw new \RuntimeException('Mapped combination ownership disappeared before synchronization: ' . $mappedId); }
+                $this->assertMappingOwner($owner, $source, $product->sourceKey, $semanticKey, $productId, $mappedId);
+            }
+
             $survivor = $this->chooseCandidate($candidates, $mappedId, $item);
             $created = false;
             if ($survivor === null) {
@@ -58,6 +65,26 @@ final class CombinationSynchronizer
             }
 
             $id = (int) $survivor['id_product_attribute'];
+            if (!$created) {
+                $survivorOwner = $this->mapping->ownerForAttribute($shopId, $id);
+                if ($survivorOwner !== null) {
+                    $this->assertMappingOwner($survivorOwner, $source, $product->sourceKey, $semanticKey, $productId, $id);
+                }
+            }
+
+            $ownedDuplicateIds = [];
+            foreach ($candidates as $candidate) {
+                $candidateId = (int) $candidate['id_product_attribute'];
+                if ($candidateId === $id) { continue; }
+                $candidateOwner = $this->mapping->ownerForAttribute($shopId, $candidateId);
+                if ($candidateOwner === null) {
+                    // Preserve unmapped/manual duplicate combinations. Authoritative cleanup is limited to module-owned state.
+                    continue;
+                }
+                $this->assertMappingOwner($candidateOwner, $source, $product->sourceKey, $semanticKey, $productId, $candidateId);
+                $ownedDuplicateIds[$candidateId] = true;
+            }
+
             $mappingMatches = $mappedRow !== null && (int) $mappedRow['id_product_attribute'] === $id;
             $structureChanged = !$created && (
                 !$mappingMatches || !hash_equals((string) ($mappedRow['structure_hash'] ?? ''), $item['structure_hash']) || !$this->structureMatches($survivor, $item)
@@ -82,12 +109,13 @@ final class CombinationSynchronizer
             );
             $survivors[$semanticKey] = $id;
 
-            foreach ($candidates as $candidate) {
-                $candidateId = (int) $candidate['id_product_attribute'];
-                if ($candidateId === $id) { continue; }
-                $this->removeFromTargetShop($productId, $candidateId, $shopId);
+            foreach (array_keys($ownedDuplicateIds) as $candidateId) {
+                $this->removeFromTargetShop($productId, (int) $candidateId, $shopId);
                 $this->transactionGuard->restoreAfterExternalCommit();
-                $this->mapping->deleteByAttribute($shopId, $candidateId);
+                $currentOwner = $this->mapping->ownerForAttribute($shopId, (int) $candidateId);
+                if ($currentOwner !== null) {
+                    throw new \RuntimeException('Combination mapping owner appeared during owned duplicate cleanup: ' . $candidateId);
+                }
             }
         }
 
@@ -95,15 +123,39 @@ final class CombinationSynchronizer
             foreach ($mapped as $semanticKey => $row) {
                 if (isset($desiredKeys[$semanticKey])) { continue; }
                 $id = (int) ($row['id_product_attribute'] ?? 0);
-                if ($id > 0 && $this->belongsToProductShop($productId, $id, $shopId)) {
+                if ($id <= 0) { throw new \RuntimeException('Authoritative mapped combination has invalid product attribute id for ' . $product->sourceKey); }
+                $owner = $this->mapping->ownerForAttribute($shopId, $id);
+                if ($owner === null) { throw new \RuntimeException('Authoritative combination mapping ownership disappeared before removal: ' . $id); }
+                $this->assertMappingOwner($owner, $source, $product->sourceKey, (string) $semanticKey, $productId, $id);
+                if ($this->belongsToProductShop($productId, $id, $shopId)) {
                     $this->removeFromTargetShop($productId, $id, $shopId);
                 }
                 $this->transactionGuard->restoreAfterExternalCommit();
-                $this->mapping->deleteSemantic($shopId, $source, $product->sourceKey, $semanticKey);
+                $this->mapping->deleteExact($shopId, $source, $product->sourceKey, (string) $semanticKey, $productId, $id);
             }
         }
 
         $this->healDefault($productId, $shopId, $survivors, $explicitDefault, $authoritative);
+    }
+
+    /** @param array{source:string,source_key:string,semantic_key:string,id_product:int,id_product_attribute:int} $owner */
+    private function assertMappingOwner(
+        array $owner,
+        string $source,
+        string $sourceKey,
+        string $semanticKey,
+        int $productId,
+        int $productAttributeId
+    ): void {
+        if (
+            !hash_equals($source, (string) $owner['source'])
+            || !hash_equals($sourceKey, (string) $owner['source_key'])
+            || !hash_equals($semanticKey, (string) $owner['semantic_key'])
+            || (int) $owner['id_product'] !== $productId
+            || (int) $owner['id_product_attribute'] !== $productAttributeId
+        ) {
+            throw new \RuntimeException('Refusing combination mutation because mapping is owned by another source/product/semantic identity: ' . $productAttributeId);
+        }
     }
 
     private function actualBySemantic(int $productId, int $shopId): array
