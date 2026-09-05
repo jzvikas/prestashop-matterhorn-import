@@ -30,6 +30,16 @@ require_literal() {
   fi
 }
 
+reject_literal() {
+  local file="$1"
+  local literal="$2"
+  local contract="$3"
+  if grep -Fq -- "$literal" "$file"; then
+    echo "FAIL: $contract [$file]" >&2
+    exit 1
+  fi
+}
+
 require_literal "$guard" "getValue('SELECT @@session.in_transaction', false)" 'transaction guard must inspect live session transaction state'
 require_literal "$guard" 'START TRANSACTION' 'transaction guard must restore an externally committed transaction'
 require_literal "$guard" "SAVEPOINT ' . \$this->savepoint" 'transaction guard must recreate the caller savepoint'
@@ -47,8 +57,15 @@ require_literal "$remove_stage" 'lockProductOwnership($shopId, $source, $sourceK
 require_literal "$new_worker" 'transactionGuard->arm($db)' 'new-product worker must arm the shared transaction guard'
 require_literal "$new_worker" 'transactionGuard->recoveryCount()' 'new-product worker must observe external-commit recovery'
 
-for file in "$base_writer" "$matterhorn_writer" "$category" "$manufacturer" "$feature_resolver" "$feature_sync" "$combination"; do
+# Only services that actually call PrestaShop ObjectModel/stock APIs need to restore
+# a stage-owned transaction. FeatureSynchronizer deliberately mutates feature_product
+# through Db directly; its ObjectModel creation surface lives in FeatureResolver.
+for file in "$base_writer" "$matterhorn_writer" "$category" "$manufacturer" "$feature_resolver" "$combination"; do
   require_literal "$file" 'transactionGuard->restoreAfterExternalCommit()' 'PrestaShop-facing writer/resolver must restore stage-owned transactions after ObjectModel/API calls'
 done
+require_literal "$feature_sync" "$db->delete(" 'FeatureSynchronizer must keep feature replacement on the direct-DB path'
+require_literal "$feature_sync" "$db->insert('feature_product'" 'FeatureSynchronizer must keep feature assignment on the direct-DB path'
+reject_literal "$feature_sync" 'new \Feature(' 'FeatureSynchronizer must not introduce an unguarded Feature ObjectModel write'
+reject_literal "$feature_sync" 'new \FeatureValue(' 'FeatureSynchronizer must not introduce an unguarded FeatureValue ObjectModel write'
 
 echo 'Item transaction guard regression coverage present.'
