@@ -46,7 +46,6 @@ $checks = [
     [$queue, 'TIMESTAMPADD(SECOND', 'retry backoff'],
     [$runs, 'public function latestCompletedReadId', 'worker needs the latest authoritative completed READ generation'],
     [$runs, "read_status='completed' ORDER BY id_run DESC LIMIT 1", 'latest READ lookup must ignore incomplete newer generations'],
-    [$runs, 'false\n        );', 'latest completed READ lookup must bypass Db query cache'],
     [$worker, 'InterruptedCreateRecovery', 'interrupted-create recovery'],
     [$worker, 'SourceInterface', 'worker must resolve its active supplier source'],
     [$worker, '$sourceName = trim($this->sourceAdapter->name())', 'worker must resolve active source once per tick'],
@@ -99,6 +98,14 @@ foreach ($checks as [$haystack, $needle, $label]) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+
+if (!preg_match(
+    '/public function latestCompletedReadId\([^}]+?getValue\(\s*[^;]*?read_status=\'completed\'[^;]*?,\s*false\s*\)\s*;/s',
+    $runs
+)) {
+    fwrite(STDERR, "FAIL: latest completed READ lookup must bypass Db query cache\n");
+    exit(1);
 }
 
 $lockPos = strpos($worker, '$lockedJob = $this->queue->lockOwned($idQueue, $token)');
