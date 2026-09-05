@@ -13,7 +13,7 @@ final class Diagnostics
         'li_matterhornim_99dfbf_category_mapping','li_matterhornim_99dfbf_feature_mapping','li_matterhornim_99dfbf_feature_value_mapping',
         'li_matterhornim_99dfbf_feature_state','li_matterhornim_99dfbf_combination_mapping','li_matterhornim_99dfbf_specific_price_state',
         'li_matterhornim_99dfbf_new_product_queue','li_matterhornim_99dfbf_error','li_matterhornim_99dfbf_image_state','li_matterhornim_99dfbf_image_queue',
-        'li_matterhornim_99dfbf_attribute_group_mapping','li_matterhornim_99dfbf_attribute_value_mapping',
+        'li_matterhornim_99dfbf_image_orphan','li_matterhornim_99dfbf_attribute_group_mapping','li_matterhornim_99dfbf_attribute_value_mapping',
     ];
 
     public function __construct(private SourceInterface $source, private DatabaseSafety $databaseSafety, private OperationalSettings $settings) {}
@@ -59,6 +59,10 @@ final class Diagnostics
             $failed=(int)($row['failed']??0); $expired=(int)($row['expired']??0);
             $checks[]=$this->check($domain . '-queue',$failed>0||$expired>0?'warning':'ok',sprintf('total=%d pending=%d processing=%d failed=%d expired=%d',(int)($row['total']??0),(int)($row['pending']??0),(int)($row['processing']??0),$failed,$expired));
         }
+        $orphanRow = $db->getRow('SELECT COUNT(*) total,SUM(available_at IS NULL OR available_at<=NOW()) due FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_orphan` WHERE id_shop=' . $shopId);
+        $orphanRow = is_array($orphanRow) ? $orphanRow : [];
+        $orphanTotal = (int)($orphanRow['total'] ?? 0);
+        $checks[] = $this->check('image-orphans', $orphanTotal > 0 ? 'warning' : 'ok', sprintf('total=%d due=%d', $orphanTotal, (int)($orphanRow['due'] ?? 0)));
         $latest=$db->getRow('SELECT id_run,status,read_status,import_status,update_status,remove_status FROM `' . _DB_PREFIX_ . "li_matterhornim_99dfbf_run` WHERE id_shop=" . $shopId . " AND source='" . pSQL($this->source->name()) . "' ORDER BY id_run DESC");
         $checks[] = !$latest ? $this->check('latest-run','warning','no runs yet') : $this->check('latest-run',(string)$latest['status']==='failed'?'warning':'ok',sprintf('#%d %s [%s/%s/%s/%s]',(int)$latest['id_run'],(string)$latest['status'],(string)$latest['read_status'],(string)$latest['import_status'],(string)$latest['update_status'],(string)$latest['remove_status']));
         return $checks;
