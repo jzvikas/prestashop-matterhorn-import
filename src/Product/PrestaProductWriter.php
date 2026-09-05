@@ -62,7 +62,14 @@ final class PrestaProductWriter implements GranularProductWriterInterface
         if (!\Validate::isLoadedObject($p)) { return; }
         $p->active = false;
         if (!$p->update()) { throw new \RuntimeException('Cannot disable product ' . $productId); }
+
         \StockAvailable::setQuantity($productId, 0, 0, $shopId);
+        foreach (\Product::getProductAttributesIds($productId) as $attributeRow) {
+            $attributeId = (int) ($attributeRow['id_product_attribute'] ?? 0);
+            if ($attributeId > 0) {
+                \StockAvailable::setQuantity($productId, $attributeId, 0, $shopId);
+            }
+        }
     }
 
     private function applyCore(\Product $p, ProductData $data, int $shopId): void
