@@ -25,7 +25,7 @@ final class CombinationMappingRepository
         }
         $row = \Db::getInstance()->getRow(sprintf(
             "SELECT source,source_key,semantic_key,id_product,id_product_attribute FROM `%sli_matterhornim_99dfbf_combination_mapping` " .
-            "WHERE id_shop=%d AND id_product_attribute=%d LIMIT 1",
+            "WHERE id_shop=%d AND id_product_attribute=%d",
             _DB_PREFIX_, $shopId, $productAttributeId
         ), false);
         if (!is_array($row) || $row === []) { return null; }
