@@ -7,7 +7,7 @@ use Lp\MatterhornImport\Contract\SourceInterface;
 
 final class Diagnostics
 {
-    private const REQUIRED_EXTENSIONS = ['curl','fileinfo','xmlreader','simplexml'];
+    private const REQUIRED_EXTENSIONS = ['curl','fileinfo','xmlreader','simplexml','mbstring'];
     private const MODULE_TABLES = [
         'li_matterhornim_99dfbf_run','li_matterhornim_99dfbf_snapshot','li_matterhornim_99dfbf_mapping',
         'li_matterhornim_99dfbf_category_mapping','li_matterhornim_99dfbf_feature_mapping','li_matterhornim_99dfbf_feature_value_mapping',
@@ -32,10 +32,46 @@ final class Diagnostics
         $checks[] = $this->check('prestashop', $psOk ? 'ok' : 'error', $psVersion !== '' ? $psVersion : 'unknown');
         try { $this->databaseSafety->assertTransactionalCore(); $checks[] = $this->check('core-db-engine','ok','critical tables are InnoDB'); }
         catch (\Throwable $e) { $checks[] = $this->check('core-db-engine','error',$e->getMessage()); }
+
         foreach (self::MODULE_TABLES as $table) {
             $engine = $db->getValue("SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . $table) . "'");
             $checks[] = $this->check('table:' . $table, strtoupper((string)$engine) === 'INNODB' ? 'ok' : 'error', $engine ? (string)$engine : 'missing');
         }
+
+        foreach ([
+            'li_matterhornim_99dfbf_run' => ['read_checkpoint','source_fingerprint','source_policy_hash'],
+            'li_matterhornim_99dfbf_mapping' => ['combination_stock_hash','out_of_feed','last_seen_run_id'],
+            'li_matterhornim_99dfbf_image_queue' => ['id_run','available_at','locked_by','locked_until'],
+            'li_matterhornim_99dfbf_new_product_queue' => ['id_run','id_product','available_at','locked_by','locked_until'],
+        ] as $table => $requiredColumns) {
+            $columns = $db->executeS(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL(_DB_PREFIX_ . $table) . "'"
+            ) ?: [];
+            $present = array_fill_keys(array_map(static fn(array $row): string => (string)($row['COLUMN_NAME'] ?? ''), $columns), true);
+            $missing = array_values(array_filter($requiredColumns, static fn(string $column): bool => !isset($present[$column])));
+            $checks[] = $this->check(
+                'schema:' . $table,
+                $missing === [] ? 'ok' : 'error',
+                $missing === [] ? 'required columns present' : 'missing: ' . implode(',', $missing)
+            );
+        }
+
+        $brokenGroups = (int)$db->getValue(
+            'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_attribute_group_mapping` m ' .
+            'LEFT JOIN `' . _DB_PREFIX_ . 'attribute_group` ag ON ag.id_attribute_group=m.id_attribute_group ' .
+            'LEFT JOIN `' . _DB_PREFIX_ . 'attribute_group_shop` ags ON ags.id_attribute_group=m.id_attribute_group AND ags.id_shop=m.id_shop ' .
+            'WHERE m.id_shop=' . $shopId . ' AND (ag.id_attribute_group IS NULL OR ags.id_attribute_group IS NULL)'
+        );
+        $checks[] = $this->check('size-group-mappings', $brokenGroups === 0 ? 'ok' : 'error', 'broken=' . $brokenGroups);
+
+        $brokenValues = (int)$db->getValue(
+            'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_attribute_value_mapping` m ' .
+            'LEFT JOIN `' . _DB_PREFIX_ . 'attribute` a ON a.id_attribute=m.id_attribute ' .
+            'LEFT JOIN `' . _DB_PREFIX_ . 'attribute_shop` ash ON ash.id_attribute=m.id_attribute AND ash.id_shop=m.id_shop ' .
+            'WHERE m.id_shop=' . $shopId . ' AND (a.id_attribute IS NULL OR ash.id_attribute IS NULL OR a.id_attribute_group<>m.id_attribute_group)'
+        );
+        $checks[] = $this->check('size-value-mappings', $brokenValues === 0 ? 'ok' : 'error', 'broken=' . $brokenValues);
+
         $packet = (int)$db->getValue('SELECT @@max_allowed_packet');
         $checks[] = $this->check('db:max-allowed-packet', $packet >= 16 * 1024 * 1024 ? 'ok' : 'warning', $packet > 0 ? round($packet / 1048576, 1) . ' MiB' : 'unknown');
         foreach ($this->settings->inspect($shopId) as $key => $setting) {
