@@ -54,7 +54,7 @@ $checks = [
     [$reconciler, 'Only the latest shop/source run may reconcile images', 'latest-run guard'],
     [$reconciler, 'unresolvedForRun', 'unresolved queue guard'],
     [$reconciler, 'statesForProduct', 'module-owned image-state reconciliation'],
-    [$reconciler, "last_seen_run_id'] !== $runId", 'reconciliation must require current-run desired image state'],
+    [$reconciler, "last_seen_run_id'] ?? 0) <= 0", 'reconciliation must accept live unchanged state from an earlier run'],
     [$orphans, 'available_at', 'orphan recovery backoff'],
     [$orphans, 'function defer', 'orphan retry deferral'],
     [$gc, 'drainImageOrphans', 'GC orphan recovery lane'],
@@ -74,6 +74,10 @@ foreach ($checks as [$haystack, $needle, $label]) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+if (str_contains((string) $reconciler, "last_seen_run_id'] !== $runId")) {
+    fwrite(STDERR, "FAIL: unchanged image states must not require current-run freshness\n");
+    exit(1);
 }
 
 echo "Image pipeline worker contract: OK\n";
