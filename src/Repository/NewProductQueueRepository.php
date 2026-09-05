@@ -40,22 +40,31 @@ final class NewProductQueueRepository
         return (int) $db->Affected_Rows() === 1 || $this->ownsActiveLease($id, $token);
     }
 
-    public function done(int $id, string $token, int $productId): void
+    /** @return bool true if this generation finalized, false if a newer generation was requeued */
+    public function done(int $id, string $token, int $productId, int $expectedRunId = 0): bool
     {
         $db = \Db::getInstance();
-        if (!$db->execute(sprintf("UPDATE `%s%s` SET status='done',id_product=%d,locked_by=NULL,locked_until=NULL,available_at=NULL,last_error=NULL,updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $productId, $id, pSQL($token))) || (int) $db->Affected_Rows() !== 1) {
-            throw new \RuntimeException('Matterhorn new-product queue ownership lost before completion');
+        $runFence = $expectedRunId > 0 ? ' AND id_run=' . $expectedRunId : '';
+        if (!$db->execute(sprintf("UPDATE `%s%s` SET status='done',id_product=%d,locked_by=NULL,locked_until=NULL,available_at=NULL,last_error=NULL,updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()%s", _DB_PREFIX_, self::TABLE, $productId, $id, pSQL($token), $runFence))) {
+            throw new \RuntimeException('Matterhorn new-product queue completion update failed');
         }
+        if ((int) $db->Affected_Rows() === 1) { return true; }
+        if ($expectedRunId > 0 && $this->requeueNewerGeneration($id, $token, $expectedRunId, $productId)) { return false; }
+        throw new \RuntimeException('Matterhorn new-product queue ownership lost before completion');
     }
 
-    public function fail(int $id, string $token, string $message, bool $retryable = true): bool
+    /** @return bool true if failure applied to this generation, false if a newer generation was requeued */
+    public function fail(int $id, string $token, string $message, bool $retryable = true, int $expectedRunId = 0): bool
     {
         $retry = $retryable ? 1 : 0;
+        $runFence = $expectedRunId > 0 ? ' AND id_run=' . $expectedRunId : '';
         $db = \Db::getInstance();
-        if (!$db->execute(sprintf("UPDATE `%s%s` SET status=IF(%d=0 OR attempts>=%d,'failed','pending'),locked_by=NULL,locked_until=NULL,available_at=IF(%d=0 OR attempts>=%d,NULL,TIMESTAMPADD(SECOND,CASE attempts WHEN 1 THEN 15 WHEN 2 THEN 30 WHEN 3 THEN 60 WHEN 4 THEN 120 ELSE 300 END,NOW())),last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $retry, self::MAX_ATTEMPTS, $retry, self::MAX_ATTEMPTS, pSQL(mb_substr($message, 0, 4000), true), $id, pSQL($token)))) {
+        if (!$db->execute(sprintf("UPDATE `%s%s` SET status=IF(%d=0 OR attempts>=%d,'failed','pending'),locked_by=NULL,locked_until=NULL,available_at=IF(%d=0 OR attempts>=%d,NULL,TIMESTAMPADD(SECOND,CASE attempts WHEN 1 THEN 15 WHEN 2 THEN 30 WHEN 3 THEN 60 WHEN 4 THEN 120 ELSE 300 END,NOW())),last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()%s", _DB_PREFIX_, self::TABLE, $retry, self::MAX_ATTEMPTS, $retry, self::MAX_ATTEMPTS, pSQL(mb_substr($message, 0, 4000), true), $id, pSQL($token), $runFence))) {
             throw new \RuntimeException('Matterhorn new-product queue failure update failed');
         }
-        return (int) $db->Affected_Rows() === 1;
+        if ((int) $db->Affected_Rows() === 1) { return true; }
+        if ($expectedRunId > 0 && $this->requeueNewerGeneration($id, $token, $expectedRunId, null)) { return false; }
+        throw new \RuntimeException('Matterhorn new-product queue ownership lost before failure update');
     }
 
     public function retryFailed(?int $shopId = null, int $limit = 1000): int
@@ -83,6 +92,16 @@ final class NewProductQueueRepository
         return (int) \Db::getInstance()->delete(self::TABLE, "status='done' AND updated_at<DATE_SUB(NOW(),INTERVAL " . max(0, $days) . ' DAY)');
     }
 
+    private function requeueNewerGeneration(int $id, string $token, int $expectedRunId, ?int $productId): bool
+    {
+        $productSql = $productId !== null && $productId > 0 ? ',id_product=' . $productId : '';
+        $db = \Db::getInstance();
+        if (!$db->execute(sprintf("UPDATE `%s%s` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL%s,updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW() AND id_run>%d", _DB_PREFIX_, self::TABLE, $productSql, $id, pSQL($token), $expectedRunId))) {
+            throw new \RuntimeException('Matterhorn new-product newer-generation requeue failed');
+        }
+        return (int) $db->Affected_Rows() === 1;
+    }
+
     private function ownsActiveLease(int $id, string $token): bool
     {
         return (bool) \Db::getInstance()->getValue(sprintf("SELECT 1 FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $id, pSQL($token)));
@@ -96,7 +115,10 @@ final class NewProductQueueRepository
 
     private function insertValues(array $values): void
     {
-        $sql = sprintf("INSERT INTO `%s%s` (`id_run`,`id_shop`,`source`,`source_key`,`payload`,`payload_hash`,`status`,`attempts`,`available_at`,`locked_by`,`locked_until`,`last_error`,`created_at`,`updated_at`) VALUES %s ON DUPLICATE KEY UPDATE id_run=IF(status IN ('done','processing'),id_run,VALUES(id_run)),payload=IF(status IN ('done','processing'),payload,VALUES(payload)),payload_hash=IF(status IN ('done','processing'),payload_hash,VALUES(payload_hash)),attempts=IF(status IN ('done','processing'),attempts,0),available_at=IF(status IN ('done','processing'),available_at,NULL),locked_by=IF(status IN ('done','processing'),locked_by,NULL),locked_until=IF(status IN ('done','processing'),locked_until,NULL),last_error=IF(status IN ('done','processing'),last_error,NULL),updated_at=IF(status IN ('done','processing'),updated_at,NOW()),status=IF(status IN ('done','processing'),status,'pending')", _DB_PREFIX_, self::TABLE, implode(',', $values));
+        // A newer run may refresh payload/id_run while an older worker retains its processing lease.
+        // The old worker finalizer is expectedRunId-fenced and requeues the row after its generation
+        // completes, ensuring the newest supplier payload is subsequently applied without lease theft.
+        $sql = sprintf("INSERT INTO `%s%s` (`id_run`,`id_shop`,`source`,`source_key`,`payload`,`payload_hash`,`status`,`attempts`,`available_at`,`locked_by`,`locked_until`,`last_error`,`created_at`,`updated_at`) VALUES %s ON DUPLICATE KEY UPDATE payload=IF(VALUES(id_run)>=id_run,VALUES(payload),payload),payload_hash=IF(VALUES(id_run)>=id_run,VALUES(payload_hash),payload_hash),attempts=IF(status='processing',attempts,IF(VALUES(id_run)>id_run,0,attempts)),available_at=IF(status='processing',available_at,IF(VALUES(id_run)>id_run,NULL,available_at)),locked_by=IF(status='processing',locked_by,IF(VALUES(id_run)>id_run,NULL,locked_by)),locked_until=IF(status='processing',locked_until,IF(VALUES(id_run)>id_run,NULL,locked_until)),last_error=IF(status='processing',last_error,IF(VALUES(id_run)>id_run,NULL,last_error)),updated_at=IF(VALUES(id_run)>=id_run,NOW(),updated_at),status=IF(status='processing','processing',IF(VALUES(id_run)>id_run,'pending',status)),id_run=GREATEST(id_run,VALUES(id_run))", _DB_PREFIX_, self::TABLE, implode(',', $values));
         if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Matterhorn new-product queue enqueue failed'); }
     }
 }
