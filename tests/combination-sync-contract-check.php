@@ -17,6 +17,9 @@ $sync = (string) file_get_contents($root . '/src/Combination/CombinationSynchron
 $attributeResolver = (string) file_get_contents($root . '/src/Combination/CombinationAttributeResolver.php');
 combinationCheck(str_contains($mapping, 'li_matterhornim_99dfbf_combination_mapping'), 'combination mapping uses standalone DB token');
 combinationCheck(!str_contains($mapping, 'lp_import_combination_mapping'), 'generic combination DB token does not leak');
+combinationCheck(str_contains($mapping, 'ownerForAttribute') && str_contains($mapping, '), false);'), 'combination owner lookup must use fresh DB state');
+combinationCheck(str_contains($mapping, 'deleteExact') && str_contains($mapping, 'Affected_Rows() !== 1'), 'combination mapping deletes must be exact-owner affected-row fenced');
+combinationCheck(!str_contains($mapping, 'function deleteByAttribute') && !str_contains($mapping, 'function deleteSemantic'), 'broad combination mapping delete APIs must not remain available');
 combinationCheck(str_contains($attributeResolver, "$" . "row['attribute_ids'] = $" . "attributeIds"), 'supplier attributes resolve to numeric ids before sync');
 combinationCheck(str_contains($sync, 'combinations_authoritative'), 'authoritative combination removal supported');
 combinationCheck(str_contains($sync, '$authoritative = !empty($product->extra'), 'authoritative state must be explicit for default healing');
@@ -27,6 +30,18 @@ combinationCheck(str_contains($sync, 'Refusing to mutate global fields of shared
 combinationCheck(str_contains($sync, 'Refusing to override default combination owned outside Matterhorn'), 'external manual default combination conflict fails closed');
 combinationCheck(str_contains($sync, 'pa.id_product_attribute NOT IN'), 'default healing must inspect non-Matterhorn target-shop combinations');
 combinationCheck(str_contains($sync, 'StockAvailable::setQuantity'), 'combination stock uses shop-aware PrestaShop stock API');
+
+combinationCheck(str_contains($sync, 'assertMappingOwner'), 'combination mutation must compare fresh mapping owner identity');
+combinationCheck(str_contains($sync, "hash_equals(\$source, (string) \$owner['source'])"), 'combination owner fence must include source');
+combinationCheck(str_contains($sync, "hash_equals(\$sourceKey, (string) \$owner['source_key'])"), 'combination owner fence must include source key');
+combinationCheck(str_contains($sync, "hash_equals(\$semanticKey, (string) \$owner['semantic_key'])"), 'combination owner fence must include semantic key');
+combinationCheck(str_contains($sync, "(int) \$owner['id_product'] !== \$productId"), 'combination owner fence must include product id');
+combinationCheck(str_contains($sync, 'Preserve unmapped/manual duplicate combinations'), 'unmapped manual duplicate combinations must not be destructively cleaned');
+combinationCheck(str_contains($sync, '$this->mapping->deleteExact($shopId, $source, $product->sourceKey'), 'authoritative cleanup must use exact mapping delete');
+combinationCheck(!str_contains($sync, 'deleteByAttribute(') && !str_contains($sync, 'deleteSemantic('), 'synchronizer must not use broad mapping deletes');
+$ownerCheck = strpos($sync, '$candidateOwner = $this->mapping->ownerForAttribute');
+$duplicateDelete = strpos($sync, 'foreach (array_keys($ownedDuplicateIds) as $candidateId)');
+combinationCheck($ownerCheck !== false && $duplicateDelete !== false && $ownerCheck < $duplicateDelete, 'duplicate ownership must be checked before destructive cleanup');
 
 combinationCheck(str_contains($sync, 'DELETE target FROM `%sproduct_attribute_shop` target'), 'shared combination detach must be atomic');
 combinationCheck(str_contains($sync, 'other.id_shop<>target.id_shop'), 'shared detach must prove another shop association still exists');
