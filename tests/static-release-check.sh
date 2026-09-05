@@ -8,6 +8,7 @@ php tests/matterhorn-parser-mapper-check.php
 php tests/matterhorn-domain-hash-isolation-check.php
 php tests/matterhorn-xml-streaming-bounds-check.php
 php tests/matterhorn-feed-structure-check.php
+php tests/matterhorn-duplicate-singleton-field-check.php
 php tests/matterhorn-required-field-bound-check.php
 php tests/category-path-read-bound-check.php
 php tests/category-hierarchy-live-fence-check.php
