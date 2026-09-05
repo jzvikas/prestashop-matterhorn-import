@@ -22,7 +22,7 @@ final class Installer
         'MATTERHORNIMPORT_RETRY_LIMIT',
         self::RETAIN_DATA_KEY,
     ];
-    private const INSTALL_SQL = ['install.sql', 'attribute-mapping.sql', 'image-orphan.sql'];
+    private const INSTALL_SQL = ['install.sql', 'attribute-mapping.sql', 'image-orphan.sql', 'performance-indexes.sql'];
     private const UNINSTALL_SQL = ['uninstall-attribute-mapping.sql', 'uninstall.sql'];
 
     public function install(): bool
