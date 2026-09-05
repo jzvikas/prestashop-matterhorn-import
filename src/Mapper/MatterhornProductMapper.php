@@ -36,6 +36,10 @@ final class MatterhornProductMapper implements ProductMapperInterface
         if (!is_finite($price) || $price < 0.0) { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' has invalid price'); }
 
         $warnings = [];
+        foreach ((array) ($row['supplier_warnings'] ?? []) as $warningRaw) {
+            $warning = trim((string) $warningRaw);
+            if ($warning !== '') { $warnings[] = mb_substr($warning, 0, 1000, 'UTF-8'); }
+        }
         $images = [];
         $seenImages = [];
         foreach ((array) ($row['images'] ?? []) as $index => $urlRaw) {
@@ -163,6 +167,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
             $extra['combination_attributes_auto_create'] = true;
         }
         if ($warnings !== []) {
+            $warnings = array_values(array_unique($warnings));
             sort($warnings, SORT_STRING);
             $extra['supplier_warnings'] = $warnings;
         }
