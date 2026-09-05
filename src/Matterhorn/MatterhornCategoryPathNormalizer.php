@@ -6,6 +6,7 @@ final class MatterhornCategoryPathNormalizer
     private const MAX_CATEGORY_SEGMENT_CHARS = 128;
     private const MAX_CATEGORY_PATH_DEPTH = 32;
     private const MAX_SUPPLIER_KEY_CHARS = 191;
+    private const PRESTASHOP_CATALOG_TEXT_PATTERN = '/^[^<>{}]*$/u';
 
     public function normalize(string $path): string
     {
@@ -20,6 +21,11 @@ final class MatterhornCategoryPathNormalizer
             );
         }
         foreach ($parts as $part) {
+            if (preg_match(self::PRESTASHOP_CATALOG_TEXT_PATTERN, $part) !== 1) {
+                throw new \InvalidArgumentException(
+                    'Matterhorn category path segment contains characters rejected by PrestaShop (<, >, {, })'
+                );
+            }
             if (mb_strlen($part, 'UTF-8') > self::MAX_CATEGORY_SEGMENT_CHARS) {
                 throw new \InvalidArgumentException(
                     'Matterhorn category path segment exceeds PrestaShop ' .
