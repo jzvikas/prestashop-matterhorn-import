@@ -50,9 +50,20 @@ final class SnapshotRepository
     {
         $limit=max(1,min(2000,$limit)); return \Db::getInstance()->executeS(sprintf("SELECT m.* FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND m.id_product>%d AND s.source_key IS NULL ORDER BY m.id_product LIMIT %d",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source),$afterProductId,$limit))?:[];
     }
+
     public function countRemoved(int $runId,int $shopId,string $source):int
     {
         return (int)\Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND s.source_key IS NULL",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source)));
+    }
+
+    public function imageManifestRows(int $runId, int $shopId, string $source, string $after = '', int $limit = 500): array
+    {
+        $limit = max(1, min(2000, $limit));
+        $cursor = $after === '' ? '' : " AND s.source_key>'" . pSQL($after) . "'";
+        $where = sprintf(" FROM `%s%s` s INNER JOIN `%s%s` m ON m.id_shop=%d AND m.source='%s' AND m.source_key=s.source_key WHERE s.id_run=%d%s", _DB_PREFIX_, self::TABLE, _DB_PREFIX_, self::MAPPING_TABLE, $shopId, pSQL($source), $runId, $cursor);
+        $window = $this->payloadWindow('SELECT s.source_key,OCTET_LENGTH(s.payload) payload_bytes' . $where . ' ORDER BY s.source_key LIMIT ' . $limit, 'source_key');
+        if ($window === null) { return []; }
+        return \Db::getInstance()->executeS('SELECT s.source_key,s.payload,m.id_product' . $where . " AND s.source_key<='" . pSQL((string) $window['last']) . "' ORDER BY s.source_key LIMIT " . (int) $window['count']) ?: [];
     }
 
     private function payloadWindow(string $sql,string $cursorField):?array
