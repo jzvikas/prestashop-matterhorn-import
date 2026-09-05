@@ -147,12 +147,29 @@ final class ImageReconciler
         if (!$latest || (int) $latest['id_run'] !== $runId) {
             throw new \RuntimeException('Only the latest shop/source run may reconcile images');
         }
-        if ($this->queue->unresolvedForRun($runId, $shopId) !== 0) {
-            throw new \RuntimeException('Image reconciliation blocked until all run image jobs are done');
+        if ($this->unresolvedForActiveMappings($shopId, $source, $runId) !== 0) {
+            throw new \RuntimeException('Image reconciliation blocked until all active current-run image jobs are done');
         }
-        if ($this->queue->unresolvedForSource($shopId, $source) !== 0) {
-            throw new \RuntimeException('Image reconciliation blocked until all shop/source image jobs are done');
+        if ($this->unresolvedForActiveMappings($shopId, $source) !== 0) {
+            throw new \RuntimeException('Image reconciliation blocked until all active shop/source image jobs are done');
         }
+    }
+
+    private function unresolvedForActiveMappings(int $shopId, string $source, ?int $runId = null): int
+    {
+        if ($shopId <= 0 || trim($source) === '' || ($runId !== null && $runId <= 0)) {
+            throw new \InvalidArgumentException('Active image queue readiness check requires valid shop/source/run');
+        }
+        $queueTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_image_queue';
+        $mappingTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_mapping';
+        $runWhere = $runId === null ? '' : ' AND q.id_run=' . $runId;
+        return (int) \Db::getInstance()->getValue(
+            'SELECT COUNT(*) FROM `' . $queueTable . '` q ' .
+            'INNER JOIN `' . $mappingTable . '` m ON m.id_shop=q.id_shop AND m.source=q.source ' .
+            'AND m.source_key=q.source_key AND m.id_product=q.id_product AND m.out_of_feed=0 ' .
+            'WHERE q.id_shop=' . $shopId . " AND q.source='" . pSQL($source) . "' AND q.status<>'done'" . $runWhere,
+            false
+        );
     }
 
     /** @return array{states_removed:int,images_deleted:int,shop_links_detached:int,placements_synced:int} */

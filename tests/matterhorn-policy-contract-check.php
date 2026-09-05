@@ -85,6 +85,20 @@ policyCheck($shop2['feature_auto_create'] === true, 'shop 2 feature policy');
 policyCheck($shop2['size_attribute_group_name'] === 'US Size', 'shop 2 Size group');
 policyCheck($policy->hash($shop1) !== $policy->hash($shop2), 'different shop semantic policies must hash differently');
 
+Configuration::$values['MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME:1:2'] = 'Bad<Size';
+try {
+    $policy->snapshot(2, true);
+    policyCheck(false, 'invalid Size group policy text must fail before READ');
+} catch (RuntimeException $e) {
+    policyCheck(
+        str_contains($e->getMessage(), 'Size attribute group name contains characters rejected by PrestaShop'),
+        'invalid Size group policy error clarity'
+    );
+}
+Configuration::$values['MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME:1:2'] = 'US Size';
+$shop2 = $policy->snapshot(2, true);
+policyCheck($shop2['size_attribute_group_name'] === 'US Size', 'valid Size group policy must recover after rejected refresh');
+
 $resolver = new MatterhornSizeResolver($policy);
 $attribute = $resolver->attribute('S/M');
 policyCheck(($attribute['group_name'] ?? '') === 'US Size', 'Size resolver must honor current shop policy');

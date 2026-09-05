@@ -3,6 +3,8 @@ namespace Lp\MatterhornImport\Config;
 
 final class MatterhornPolicy
 {
+    private const PRESTASHOP_GENERIC_TEXT_PATTERN = '/^[^<>{}]*$/u';
+
     /** @var array<int,array{source_language_id:int,category_auto_create:bool,feature_auto_create:bool,size_attribute_group_name:string}> */
     private array $cache = [];
 
@@ -45,6 +47,11 @@ final class MatterhornPolicy
         $sizeGroup = trim((string) \Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', null, $groupId, $shopId));
         if ($sizeGroup === '') { $sizeGroup = 'Size'; }
         if (strlen($sizeGroup) > 64) { throw new \RuntimeException('Matterhorn Size attribute group name exceeds 64-byte limit'); }
+        if (preg_match(self::PRESTASHOP_GENERIC_TEXT_PATTERN, $sizeGroup) !== 1) {
+            throw new \RuntimeException(
+                'Matterhorn Size attribute group name contains characters rejected by PrestaShop (<, >, {, })'
+            );
+        }
 
         return $this->cache[$shopId] = [
             'source_language_id' => $languageId,

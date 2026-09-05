@@ -406,14 +406,19 @@ final class CombinationSynchronizer
         if ($ids === []) { return; }
         $idList = implode(',', $ids);
         $externalDefault = (int) $db->getValue(sprintf(
-            'SELECT pa.id_product_attribute FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product=%d AND pas.default_on=1 AND pa.id_product_attribute NOT IN (%s) ORDER BY pa.id_product_attribute LIMIT 1',
+            'SELECT pa.id_product_attribute FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product=%d AND pas.default_on=1 AND pa.id_product_attribute NOT IN (%s) ORDER BY pa.id_product_attribute',
             _DB_PREFIX_, _DB_PREFIX_, $shopId, $productId, $idList
         ), false);
         if ($externalDefault > 0) { throw new \RuntimeException('Refusing to override default combination owned outside Matterhorn: ' . $externalDefault); }
-        if (!$db->execute(
-            'UPDATE `' . _DB_PREFIX_ . 'product_attribute_shop` SET default_on=NULL WHERE id_shop=' . $shopId . ' AND id_product_attribute IN (' . $idList . ')'
+        if (!$db->update(
+            'product_attribute_shop',
+            ['default_on' => null],
+            'id_shop=' . $shopId . ' AND id_product_attribute IN (' . $idList . ')',
+            0,
+            true,
+            false
         )) {
-            throw new \RuntimeException('Could not clear target-shop default combination');
+            throw new \RuntimeException('Could not clear target-shop default combination: ' . $db->getMsgError());
         }
         if (!$db->execute(sprintf(
             "UPDATE `%sproduct_attribute_shop` pas " .

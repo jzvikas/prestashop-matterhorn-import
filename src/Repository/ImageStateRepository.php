@@ -119,7 +119,7 @@ final class ImageStateRepository
     public function hasOtherTargetShopStateRef(int $shopId, int $productId, int $idImage, string $source, string $sourceKey, string $urlHash): bool
     {
         return (bool) \Db::getInstance()->getValue(sprintf(
-            "SELECT 1 FROM `%s%s` WHERE id_shop=%d AND id_product=%d AND id_image=%d AND NOT (source='%s' AND source_key='%s' AND url_hash='%s') LIMIT 1",
+            "SELECT 1 FROM `%s%s` WHERE id_shop=%d AND id_product=%d AND id_image=%d AND NOT (source='%s' AND source_key='%s' AND url_hash='%s')",
             _DB_PREFIX_, self::TABLE, $shopId, $productId, $idImage, pSQL($source), pSQL($sourceKey), pSQL($urlHash)
         ), false);
     }

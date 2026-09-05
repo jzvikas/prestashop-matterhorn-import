@@ -35,6 +35,7 @@ final class ReadStage
         $run = $this->runs->get($runId);
         if ($run === null) { throw new \RuntimeException('Matterhorn import run not found: ' . $runId); }
         $shopId = (int) $run['id_shop'];
+        $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, (string) $run['source']);
         $this->shopContext->activate($shopId);
         if ((string) $run['read_status'] === 'completed') {
             throw new \RuntimeException('READ is already completed for run #' . $runId);

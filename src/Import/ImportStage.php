@@ -47,6 +47,7 @@ final class ImportStage
     {
         $this->safety->assertTransactionalCore();
         $run = $this->runs->assertContext($runId, $shopId, $source);
+        $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
         $this->assertRunnable($run);
         $this->budget->start($maxItems, $timeLimitSeconds);
         $recoverInterrupted = in_array((string) $run['import_status'], ['running','failed'], true);
@@ -65,7 +66,6 @@ final class ImportStage
             while (!$this->budget->shouldStop() && ($rows = $this->snapshots->newRows($runId, $shopId, $source, $cursor, $batch)) !== []) {
                 $db = \Db::getInstance();
                 if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start IMPORT batch transaction'); }
-                $done = 0;
                 $batchFailures = 0;
                 try {
                     foreach ($rows as $row) {
@@ -92,16 +92,27 @@ final class ImportStage
 
                             $this->mapping->save($shopId, $source, $runId, $productId, $product);
                             $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images);
+                            $this->images->supersedeOlderUnresolvedForAuthoritativeManifest(
+                                $runId,
+                                $shopId,
+                                $source,
+                                $product->sourceKey,
+                                $productId
+                            );
+                            // Keep progress beside the mapping/image durability write. If the next
+                            // ObjectModel hook commits the shared connection, this item can no longer
+                            // become durable without its matching done counter.
+                            $this->runs->increment($runId, 'import_done', 1);
                             if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) {
                                 throw new \RuntimeException('Could not release IMPORT item savepoint: ' . $db->getMsgError());
                             }
                             $this->transactionGuard->disarm();
-                            $done++;
                             $this->budget->markItem();
                         } catch (\Throwable $itemError) {
                             if (TransientDatabaseFailure::isRetryable($itemError)) { throw $itemError; }
                             $this->rollbackItemSavepoint($db, $itemError);
                             $batchFailures++;
+                            $this->runs->increment($runId, 'import_failed', 1);
                             $this->budget->markItem();
                             $failedSourceKey = $product?->sourceKey ?? $cursor;
                             $this->errors->add($runId, 'import', $failedSourceKey, $itemError);
@@ -110,8 +121,6 @@ final class ImportStage
                             }
                         }
                     }
-                    if ($done > 0) { $this->runs->increment($runId, 'import_done', $done); }
-                    if ($batchFailures > 0) { $this->runs->increment($runId, 'import_failed', $batchFailures); }
                     if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit IMPORT batch'); }
                 } catch (\Throwable $batchError) {
                     $this->transactionGuard->disarm();
@@ -146,7 +155,6 @@ final class ImportStage
         if (strlen($message) > self::FAILURE_SAMPLE_MESSAGE_BYTES) {
             $message = substr($message, 0, self::FAILURE_SAMPLE_MESSAGE_BYTES) . '...';
         }
-
         return '[' . $sourceKey . '] ' . ($message !== '' ? $message : $error::class);
     }
 

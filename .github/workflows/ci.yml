@@ -9,11 +9,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: matterhorn-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   php84-static:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: PHP 8.4
         uses: shivammathur/setup-php@v2
         with:
@@ -28,7 +33,9 @@ jobs:
         run: bash tests/static-release-check.sh
 
   mariadb-lifecycle:
+    needs: php84-static
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       mariadb:
         image: mariadb:10.11
@@ -38,7 +45,7 @@ jobs:
         ports:
           - 3306:3306
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: PHP 8.4
         uses: shivammathur/setup-php@v2
         with:
@@ -68,20 +75,35 @@ jobs:
           LP_DB_PASSWORD: root
           LP_DB_NAME: matterhorn_test
           LP_DB_PREFIX: mh_
-        run: php tests/database-lifecycle-check.php
+        run: |
+          php tests/database-lifecycle-check.php
+          php tests/image-placement-mariadb-check.php
+          php tests/image-authoritative-manifest-mariadb-check.php
+          php tests/image-out-of-feed-fence-mariadb-check.php
 
   prestashop-runtime:
+    needs: php84-static
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: PHP 8.4
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
           extensions: curl, fileinfo, simplexml, xmlreader, dom, mbstring
           coverage: none
-      - name: Build production module autoloader
+      - name: Install production Composer runtime
         run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+      - name: Pre-pull runtime images in parallel
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull mariadb:10.11 &
+          mariadb_pull=$!
+          docker pull prestashop/prestashop:9.1.5-8.4 &
+          prestashop_pull=$!
+          wait "$mariadb_pull"
+          wait "$prestashop_pull"
       - name: PrestaShop 9.1.5 install multishop and uninstall lifecycle
         run: bash tests/prestashop-runtime-check.sh

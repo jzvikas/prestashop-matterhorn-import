@@ -79,7 +79,7 @@ final class SpecificPriceSynchronizer
     private function combinationBelongsToShopProduct(int $attributeId, int $productId, int $shopId): bool
     {
         return (bool) \Db::getInstance()->getValue(sprintf(
-            'SELECT 1 FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product_attribute=%d AND pa.id_product=%d LIMIT 1',
+            'SELECT 1 FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product_attribute=%d AND pa.id_product=%d',
             _DB_PREFIX_, _DB_PREFIX_, $shopId, $attributeId, $productId
         ), false);
     }

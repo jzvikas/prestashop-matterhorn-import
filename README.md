@@ -18,18 +18,22 @@ The production implementation is now assembled across the supplier adapter and r
 - out-of-feed deactivation that zeroes both base and combination stock;
 - generic specific-price ownership/synchronization infrastructure with bounded semantic lookup; it remains a no-op for the current Matterhorn feed because the supplier does not provide specific prices;
 - secure persistent image queue/state, lease fencing, cross-run/mapping fencing, HTTP revalidation, SSRF/DNS protections, attachment worker, deduplication, orphan recovery and resumable authoritative reconciliation;
+- bounded image-queue persistence with 16 KiB URL admission, 7 MiB escaped SQL write batches and token-wide lease heartbeat so slow downloads do not expire untouched siblings from the same claimed batch;
 - bounded age-based image revalidation that catches supplier image-content changes even when the URL itself does not change, using conditional HTTP through the existing image worker;
 - global new-product queue/worker with interrupted-create recovery, generation fencing, retry/backoff and transactional generation finalization with mapping/image durability;
+- queue-aware new-product enqueue with an 8 MiB payload preload window, 7 MiB escaped SQL write batches, `--max-items` / `--time-limit` execution budgets and token-wide sibling lease heartbeat;
+- fail-closed diagnostics for completed new-product rows whose persisted product ownership no longer matches the exact shop/source/source-key mapping;
 - multishop hardening for global category/feature/combination ownership, partial `product_lang` recovery and PrestaShop duplicated `product`/`product_shop` shadow fields;
 - shared cross-import advisory locking for manufacturer/category/attribute/feature creation plus live-state revalidation before destructive feature/combination/specific-price/image operations;
 - authoritative combination cleanup that preserves a remaining manual target-shop default instead of leaving stale `cache_default_attribute` state;
+- supplier image URL normalization that skips non-HTTP or over-16-KiB optional image URLs as observable warnings instead of failing an otherwise valid catalog product;
 - `retry`, `doctor`, `status` and bounded `gc` operational commands with live, source-scoped queue/orphan/error observability;
 - shop-scoped Back Office configuration and live source-consistent run/queue status;
 - static contracts, changed-feed domain isolation coverage, real MariaDB schema lifecycle coverage and a Docker PrestaShop 9.1.5 runtime gate.
 
 The real PrestaShop gate covers module install and command registration, Matterhorn CREATE, manufacturer/category/features, Size combinations, EAN and stock, description persistence, image-manifest enqueue, selective changed-feed UPDATE hashes, REMOVE dry-run, out-of-feed deactivate/stock-zero, multishop isolation/product association recovery, and retention/destructive-uninstall behavior.
 
-**The implementation is not marked release-green yet:** no GitHub Actions workflow run exists for the latest hardening commits. The current static, MariaDB and PrestaShop lifecycle gates must execute successfully on the release commit before PROD approval.
+**Release status is commit-specific:** production approval requires the exact release commit to pass the PHP 8.4 static contracts, MariaDB lifecycle and PrestaShop 9.1.5 runtime lifecycle. A previously green hardening commit does not automatically make a later commit green.
 
 Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IMPORT_BUILD_PROMPT.md). Production/cron operations: [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
@@ -46,7 +50,7 @@ Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IM
 | `color` | `Color` feature |
 | `type` | `Type` feature |
 | `description` | sanitized product description HTML |
-| `images/image_url` | ordered persistent image queue manifest |
+| `images/image_url` | ordered persistent image queue manifest; invalid optional URLs are skipped with warnings |
 | `options/option/@id` | combination reference |
 | `option_name` | semantic `matterhorn:size:<value>` descriptor, resolved to the configured PrestaShop Size group later |
 | `STOCK` | combination quantity |
@@ -56,6 +60,8 @@ Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IM
 ## Streaming model
 
 Matterhorn XML is read with `XMLReader` and `LIBXML_NONET`; only one `<product>` payload is materialized at a time. The adapter supports record checkpoint resume and a source fingerprint. The source language, category/feature auto-create policy and Size group are snapshotted into the run policy hash, so a paused READ cannot resume after those semantics change. READ never downloads images or writes catalog attributes.
+
+Supplier normalization warnings remain part of the snapshot payload and operational observability but do not dirty catalog domain hashes. This includes malformed optional EAN13, negative stock normalization and rejected optional image URLs.
 
 ## CLI
 
@@ -78,7 +84,7 @@ matterhornimport:status
 matterhornimport:gc
 ```
 
-For normal operation prefer `matterhornimport:run --shop=<id>` and separate image workers. After the latest image manifest is reconciled, use bounded periodic `matterhornimport:images:revalidate` scheduling to detect same-URL supplier image changes without rechecking every image on every import. See `docs/PRODUCTION.md` for the scalable lanes, the `0.1.7` ownership-upgrade procedure and cron examples.
+For normal operation prefer `matterhornimport:run --shop=<id>` and separate image workers. After the latest image manifest is reconciled, use bounded periodic `matterhornimport:images:revalidate` scheduling to detect same-URL supplier image changes without rechecking every image on every import. For large new-product snapshots, `matterhornimport:new-products:enqueue` is queue-aware and bounded by both row and time budgets. See `docs/PRODUCTION.md` for the scalable lanes, the `0.1.7` ownership-upgrade procedure and cron examples.
 
 ## Release checks
 

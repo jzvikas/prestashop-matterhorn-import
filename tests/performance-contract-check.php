@@ -15,7 +15,6 @@ $categorySync = (string) file_get_contents($root . '/src/Category/CategorySynchr
 $featureMapping = (string) file_get_contents($root . '/src/Repository/FeatureMappingRepository.php');
 $imageState = (string) file_get_contents($root . '/src/Repository/ImageStateRepository.php');
 $revalidation = (string) file_get_contents($root . '/src/Image/ImageRevalidationScheduler.php');
-$newProductQueue = (string) file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
 
 $fail = static function (string $message): never {
     fwrite(STDERR, "FAIL: {$message}\n");
@@ -26,14 +25,23 @@ $check = static function (bool $condition, string $message) use ($fail): void {
 };
 
 $check(str_contains($source, 'new \\XMLReader()'), 'Matterhorn source must stream through XMLReader');
-$check(str_contains($source, 'readOuterXML()'), 'source may materialize only the current product record');
+$check(str_contains($source, 'private function readProduct(\\XMLReader $reader, int $record): array'), 'Matterhorn source must stream the current product without whole-record materialization');
+$check(!str_contains($source, 'readOuterXML'), 'source must not materialize a whole product XML string');
+$check(!str_contains($source, 'simplexml_load_string'), 'source must not reparse a whole product through SimpleXML');
 $check(!str_contains($source, 'file_get_contents($path)'), 'source must never read the entire XML into memory');
 $check(!str_contains($source, 'simplexml_load_file'), 'source must never build whole-feed SimpleXML tree');
+$check(str_contains($source, 'MAX_SOURCE_RECORD_BYTES = 4194304'), 'source per-product decoded-text bound missing');
+$check(str_contains($source, 'MAX_SOURCE_FIELD_BYTES = 2097152'), 'source per-field decoded-text bound missing');
+$check(str_contains($source, 'MAX_IMAGES_PER_PRODUCT = 1000'), 'source image fan-out bound missing');
+$check(str_contains($source, 'MAX_OPTIONS_PER_PRODUCT = 5000'), 'source option fan-out bound missing');
+$check(str_contains($source, 'readImageUrlElement'), 'source bounded optional image URL reader missing');
+$check(str_contains($source, 'skipCurrentElementCounting'), 'ignored source elements must still contribute to the record byte budget');
 $check(str_contains($source, 'LIBXML_COMPACT'), 'XMLReader must use compact parser mode');
 $check(str_contains($read, 'MAX_PRODUCT_PAYLOAD_BYTES = 2097152'), 'READ per-product payload bound missing');
 $check(str_contains($read, 'MAX_BATCH_PAYLOAD_BYTES = 8388608'), 'READ batch payload bound missing');
 $check(str_contains($read, 'WRITE_BATCH = 500'), 'READ bounded write batch missing');
 $check(str_contains($snapshots, 'MAX_FETCH_PAYLOAD_BYTES = 8388608'), 'snapshot fetch payload bound missing');
+$check(str_contains($snapshots, 'MAX_WRITE_SQL_BYTES = 8388608'), 'snapshot escaped SQL write bound missing');
 $check(str_contains($snapshots, "s.source_key>'"), 'source-key keyset pagination missing');
 $check(str_contains($snapshots, 'm.id_product>'), 'product-id keyset pagination missing');
 $check(str_contains($snapshots, 'function imageManifestRowsForSourceKeys'), 'bounded keyed image manifest lookup missing');
@@ -48,10 +56,6 @@ $check(str_contains($imageState, 'LIMIT %d'), 'stale image-state discovery must 
 $check(str_contains($imageState, 'updated_at<=DATE_SUB'), 'stale image-state discovery must be age bounded');
 $check(str_contains($revalidation, '$limit = max(1, min(5000, $limit))'), 'image revalidation product bound missing');
 $check(str_contains($revalidation, 'payload_window_deferred'), 'image revalidation payload-window deferral visibility missing');
-$check(str_contains($newProductQueue, 'MAX_ENQUEUE_SQL_BYTES = 8388608'), 'new-product enqueue SQL byte budget missing');
-$check(str_contains($newProductQueue, 'ENQUEUE_SQL_OVERHEAD_RESERVE = 4096'), 'new-product enqueue SQL overhead reserve missing');
-$check(str_contains($newProductQueue, '$valuesBytes + $valueBytes + self::ENQUEUE_SQL_OVERHEAD_RESERVE > self::MAX_ENQUEUE_SQL_BYTES'), 'new-product enqueue must flush by escaped SQL bytes');
-$check(str_contains($newProductQueue, 'strlen($sql) > self::MAX_ENQUEUE_SQL_BYTES'), 'new-product enqueue final SQL byte fence missing');
 
 $check(str_contains($product, 'private ?string $jsonCache'), 'ProductData JSON serialization cache missing');
 $check(str_contains($product, 'private array $hashCache'), 'ProductData domain hash cache missing');
@@ -74,6 +78,11 @@ $check(str_contains($categoryAuto, "'lpimp:cat:'"), 'category auto-create must u
 $check(substr_count($categoryAuto, '), true, false)') >= 2, 'category live path/child reads must bypass Db query cache');
 $check(str_contains($categoryMapping, '), true, false)'), 'category mapping preload must bypass Db query cache');
 $check(str_contains($categorySync, 'private array $hierarchyCache'), 'category ancestor hierarchy cache missing');
+$check(str_contains($categorySync, 'private function liveHierarchy'), 'category hierarchy cache must have a fresh topology fence');
+$check(str_contains($categorySync, 'leaf.nleft BETWEEN parent.nleft AND parent.nright'), 'category hierarchy fence must use current nested-set topology');
+$check(str_contains($categorySync, 'leaf_shop') && str_contains($categorySync, 'parent_shop'), 'category hierarchy fence must stay target-shop scoped for leaf and ancestors');
+$check(str_contains($categorySync, '), true, false);'), 'category hierarchy live read must bypass Db query cache');
+$check(str_contains($categorySync, 'Mapped category is unavailable in target shop'), 'category hierarchy cache must fail closed on deleted/unassociated leaves');
 $check(str_contains($featureMapping, 'private array $pairCache'), 'feature mapping process cache missing');
 $check(str_contains($featureMapping, '$this->pairCache[$this->cacheKey'), 'feature auto-create must seed process cache');
 

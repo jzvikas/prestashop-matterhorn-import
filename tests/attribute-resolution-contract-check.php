@@ -20,19 +20,19 @@ attrCheck(!str_contains($sizeSource, 'Db::') && !str_contains($sizeSource, 'Cont
 
 $mapping = (string) file_get_contents(dirname(__DIR__) . '/src/Repository/AttributeMappingRepository.php');
 $sql = (string) file_get_contents(dirname(__DIR__) . '/sql/attribute-mapping.sql');
+$genericAttributeToken = 'lp_' . 'import_' . 'attribute_';
+$genericInstallToken = 'PREFIX_' . $genericAttributeToken;
 attrCheck(str_contains($mapping, 'li_matterhornim_99dfbf_attribute_value_mapping'), 'runtime uses generated Matterhorn attribute mapping token');
 attrCheck(str_contains($mapping, 'private array $pairCache'), 'attribute mapping lookups must use process-local cache');
 attrCheck(str_contains($mapping, 'array_key_exists($cacheKey, $this->pairCache)'), 'cached misses and hits must both be reused');
-attrCheck(str_contains($mapping, '$this->pairCache[$this->cacheKey'), 'newly saved mappings must seed process-local cache');
+attrCheck(str_contains($mapping, "\$this->pairCache[\$this->cacheKey"), 'newly saved mappings must seed process-local cache');
 attrCheck(str_contains($mapping, '), false);'), 'attribute mapping live resolution must bypass Db query cache');
 attrCheck(str_contains($mapping, 'Supplier attribute mapping could not be verified after write'), 'attribute mapping writes must fail closed when durable rows differ from intended resolution');
 attrCheck(str_contains($mapping, 'AS group_id,vm.id_attribute_group AS value_group_id,vm.id_attribute'), 'attribute mapping verification must compare group/value identity together');
 attrCheck(substr_count($mapping, '), false);') >= 2, 'attribute mapping resolution and post-write verification must both bypass Db query cache');
 attrCheck(str_contains($sql, 'PREFIX_li_matterhornim_99dfbf_attribute_group_mapping'), 'schema uses generated Matterhorn table token');
-$legacyAttributeToken = 'lp_' . 'import_attribute_';
-$legacyInstallAttributeToken = 'PREFIX_' . $legacyAttributeToken;
-attrCheck(!str_contains($mapping, $legacyAttributeToken), 'generic skeleton table token must not leak into standalone module');
-attrCheck(!str_contains($sql, $legacyInstallAttributeToken), 'generic install table token must not leak into standalone module');
+attrCheck(!str_contains($mapping, $genericAttributeToken), 'generic skeleton table token must not leak into standalone module');
+attrCheck(!str_contains($sql, $genericInstallToken), 'generic install table token must not leak into standalone module');
 
 $resolver = (string) file_get_contents(dirname(__DIR__) . '/src/Combination/CombinationAttributeResolver.php');
 attrCheck(str_contains($resolver, "unset(\$row['attributes'])"), 'persistence resolver replaces supplier descriptors with numeric attribute_ids');

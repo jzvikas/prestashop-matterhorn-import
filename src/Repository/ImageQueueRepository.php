@@ -6,6 +6,9 @@ final class ImageQueueRepository
     private const TABLE = 'li_matterhornim_99dfbf_image_queue';
     private const LEASE_MINUTES = 15;
     private const MAX_ATTEMPTS = 5;
+    private const ENQUEUE_CHUNK = 500;
+    private const MAX_URL_BYTES = 16384;
+    private const MAX_WRITE_VALUES_BYTES = 7340032; // 7 MiB escaped VALUES; reserve SQL overhead
 
     public function enqueue(int $runId, int $shopId, string $source, string $sourceKey, int $productId, array $urls): void
     {
@@ -15,15 +18,88 @@ final class ImageQueueRepository
     public function enqueueBatch(int $runId, int $shopId, string $source, array $jobs): void
     {
         $values = [];
+        $valuesBytes = 0;
         $now = date('Y-m-d H:i:s');
         foreach ($jobs as $job) {
             $urls = array_values(array_unique(array_filter(array_map(static fn(mixed $url): string => trim((string) $url), (array) $job['urls']), static fn(string $url): bool => $url !== '')));
             foreach ($urls as $position => $url) {
-                $values[] = sprintf("(%d,%d,'%s','%s',%d,'%s','%s',%d,%d,'pending',NULL,'%s','%s')", $runId, $shopId, pSQL($source), pSQL((string) $job['source_key']), (int) $job['id_product'], pSQL($url, true), hash('sha256', $url), $position, $position === 0 ? 1 : 0, $now, $now);
-                if (count($values) >= 500) { $this->insertValues($values); $values = []; }
+                if (strlen($url) > self::MAX_URL_BYTES) {
+                    throw new \InvalidArgumentException('Image URL exceeds operational limit of ' . self::MAX_URL_BYTES . ' bytes');
+                }
+                $value = sprintf(
+                    "(%d,%d,'%s','%s',%d,'%s','%s',%d,%d,'pending',NULL,'%s','%s')",
+                    $runId,
+                    $shopId,
+                    pSQL($source),
+                    pSQL((string) $job['source_key']),
+                    (int) $job['id_product'],
+                    pSQL($url, true),
+                    hash('sha256', $url),
+                    $position,
+                    $position === 0 ? 1 : 0,
+                    $now,
+                    $now
+                );
+                $valueBytes = strlen($value);
+                if ($valueBytes > self::MAX_WRITE_VALUES_BYTES) {
+                    throw new \RuntimeException('Escaped image queue row exceeds SQL write budget');
+                }
+                $separatorBytes = $values === [] ? 0 : 1;
+                if (
+                    $values !== []
+                    && (
+                        count($values) >= self::ENQUEUE_CHUNK
+                        || $valuesBytes + $separatorBytes + $valueBytes > self::MAX_WRITE_VALUES_BYTES
+                    )
+                ) {
+                    $this->insertValues($values);
+                    $values = [];
+                    $valuesBytes = 0;
+                    $separatorBytes = 0;
+                }
+                $values[] = $value;
+                $valuesBytes += $separatorBytes + $valueBytes;
             }
         }
         if ($values !== []) { $this->insertValues($values); }
+    }
+
+    public function supersedeOlderUnresolvedForAuthoritativeManifest(
+        int $runId,
+        int $shopId,
+        string $source,
+        string $sourceKey,
+        int $productId
+    ): int {
+        $source = trim($source);
+        $sourceKey = trim($sourceKey);
+        if ($runId <= 0 || $shopId <= 0 || $source === '' || $sourceKey === '' || $productId <= 0) {
+            throw new \InvalidArgumentException('Authoritative image manifest supersede requires run/shop/source/source-key/product');
+        }
+
+        // Authoritative callers enqueue every currently desired URL first. Because uq_product_url
+        // reuses the same queue row and accepted enqueue moves that row to this run generation,
+        // any exact-owner row still left on an older generation is no longer part of the manifest.
+        // Clearing an active token here makes a stale downloader lose its next lease/row fence.
+        $db = \Db::getInstance();
+        $reason = 'superseded: removed from newer authoritative image manifest';
+        if (!$db->execute(sprintf(
+            "UPDATE `%s%s` SET status='done',locked_by=NULL,locked_until=NULL,available_at=NULL,last_error='%s',updated_at=NOW() " .
+            "WHERE id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d AND id_run<%d " .
+            "AND status IN ('pending','processing','failed')",
+            _DB_PREFIX_,
+            self::TABLE,
+            pSQL($reason, true),
+            $shopId,
+            pSQL($source),
+            pSQL($sourceKey),
+            $productId,
+            $runId
+        ))) {
+            throw new \RuntimeException('Matterhorn stale image manifest supersede failed');
+        }
+
+        return (int) $db->Affected_Rows();
     }
 
     /** @return list<array<string,mixed>> */
@@ -43,10 +119,17 @@ final class ImageQueueRepository
     public function renew(int $id, string $token): bool
     {
         $db = \Db::getInstance();
-        if (!$db->execute(sprintf("UPDATE `%s%s` SET locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, self::LEASE_MINUTES, $id, pSQL($token)))) {
+        // One claim token owns a bounded batch that ImageWorker consumes sequentially. Heartbeat
+        // every still-active sibling whenever the current image renews so a slow download/attach
+        // cannot let untouched rows expire and consume their retry budget before they are attempted.
+        // Expired rows stay excluded, so renewal never steals ownership back from another worker.
+        if (!$db->execute(sprintf(
+            "UPDATE `%s%s` SET locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),updated_at=NOW() WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()",
+            _DB_PREFIX_, self::TABLE, self::LEASE_MINUTES, pSQL($token)
+        ))) {
             throw new \RuntimeException('Matterhorn image queue lease renewal failed');
         }
-        return (int) $db->Affected_Rows() > 0 || $this->ownsActiveLease($id, $token);
+        return $this->ownsActiveLease($id, $token);
     }
 
     /** @return array<string,mixed> */

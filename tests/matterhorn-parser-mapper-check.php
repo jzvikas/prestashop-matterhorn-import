@@ -80,6 +80,23 @@ check(count($badEan->extra['supplier_warnings'] ?? []) === 1 && str_contains((st
 check($badEan->payloadHash() !== $blankEan->payloadHash(), 'warning metadata must remain observable in payload hash');
 check($badEan->domainHashes() === $blankEan->domainHashes(), 'warning-only malformed EAN normalization must not dirty catalog domains');
 
+$nonHttpImageRow = $rows[0];
+$nonHttpImageRow['images'][] = 'ftp://supplier.invalid/image.jpg';
+$nonHttpImageRow['images'][] = 'ftp://supplier.invalid/image.jpg';
+$nonHttpImage = $mapper->map($nonHttpImageRow);
+check($nonHttpImage->images === $product->images, 'non-HTTP supplier image must be skipped without changing desired valid manifest');
+check(count($nonHttpImage->extra['supplier_warnings'] ?? []) === 1 && str_contains((string) $nonHttpImage->extra['supplier_warnings'][0], 'non-HTTP URL was skipped'), 'non-HTTP supplier image must be observable once even when duplicated');
+check($nonHttpImage->payloadHash() !== $product->payloadHash(), 'invalid-image warning must remain observable in payload hash');
+check($nonHttpImage->domainHashes() === $product->domainHashes(), 'skipped invalid image URL must not dirty catalog domains');
+
+$oversizedImageRow = $rows[0];
+$oversizedImageRow['images'][] = 'https://supplier.invalid/' . str_repeat('a', 16384);
+$oversizedImage = $mapper->map($oversizedImageRow);
+check($oversizedImage->images === $product->images, 'oversized supplier image URL must be skipped without changing desired valid manifest');
+check(count($oversizedImage->extra['supplier_warnings'] ?? []) === 1 && str_contains((string) $oversizedImage->extra['supplier_warnings'][0], 'exceeds 16384 bytes'), 'oversized supplier image URL must be observable');
+check($oversizedImage->payloadHash() !== $product->payloadHash(), 'oversized-image warning must remain observable in payload hash');
+check($oversizedImage->domainHashes() === $product->domainHashes(), 'skipped oversized image URL must not dirty catalog domains');
+
 $zeroStockRow = $rows[0];
 $zeroStockRow['options'][0]['stock'] = '0';
 $zeroStock = $mapper->map($zeroStockRow);
@@ -98,6 +115,57 @@ catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'Dupl
 $duplicateSemantic = $rows[0]; $duplicateSemantic['options'][1]['name'] = 'XS';
 try { $mapper->map($duplicateSemantic); check(false, 'duplicate semantic size must fail'); }
 catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'Duplicate semantic size'), 'duplicate semantic size error clarity'); }
+
+$longProductId = $rows[0];
+$longProductId['id'] = str_repeat('9', 62);
+try { $mapper->map($longProductId); check(false, 'product reference over 64 bytes must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'reference exceeds PrestaShop 64-byte limit'), 'product reference bound error clarity'); }
+
+$longOptionReference = $rows[0];
+$longOptionReference['options'][0]['id'] = str_repeat('O', 65);
+try { $mapper->map($longOptionReference); check(false, 'combination reference over 64 bytes must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'option reference exceeds PrestaShop 64-byte limit'), 'combination reference bound error clarity'); }
+
+$longManufacturer = $rows[0];
+$longManufacturer['brand'] = str_repeat('M', 65);
+try { $mapper->map($longManufacturer); check(false, 'manufacturer over 64 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'manufacturer name exceeds PrestaShop 64-character limit'), 'manufacturer bound error clarity'); }
+
+$longCategoryName = $rows[0];
+$longCategoryName['category']['name'] = str_repeat('C', 129);
+try { $mapper->map($longCategoryName); check(false, 'category name over 128 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'category name exceeds PrestaShop 128-character limit'), 'category-name bound error clarity'); }
+
+$longCategoryPath = $rows[0];
+$longCategoryPath['category_path'] = '/' . str_repeat('P', 129);
+try { $mapper->map($longCategoryPath); check(false, 'category path segment over 128 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'category path segment exceeds PrestaShop 128-character limit'), 'category-path bound error clarity'); }
+
+$longCategoryId = $rows[0];
+$longCategoryId['category']['id'] = str_repeat('K', 180);
+try { $mapper->map($longCategoryId); check(false, 'generated category supplier key over 191 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'category supplier key exceeds module 191-character limit'), 'category-key bound error clarity'); }
+
+$tooLongFeature = $rows[0];
+$tooLongFeature['color'] = str_repeat('F', 256);
+try { $mapper->map($tooLongFeature); check(false, 'feature value over 255 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'Color value exceeds PrestaShop 255-character limit'), 'feature value bound error clarity'); }
+
+$longFeature = $rows[0];
+$longFeature['color'] = str_repeat('f', 180);
+$longFeatureMapped = $mapper->map($longFeature);
+$longFeatureRow = $longFeatureMapped->extra['features'][0] ?? [];
+$longFeatureKey = (string) ($longFeatureRow['value_key'] ?? '');
+check(($longFeatureRow['value'] ?? '') === str_repeat('f', 180), 'long valid feature display value must remain lossless');
+check($longFeatureKey !== '' && mb_strlen($longFeatureKey, 'UTF-8') <= 191, 'long feature semantic key must fit module mapping schema');
+$longFeatureMappedAgain = $mapper->map($longFeature);
+check($longFeatureKey === (string) ($longFeatureMappedAgain->extra['features'][0]['value_key'] ?? ''), 'long feature semantic key must be deterministic');
+
+$punctuationFeature = $rows[0];
+$punctuationFeature['color'] = '!!!';
+$punctuationFeatureMapped = $mapper->map($punctuationFeature);
+$punctuationKey = (string) ($punctuationFeatureMapped->extra['features'][0]['value_key'] ?? '');
+check(str_starts_with($punctuationKey, 'matterhorn:color:hash-'), 'punctuation-only feature value must use non-empty hash identity');
 
 $simple = $rows[0]; $simple['options'] = [];
 $simpleMapped = $mapper->map($simple);

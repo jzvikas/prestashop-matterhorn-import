@@ -29,6 +29,14 @@ $guard = (string) file_get_contents($root . '/src/Util/ItemTransactionGuard.php'
 $checks = [
     [$queue, "private const TABLE = 'li_matterhornim_99dfbf_new_product_queue'", 'module-owned new-product queue'],
     [$queue, 'locked_until', 'lease fencing'],
+    [$queue, 'private const MAX_FETCH_PAYLOAD_BYTES = 8388608', 'bounded new-product candidate payload window'],
+    [$queue, 'public function nextUnqueuedRows(', 'queue-aware new-product candidate scan'],
+    [$queue, 'OCTET_LENGTH(s.payload)', 'new-product candidate byte accounting'],
+    [$queue, 'm.id_product IS NULL AND (q.id_queue IS NULL OR q.id_run<%d)', 'queue-aware unmapped/newer-run candidate fence'],
+    [$queue, 'private const MAX_WRITE_VALUES_BYTES = 7340032', 'escaped queue write byte budget'],
+    [$queue, '$valueBytes = strlen($value)', 'escaped queue row size accounting'],
+    [$queue, '$valuesBytes + $separatorBytes + $valueBytes > self::MAX_WRITE_VALUES_BYTES', 'escaped queue batch byte fence'],
+    [$queue, 'Escaped new-product queue row exceeds SQL write budget', 'oversized single queue row rejection'],
     [$queue, 'public function claim(string $worker, string $source', 'new-product claims must require source scope'],
     [$queue, 'scopeWhere = " AND source=', 'new-product claim predicate must include source'],
     [$queue, 'public function retryFailed(string $source', 'new-product retry must require source scope'],
@@ -45,7 +53,8 @@ $checks = [
     [$queue, 'id_run>%d', 'newer run comparison'],
     [$queue, 'TIMESTAMPADD(SECOND', 'retry backoff'],
     [$runs, 'public function latestCompletedReadId', 'worker needs the latest authoritative completed READ generation'],
-    [$runs, "read_status='completed' ORDER BY id_run DESC LIMIT 1", 'latest READ lookup must ignore incomplete newer generations'],
+    [$runs, "read_status='completed' ORDER BY id_run DESC", 'latest READ lookup must ignore incomplete newer generations'],
+    [$runs, "false\n        );", 'latest completed READ lookup must bypass Db query cache'],
     [$worker, 'InterruptedCreateRecovery', 'interrupted-create recovery'],
     [$worker, 'SourceInterface', 'worker must resolve its active supplier source'],
     [$worker, '$sourceName = trim($this->sourceAdapter->name())', 'worker must resolve active source once per tick'],
@@ -73,6 +82,7 @@ $checks = [
     [$worker, '$this->transactionGuard->arm($db)', 'worker transaction guard arm'],
     [$worker, '$this->transactionGuard->restoreAfterExternalCommit()', 'nested hook recovery'],
     [$worker, '$this->transactionGuard->recoveryCount()', 'nested recovery metric'],
+    [$worker, '$finalizedGeneration = $this->queue->done(', 'completion generation fence'],
     [$worker, 'fail($idQueue, $token, $e->getMessage(), $retryable, $expectedRunId)', 'failure generation fence'],
     [$worker, "getValue('SELECT @@session.in_transaction', false)", 'live transaction-state read'],
     [$worker, 'combinationAttributes->resolve', 'Size/combo attribute resolution'],
@@ -82,6 +92,15 @@ $checks = [
     [$guard, "getValue('SELECT @@session.in_transaction', false)", 'guard live connection-state read'],
     [$specific, "array_key_exists('specific_prices'", 'specific-price no-op unless explicitly supplied'],
     [$enqueue, "parent::__construct('matterhornimport:new-products:enqueue')", 'enqueue command name'],
+    [$enqueue, 'private const DEFAULT_MAX_ITEMS = 50000', 'bounded enqueue default item budget'],
+    [$enqueue, 'private const DEFAULT_TIME_LIMIT = 30', 'bounded enqueue default runtime budget'],
+    [$enqueue, "addOption('max-items'", 'enqueue max-items option'],
+    [$enqueue, "addOption('time-limit'", 'enqueue time-limit option'],
+    [$enqueue, 'ExecutionBudget', 'enqueue execution budget'],
+    [$enqueue, '$this->budget->start($maxItems, $timeLimit)', 'enqueue budget activation'],
+    [$enqueue, '$this->budget->processed()', 'enqueue remaining-item accounting'],
+    [$enqueue, '$this->queue->nextUnqueuedRows(', 'queue-aware candidate discovery in enqueue command'],
+    [$enqueue, '$this->budget->markItem()', 'enqueue processed-item accounting'],
     [$enqueue, "remove_status'] !== 'pending'", 'enqueue/remove safety gate'],
     [$command, "parent::__construct('matterhornimport:new-products')", 'worker command name'],
     [$command, "'generation_requeued'=>0", 'CLI generation requeue visibility'],
@@ -99,24 +118,67 @@ foreach ($checks as [$haystack, $needle, $label]) {
     }
 }
 
-$latestMethodStart = strpos($runs, 'public function latestCompletedReadId');
-$latestMethodEnd = $latestMethodStart === false ? false : strpos($runs, "\n    public function ", $latestMethodStart + 1);
-$latestMethod = $latestMethodStart === false
-    ? ''
-    : substr($runs, $latestMethodStart, $latestMethodEnd === false ? null : $latestMethodEnd - $latestMethodStart);
-if ($latestMethod === '' || !preg_match(
-    '/getValue\(\s*[^;]*?read_status=\'completed\'[^;]*?,\s*false\s*\)\s*;/s',
-    $latestMethod
-)) {
-    fwrite(STDERR, "FAIL: latest completed READ lookup must bypass Db query cache\n");
+if (str_contains($enqueue, 'SnapshotRepository')) {
+    fwrite(STDERR, "FAIL: new-product enqueue must not rescan SnapshotRepository rows already represented in the queue\n");
+    exit(1);
+}
+if (str_contains($enqueue, 'count($rows) === $batch') || str_contains($enqueue, 'count($rows) < $batch')) {
+    fwrite(STDERR, "FAIL: byte-bounded new-product pages must not infer EOF from row count\n");
     exit(1);
 }
 
-if (!preg_match(
-    '/\$this->queue->done\(\s*\$idQueue\s*,\s*\$token\s*,\s*\$idProduct\s*,\s*\$expectedRunId\s*\)/s',
-    $worker
-)) {
-    fwrite(STDERR, "FAIL: completion generation fence\n");
+$nextRowsStart = strpos($queue, 'public function nextUnqueuedRows(');
+$enqueueBatchStart = strpos($queue, 'public function enqueueBatch(', $nextRowsStart === false ? 0 : $nextRowsStart);
+if ($nextRowsStart === false || $enqueueBatchStart === false || $nextRowsStart >= $enqueueBatchStart) {
+    fwrite(STDERR, "FAIL: new-product candidate scan method boundaries missing\n");
+    exit(1);
+}
+$nextRows = substr($queue, $nextRowsStart, $enqueueBatchStart - $nextRowsStart);
+if (substr_count($nextRows, 'executeS(') !== 2 || substr_count($nextRows, "true,\n            false") !== 2) {
+    fwrite(STDERR, "FAIL: both bounded new-product candidate reads must bypass PrestaShop query cache\n");
+    exit(1);
+}
+
+$claimStart = strpos($queue, 'public function claim(string $worker, string $source', $enqueueBatchStart);
+if ($claimStart === false || $enqueueBatchStart >= $claimStart) {
+    fwrite(STDERR, "FAIL: new-product enqueue batch method boundaries missing\n");
+    exit(1);
+}
+$enqueueBatch = substr($queue, $enqueueBatchStart, $claimStart - $enqueueBatchStart);
+$escapePos = strpos($enqueueBatch, "pSQL((string) \$row['payload'], true)");
+$valueBytesPos = strpos($enqueueBatch, '$valueBytes = strlen($value);');
+$singleGuardPos = strpos($enqueueBatch, 'if ($valueBytes > self::MAX_WRITE_VALUES_BYTES)');
+$separatorPos = strpos($enqueueBatch, '$separatorBytes = $values === [] ? 0 : 1;');
+$countGuardPos = strpos($enqueueBatch, 'count($values) >= self::ENQUEUE_CHUNK');
+$byteGuardPos = strpos($enqueueBatch, '$valuesBytes + $separatorBytes + $valueBytes > self::MAX_WRITE_VALUES_BYTES');
+$flushPos = strpos($enqueueBatch, '$this->insertValues($values);', $byteGuardPos === false ? 0 : $byteGuardPos);
+$appendPos = strpos($enqueueBatch, '$values[] = $value;', $flushPos === false ? 0 : $flushPos);
+if (
+    in_array(false, [$escapePos,$valueBytesPos,$singleGuardPos,$separatorPos,$countGuardPos,$byteGuardPos,$flushPos,$appendPos], true)
+    || !($escapePos < $valueBytesPos && $valueBytesPos < $singleGuardPos && $singleGuardPos < $separatorPos
+        && $separatorPos < $countGuardPos && $countGuardPos < $byteGuardPos && $byteGuardPos < $flushPos && $flushPos < $appendPos)
+) {
+    fwrite(STDERR, "FAIL: escaped new-product SQL byte budget ordering regressed\n");
+    exit(1);
+}
+
+$renewStart = strpos($queue, 'public function renew(int $id, string $token): bool');
+$lockOwnedStart = strpos($queue, 'public function lockOwned(int $id, string $token): array');
+if ($renewStart === false || $lockOwnedStart === false || $renewStart >= $lockOwnedStart) {
+    fwrite(STDERR, "FAIL: new-product lease renewal method boundaries missing\n");
+    exit(1);
+}
+$renewBody = substr($queue, $renewStart, $lockOwnedStart - $renewStart);
+if (!str_contains($renewBody, "WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()")) {
+    fwrite(STDERR, "FAIL: new-product heartbeat must renew every still-active row owned by the claim token\n");
+    exit(1);
+}
+if (str_contains($renewBody, 'WHERE id_queue=%d')) {
+    fwrite(STDERR, "FAIL: new-product heartbeat must not renew only the current queue row\n");
+    exit(1);
+}
+if (!str_contains($renewBody, 'return $this->ownsActiveLease($id, $token);')) {
+    fwrite(STDERR, "FAIL: new-product batch heartbeat must still verify current-row lease ownership\n");
     exit(1);
 }
 

@@ -7,6 +7,8 @@ use Lp\MatterhornImport\Repository\AttributeMappingRepository;
 
 final class CombinationAttributeResolver
 {
+    private const MAX_TOTAL_ATTRIBUTE_REFS = 20000;
+
     /** @var array<string,bool> */
     private array $availabilityCache = [];
 
@@ -20,11 +22,19 @@ final class CombinationAttributeResolver
 
         $autoCreate = !empty($product->extra['combination_attributes_auto_create']);
         $resolvedRows = [];
+        $attributeRefs = 0;
         foreach (array_values($rows) as $index => $row) {
             if (!is_array($row)) { throw new \InvalidArgumentException(sprintf('Combination #%d must be an array for %s', $index + 1, $product->sourceKey)); }
             $rawAttributes = $row['attribute_ids'] ?? $row['attributes'] ?? null;
             if (!is_array($rawAttributes) || $rawAttributes === []) {
                 throw new \InvalidArgumentException(sprintf('Combination #%d requires attributes for %s', $index + 1, $product->sourceKey));
+            }
+            $attributeRefs += count($rawAttributes);
+            if ($attributeRefs > self::MAX_TOTAL_ATTRIBUTE_REFS) {
+                throw new \InvalidArgumentException(
+                    'Combination attribute reference count exceeds operational limit of ' .
+                    self::MAX_TOTAL_ATTRIBUTE_REFS . ' for ' . $product->sourceKey
+                );
             }
 
             $attributeIds = [];

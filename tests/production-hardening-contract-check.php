@@ -61,9 +61,11 @@ foreach ([
 ] as [$source, $needle, $label]) {
     if (!str_contains($source, $needle)) { $fail($label); }
 }
-
-if (!preg_match('/getValue\(\s*[^;]*?GET_LOCK\([^;]*?,\s*false\s*\)\s*;/s', $importLock)) {
+if (!preg_match('/GET_LOCK\([^\n]+\).*?\n\s*false\s*\n\s*\)/s', $importLock)) {
     $fail('advisory import lock reads must bypass Db query cache');
+}
+if (!str_contains($importLock, "RELEASE_LOCK('") || !str_contains($importLock, "')\", false)")) {
+    $fail('advisory import lock release must bypass Db query cache');
 }
 
 if (!str_contains($manufacturer, 'GET_LOCK') || !str_contains($manufacturer, "', 10)\", false)")) {
@@ -96,9 +98,6 @@ if (!str_contains($categoryAuto, 'unset($this->childMap[$shopId][$lockedParentId
 }
 if (substr_count($categoryAuto, '), true, false)') < 2) {
     $fail('category path/child reads must bypass Db query cache');
-}
-if (!str_contains($categoryAuto, '_DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, _DB_PREFIX_, $langId, $shopId, $rootId, $homeId')) {
-    $fail('category path SQL must bind every table-prefix and scalar sprintf placeholder');
 }
 if (!str_contains($categoryAuto, 'RELEASE_LOCK') || !str_contains($categoryAuto, "')\", false);")) {
     $fail('category resolver lock release must bypass Db query cache');

@@ -40,15 +40,15 @@ foreach ($checks as [$haystack, $needle]) {
     }
 }
 
-if (str_contains($stage, 'SAVEPOINT matterhorn_remove_item') || str_contains($stage, 'private const SAVEPOINT')) {
-    throw new RuntimeException('REMOVE must use one transaction per product, not a batch savepoint boundary');
+if (!preg_match('/\$this->version\s*=\s*\'([^\']+)\'/', $module, $versionMatch)) {
+    throw new RuntimeException('REMOVE contract cannot resolve current module version');
+}
+if (version_compare((string) $versionMatch[1], '0.1.1', '<')) {
+    throw new RuntimeException('Current module version predates required REMOVE mapping-state upgrade');
 }
 
-// REMOVE safety is a behavioral invariant. Do not pin the regression test to a
-// historical module version; legitimate later fixes must not require falsifying
-// the version or weakening the removal fence to satisfy this contract.
-if (!preg_match("/version\\s*=\\s*'\\d+\\.\\d+\\.\\d+';/", $module)) {
-    throw new RuntimeException('Module must expose a valid semantic version');
+if (str_contains($stage, 'SAVEPOINT matterhorn_remove_item') || str_contains($stage, 'private const SAVEPOINT')) {
+    throw new RuntimeException('REMOVE must use one transaction per product, not a batch savepoint boundary');
 }
 
 echo "REMOVE orchestration contract: OK\n";

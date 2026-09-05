@@ -3,31 +3,48 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 php -r 'if (PHP_VERSION_ID < 80400) { fwrite(STDERR, "PHP 8.4+ required\n"); exit(1); }'
 while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find . -path './vendor' -prune -o -name '*.php' -print0)
+bash tests/prestashop-db-single-row-limit-check.sh
 php tests/matterhorn-parser-mapper-check.php
+php tests/matterhorn-xml-streaming-bounds-check.php
+php tests/category-path-read-bound-check.php
+php tests/category-hierarchy-live-fence-check.php
+php tests/matterhorn-stock-bound-check.php
+php tests/matterhorn-price-bound-check.php
+php tests/matterhorn-catalog-text-bound-check.php
 php tests/supplier-warning-determinism-check.php
 php tests/supplier-metadata-isolation-check.php
 php tests/matterhorn-update-fixture-check.php
 php tests/matterhorn-policy-contract-check.php
 php tests/attribute-resolution-contract-check.php
 php tests/schema-installer-contract-check.php
+php tests/uninstall-retention-retry-safety-check.php
 php tests/product-persistence-contract-check.php
 bash tests/product-shop-partial-language-recovery-check.sh
 php tests/feature-sync-contract-check.php
 php tests/combination-sync-contract-check.php
 bash tests/item-transaction-guard-check.sh
+bash tests/product-domain-fanout-bounds-check.sh
+bash tests/stage-counter-durability-check.sh
 php tests/read-orchestration-contract-check.php
 php tests/import-orchestration-contract-check.php
 php tests/update-orchestration-contract-check.php
 php tests/remove-orchestration-contract-check.php
 php tests/run-orchestration-contract-check.php
+php tests/stale-run-generation-fence-check.php
+bash tests/snapshot-write-sql-budget-check.sh
 php tests/image-pipeline-foundation-contract-check.php
 php tests/image-pipeline-worker-contract-check.php
+php tests/image-failure-classifier-check.php
+php tests/image-queue-batch-lease-contract-check.php
+php tests/image-authoritative-manifest-queue-fence-check.php
+php tests/image-out-of-feed-active-owner-fence-check.php
 php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
 php tests/new-product-worker-contract-check.php
 php tests/error-observability-contract-check.php
 php tests/operations-contract-check.php
 php tests/back-office-config-contract-check.php
+php tests/operational-settings-inspect-contract-check.php
 php tests/performance-contract-check.php
 php tests/production-hardening-contract-check.php
 echo "Static release checks: OK"

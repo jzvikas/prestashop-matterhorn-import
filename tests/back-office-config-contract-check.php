@@ -22,6 +22,7 @@ $checks = [
     [$module, 'Current shop status', 'BO status panel'],
     [$module, "\$source = 'matterhorn';", 'BO operational source scope'],
     [$module, "AND source='\" . \$sourceSql . \"'", 'BO queue/orphan status must stay source scoped'],
+    [$module, 'GROUP BY status', 'BO queue status aggregation'],
     [$module, 'image_reconcile_status', 'BO image reconciliation status'],
     [$module, 'image_reconcile_checkpoint', 'BO image reconciliation checkpoint'],
     [$module, 'image_reconcile_done', 'BO image reconciliation progress'],

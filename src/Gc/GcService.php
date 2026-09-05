@@ -138,7 +138,7 @@ final class GcService
     {
         if ($productId <= 0 || $idImage <= 0) { return false; }
         return (bool) \Db::getInstance()->getValue(sprintf(
-            'SELECT 1 FROM `%sli_matterhornim_99dfbf_image_state` WHERE id_product=%d AND id_image=%d LIMIT 1',
+            'SELECT 1 FROM `%sli_matterhornim_99dfbf_image_state` WHERE id_product=%d AND id_image=%d',
             _DB_PREFIX_, $productId, $idImage
         ), false);
     }

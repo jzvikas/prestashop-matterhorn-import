@@ -15,9 +15,9 @@ $root = dirname(__DIR__);
 $mapping = (string) file_get_contents($root . '/src/Repository/CombinationMappingRepository.php');
 $sync = (string) file_get_contents($root . '/src/Combination/CombinationSynchronizer.php');
 $attributeResolver = (string) file_get_contents($root . '/src/Combination/CombinationAttributeResolver.php');
+$genericCombinationToken = 'lp_' . 'import_' . 'combination_mapping';
 combinationCheck(str_contains($mapping, 'li_matterhornim_99dfbf_combination_mapping'), 'combination mapping uses standalone DB token');
-$legacyCombinationToken = 'lp_' . 'import_combination_mapping';
-combinationCheck(!str_contains($mapping, $legacyCombinationToken), 'generic combination DB token does not leak');
+combinationCheck(!str_contains($mapping, $genericCombinationToken), 'generic combination DB token does not leak');
 combinationCheck(str_contains($mapping, 'ownerForAttribute') && str_contains($mapping, '), false);'), 'combination owner lookup must use fresh DB state');
 combinationCheck(str_contains($mapping, 'deleteExact') && str_contains($mapping, 'Affected_Rows() !== 1'), 'combination mapping deletes must be exact-owner affected-row fenced');
 combinationCheck(!str_contains($mapping, 'function deleteByAttribute') && !str_contains($mapping, 'function deleteSemantic'), 'broad combination mapping delete APIs must not remain available');
@@ -31,7 +31,10 @@ combinationCheck(str_contains($sync, 'Refusing to mutate global fields of shared
 combinationCheck(str_contains($sync, 'Refusing to override default combination owned outside Matterhorn'), 'external manual default combination conflict fails closed');
 combinationCheck(str_contains($sync, 'pa.id_product_attribute NOT IN'), 'default healing must inspect non-Matterhorn target-shop combinations');
 combinationCheck(str_contains($sync, 'StockAvailable::setQuantity'), 'combination stock uses shop-aware PrestaShop stock API');
-combinationCheck(str_contains($sync, "SET default_on=NULL WHERE id_shop=' . \$shopId"), 'default reset must write SQL NULL explicitly for strict MariaDB compatibility');
+combinationCheck(
+    str_contains($sync, "['default_on' => null],\n            'id_shop=' . \$shopId . ' AND id_product_attribute IN (' . \$idList . ')',\n            0,\n            true,\n            false"),
+    'clearing target-shop defaults must emit SQL NULL and bypass Db query cache'
+);
 
 combinationCheck(str_contains($sync, 'assertMappingOwner'), 'combination mutation must compare fresh mapping owner identity');
 combinationCheck(str_contains($sync, "hash_equals(\$source, (string) \$owner['source'])"), 'combination owner fence must include source');
@@ -52,10 +55,12 @@ combinationCheck(str_contains($sync, '$affected = (int) $db->Affected_Rows()'), 
 combinationCheck(str_contains($sync, '$this->deleteExclusiveCombination($productId, $id, $shopId)'), 'topology race must re-enter independently fenced exclusive delete');
 combinationCheck(str_contains($sync, 'target_shop_count'), 'exclusive delete must prove exact target-shop ownership');
 combinationCheck(str_contains($sync, 'shared or ambiguously associated combination'), 'exclusive delete must fail closed on shared/ambiguous topology');
+combinationCheck(substr_count($sync, '), false);') >= 3, 'direct live combination ownership/default reads must bypass Db query cache');
+combinationCheck(
+    str_contains($sync, "'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product_attribute_shop` WHERE id_product_attribute=' . \$id,\n            false"),
+    'shop association count must bypass Db query cache'
+);
 combinationCheck(str_contains($sync, "executeS(sprintf(\n            \"SELECT pa.id_product_attribute") && str_contains($sync, '), true, false) ?: []'), 'semantic combination inventory must bypass Db query cache');
-combinationCheck(str_contains($sync, "getRow(sprintf(\n            \"SELECT pa.id_product,COUNT(pas.id_shop)") && str_contains($sync, '), false);'), 'exclusive-delete topology read must bypass Db query cache');
-combinationCheck(str_contains($sync, "'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product_attribute_shop`") && str_contains($sync, "false\n        );"), 'shop-association count must bypass Db query cache');
-combinationCheck(str_contains($sync, "SELECT 1 FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas") && substr_count($sync, '), false);') >= 3, 'target-shop ownership/default reads must bypass Db query cache');
 combinationCheck(str_contains($sync, "'cart_product'"), 'shared detach must clean target-shop cart rows after successful detach');
 
 $product = new ProductData('206161', 'MH-206161', ['default' => 'Panties'], 14.9, 0, true, [], [

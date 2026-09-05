@@ -187,9 +187,24 @@ final class RunRepository
         if ($shopId <= 0 || $source === '') { throw new \InvalidArgumentException('Latest completed READ lookup requires shop/source'); }
         return (int) \Db::getInstance()->getValue(
             'SELECT id_run FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_shop=' . $shopId .
-            " AND source='" . pSQL($source) . "' AND read_status='completed' ORDER BY id_run DESC LIMIT 1",
+            " AND source='" . pSQL($source) . "' AND read_status='completed' ORDER BY id_run DESC",
             false
         );
+    }
+
+    public function assertLatestCompletedReadGeneration(int $runId, int $shopId, string $source): void
+    {
+        if ($runId <= 0 || $shopId <= 0 || trim($source) === '') {
+            throw new \InvalidArgumentException('READ generation fence requires run/shop/source');
+        }
+        $latestRunId = $this->latestCompletedReadId($shopId, $source);
+        if ($latestRunId > $runId) {
+            throw new \RuntimeException(sprintf(
+                'Run #%d is stale; newer completed READ generation #%d exists for this shop/source',
+                $runId,
+                $latestRunId
+            ));
+        }
     }
 
     public function latest(int $shopId, string $source): ?array
