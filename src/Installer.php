@@ -29,7 +29,11 @@ final class Installer
     public function install(): bool
     {
         $defaults = [];
+        // Fail closed on cleanup: if schema existence cannot be determined, assume data may
+        // already exist and never drop it from the install failure path.
+        $schemaPreExisted = true;
         try {
+            $schemaPreExisted = $this->tableExists(self::RUN_TABLE);
             foreach (self::INSTALL_SQL as $file) {
                 foreach ($this->statements($file) as $sql) {
                     if (!\Db::getInstance()->execute($sql)) {
@@ -60,7 +64,9 @@ final class Installer
             }
             return true;
         } catch (\Throwable) {
-            try { $this->uninstallSchemaOnly(); } catch (\Throwable) {}
+            if (!$schemaPreExisted) {
+                try { $this->uninstallSchemaOnly(); } catch (\Throwable) {}
+            }
             foreach (array_keys($defaults) as $key) {
                 try { \Configuration::deleteByName($key); } catch (\Throwable) {}
             }
@@ -165,6 +171,14 @@ final class Installer
             $ok = \Configuration::deleteByName($key) && $ok;
         }
         return $ok;
+    }
+
+    private function tableExists(string $suffix): bool
+    {
+        $table = _DB_PREFIX_ . $suffix;
+        return (bool) \Db::getInstance()->getValue(
+            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL($table) . "' LIMIT 1"
+        );
     }
 
     private function uninstallSchemaOnly(): bool
