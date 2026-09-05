@@ -83,16 +83,20 @@ final class CombinationAttributeResolver
     {
         if ($attributeId <= 0 || $shopId <= 0) { return false; }
         $key = $this->availabilityKey($shopId, $attributeId);
-        if (array_key_exists($key, $this->availabilityCache)) {
-            return $this->availabilityCache[$key];
+        if (($this->availabilityCache[$key] ?? false) === true) {
+            return true;
         }
-        return $this->availabilityCache[$key] = (bool) \Db::getInstance()->getValue(sprintf(
+        $available = (bool) \Db::getInstance()->getValue(sprintf(
             "SELECT 1 FROM `%sattribute` a " .
             "INNER JOIN `%sattribute_shop` ash ON ash.id_attribute=a.id_attribute AND ash.id_shop=%d " .
             "INNER JOIN `%sattribute_group_shop` ags ON ags.id_attribute_group=a.id_attribute_group AND ags.id_shop=%d " .
             "WHERE a.id_attribute=%d",
             _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $shopId, $attributeId
-        ));
+        ), false);
+        if ($available) {
+            $this->availabilityCache[$key] = true;
+        }
+        return $available;
     }
 
     private function availabilityKey(int $shopId, int $attributeId): string
