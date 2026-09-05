@@ -36,7 +36,9 @@ final class StatusCommand extends Command
         $runId = $run ? (int)$run['id_run'] : 0;
         $payload = [
             'shop_id'=>$shopId,'source'=>$source,'effective_settings'=>$this->settings->values($shopId),'run'=>$run,
-            'errors_total'=>$runId > 0 ? $this->errors->countForRun($runId) : 0,
+            'issues_total'=>$runId > 0 ? $this->errors->countForRun($runId) : 0,
+            'errors_total'=>$runId > 0 ? $this->errors->countErrorsForRun($runId) : 0,
+            'warnings_total'=>$runId > 0 ? $this->errors->countWarningsForRun($runId) : 0,
             'images'=>$this->images->counts($shopId),
             'image_orphans'=>$this->imageOrphans->count($shopId, $source),
             'new_products'=>$this->newProducts->counts($shopId),
