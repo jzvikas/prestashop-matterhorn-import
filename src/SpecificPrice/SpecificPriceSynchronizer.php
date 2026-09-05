@@ -171,8 +171,12 @@ final class SpecificPriceSynchronizer
         if (!$db->delete('specific_price', $where)) {
             throw new \RuntimeException('Could not remove owned specific price ' . $id);
         }
-        if ((int) $db->Affected_Rows() > 1) {
+        $affected = (int) $db->Affected_Rows();
+        if ($affected > 1) {
             throw new \RuntimeException('Unexpected specific-price delete count for ' . $id);
+        }
+        if ($affected === 0 && $this->fetchLive($id, $productId, $shopId) !== null) {
+            throw new \RuntimeException('Specific price changed concurrently during authoritative cleanup ' . $id);
         }
     }
 
