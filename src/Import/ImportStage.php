@@ -15,6 +15,7 @@ use Lp\MatterhornImport\Repository\SnapshotRepository;
 use Lp\MatterhornImport\SpecificPrice\SpecificPriceSynchronizer;
 use Lp\MatterhornImport\Util\DatabaseSafety;
 use Lp\MatterhornImport\Util\ExecutionBudget;
+use Lp\MatterhornImport\Util\ItemTransactionGuard;
 use Lp\MatterhornImport\Util\RunFailureRecorder;
 use Lp\MatterhornImport\Util\TransientDatabaseFailure;
 
@@ -35,6 +36,7 @@ final class ImportStage
         private ImageQueueRepository $images,
         private ErrorRepository $errors,
         private DatabaseSafety $safety,
+        private ItemTransactionGuard $transactionGuard,
         private RunFailureRecorder $failureRecorder,
         private ExecutionBudget $budget
     ) {}
@@ -73,15 +75,24 @@ final class ImportStage
                             $productId = $recoverInterrupted ? $this->createRecovery->findRecoverable($shopId, $source, $product, $runStartedAt) : 0;
                             if ($productId > 0) { $this->writer->update($productId, $product, $shopId); }
                             else { $productId = $this->writer->create($product, $shopId); }
+                            $this->transactionGuard->restoreAfterExternalCommit();
 
                             $this->features->sync($runId, $shopId, $source, $productId, $product);
+                            $this->transactionGuard->restoreAfterExternalCommit();
+
                             $resolved = $this->combinationAttributes->resolve($product, $shopId, $source);
                             $this->combinations->sync($runId, $shopId, $source, $productId, $resolved);
+                            $this->transactionGuard->restoreAfterExternalCommit();
+
                             $this->specificPrices->sync($runId, $shopId, $source, $productId, $product);
-                            $this->restoreItemSavepointAfterExternalCommit($db);
+                            $this->transactionGuard->restoreAfterExternalCommit();
+
                             $this->mapping->save($shopId, $source, $runId, $productId, $product);
                             $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images);
-                            if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not release IMPORT item savepoint: ' . $db->getMsgError()); }
+                            if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) {
+                                throw new \RuntimeException('Could not release IMPORT item savepoint: ' . $db->getMsgError());
+                            }
+                            $this->transactionGuard->disarm();
                             $done++;
                             $this->budget->markItem();
                         } catch (\Throwable $itemError) {
@@ -96,6 +107,7 @@ final class ImportStage
                     if ($batchFailures > 0) { $this->runs->increment($runId, 'import_failed', $batchFailures); }
                     if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit IMPORT batch'); }
                 } catch (\Throwable $batchError) {
+                    $this->transactionGuard->disarm();
                     $db->execute('ROLLBACK');
                     throw $batchError;
                 }
@@ -112,6 +124,7 @@ final class ImportStage
             $this->runs->stage($runId, 'import', 'completed');
             return true;
         } catch (\Throwable $e) {
+            $this->transactionGuard->disarm();
             $this->failureRecorder->record($runId, 'import', $e);
             throw $e;
         }
@@ -119,25 +132,29 @@ final class ImportStage
 
     private function beginItemSavepoint(\Db $db): void
     {
-        if (!$this->transactionIsActive($db) && !$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not restore IMPORT transaction'); }
-        if (!$db->execute('SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not create IMPORT item savepoint: ' . $db->getMsgError()); }
-    }
-
-    private function restoreItemSavepointAfterExternalCommit(\Db $db): void
-    {
-        if ($this->transactionIsActive($db)) { return; }
-        if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not restore IMPORT transaction after PrestaShop commit'); }
-        if (!$db->execute('SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not restore IMPORT savepoint after PrestaShop commit'); }
+        if (!$this->transactionIsActive($db) && !$db->execute('START TRANSACTION')) {
+            throw new \RuntimeException('Could not restore IMPORT transaction');
+        }
+        if (!$db->execute('SAVEPOINT ' . self::SAVEPOINT)) {
+            throw new \RuntimeException('Could not create IMPORT item savepoint: ' . $db->getMsgError());
+        }
+        $this->transactionGuard->arm($db, self::SAVEPOINT);
     }
 
     private function rollbackItemSavepoint(\Db $db, \Throwable $cause): void
     {
-        if (!$this->transactionIsActive($db)) { return; }
-        if (!$db->execute('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT)) {
-            $db->execute('ROLLBACK');
-            throw new \RuntimeException('Could not roll back IMPORT item savepoint: ' . $db->getMsgError(), 0, $cause);
+        try {
+            if (!$this->transactionIsActive($db)) { return; }
+            if (!$db->execute('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT)) {
+                $db->execute('ROLLBACK');
+                throw new \RuntimeException('Could not roll back IMPORT item savepoint: ' . $db->getMsgError(), 0, $cause);
+            }
+            if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) {
+                throw new \RuntimeException('Could not release rolled-back IMPORT savepoint', 0, $cause);
+            }
+        } finally {
+            $this->transactionGuard->disarm();
         }
-        if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not release rolled-back IMPORT savepoint', 0, $cause); }
     }
 
     private function transactionIsActive(\Db $db): bool
