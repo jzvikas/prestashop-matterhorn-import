@@ -137,7 +137,7 @@ if ($latestReadPos === false || $supersedePos === false || $latestReadPos >= $su
 }
 
 $donePos = strpos($worker, '$finalizedGeneration = $this->queue->done(');
-$commitPos = strpos($worker, "execute('COMMIT')");
+$commitPos = $donePos === false ? false : strpos($worker, "execute('COMMIT')", $donePos);
 if ($donePos === false || $commitPos === false || $donePos >= $commitPos) {
     fwrite(STDERR, "FAIL: queue generation finalization must be inside the worker transaction before COMMIT\n");
     exit(1);
