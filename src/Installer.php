@@ -293,7 +293,14 @@ final class Installer
 
     public function uninstall(): bool
     {
-        $retainData = (bool) \Configuration::get(self::RETAIN_DATA_KEY, null, 0, 0);
+        $retentionSetting = \Configuration::get(self::RETAIN_DATA_KEY, null, 0, 0);
+        // Destructive schema cleanup is explicit opt-in only. A missing/empty retention
+        // setting can happen after a partial uninstall (Installer succeeds, parent::uninstall
+        // fails); retrying that uninstall must retain existing module tables by default.
+        $retainData = $retentionSetting === false
+            || $retentionSetting === null
+            || $retentionSetting === ''
+            || (string) $retentionSetting !== '0';
         if (!$retainData && !$this->uninstallSchemaOnly()) {
             return false;
         }
