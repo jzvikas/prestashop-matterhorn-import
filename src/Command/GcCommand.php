@@ -18,7 +18,7 @@ final class GcCommand extends Command
     protected function configure(): void
     {
         $this->addOption('shop', null, InputOption::VALUE_OPTIONAL, 'Only this shop')
-            ->addOption('keep-run', null, InputOption::VALUE_REQUIRED, 'Keep snapshots from this run onward', '0')
+            ->addOption('keep-run', null, InputOption::VALUE_REQUIRED, 'Keep snapshots from this run onward; values > 0 require --shop and must belong to the active source/shop', '0')
             ->addOption('image-days', null, InputOption::VALUE_REQUIRED, 'Keep completed image jobs days', '2')
             ->addOption('new-product-days', null, InputOption::VALUE_REQUIRED, 'Keep completed mapped new-product jobs days', '7')
             ->addOption('chunk', null, InputOption::VALUE_REQUIRED, 'Rows per bounded maintenance chunk', '2000')
@@ -43,8 +43,9 @@ final class GcCommand extends Command
             $output->writeln((string) json_encode($stats, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         } else {
             $output->writeln(sprintf(
-                'shop=%s orphan_processed=%d orphan_deleted=%d orphan_resolved=%d orphan_deferred=%d images=%d new_products=%d snapshots=%d image_state=%d total=%d paused=%s reason=%s',
+                'shop=%s source=%s orphan_processed=%d orphan_deleted=%d orphan_resolved=%d orphan_deferred=%d images=%d new_products=%d snapshots=%d image_state=%d total=%d paused=%s reason=%s',
                 $stats['shop_id'] === null ? 'all' : (string) $stats['shop_id'],
+                (string) $stats['source'],
                 $stats['image_orphans_processed'],
                 $stats['image_orphans_deleted'],
                 $stats['image_orphans_resolved'],
