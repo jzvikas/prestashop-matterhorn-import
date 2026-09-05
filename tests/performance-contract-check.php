@@ -25,14 +25,23 @@ $check = static function (bool $condition, string $message) use ($fail): void {
 };
 
 $check(str_contains($source, 'new \\XMLReader()'), 'Matterhorn source must stream through XMLReader');
-$check(str_contains($source, 'readOuterXML()'), 'source may materialize only the current product record');
+$check(str_contains($source, 'private function readProduct(\\XMLReader $reader, int $record): array'), 'Matterhorn source must stream the current product without whole-record materialization');
+$check(!str_contains($source, 'readOuterXML'), 'source must not materialize a whole product XML string');
+$check(!str_contains($source, 'simplexml_load_string'), 'source must not reparse a whole product through SimpleXML');
 $check(!str_contains($source, 'file_get_contents($path)'), 'source must never read the entire XML into memory');
 $check(!str_contains($source, 'simplexml_load_file'), 'source must never build whole-feed SimpleXML tree');
+$check(str_contains($source, 'MAX_SOURCE_RECORD_BYTES = 4194304'), 'source per-product decoded-text bound missing');
+$check(str_contains($source, 'MAX_SOURCE_FIELD_BYTES = 2097152'), 'source per-field decoded-text bound missing');
+$check(str_contains($source, 'MAX_IMAGES_PER_PRODUCT = 1000'), 'source image fan-out bound missing');
+$check(str_contains($source, 'MAX_OPTIONS_PER_PRODUCT = 5000'), 'source option fan-out bound missing');
+$check(str_contains($source, 'readImageUrlElement'), 'source bounded optional image URL reader missing');
+$check(str_contains($source, 'skipCurrentElementCounting'), 'ignored source elements must still contribute to the record byte budget');
 $check(str_contains($source, 'LIBXML_COMPACT'), 'XMLReader must use compact parser mode');
 $check(str_contains($read, 'MAX_PRODUCT_PAYLOAD_BYTES = 2097152'), 'READ per-product payload bound missing');
 $check(str_contains($read, 'MAX_BATCH_PAYLOAD_BYTES = 8388608'), 'READ batch payload bound missing');
 $check(str_contains($read, 'WRITE_BATCH = 500'), 'READ bounded write batch missing');
 $check(str_contains($snapshots, 'MAX_FETCH_PAYLOAD_BYTES = 8388608'), 'snapshot fetch payload bound missing');
+$check(str_contains($snapshots, 'MAX_WRITE_SQL_BYTES = 8388608'), 'snapshot escaped SQL write bound missing');
 $check(str_contains($snapshots, "s.source_key>'"), 'source-key keyset pagination missing');
 $check(str_contains($snapshots, 'm.id_product>'), 'product-id keyset pagination missing');
 $check(str_contains($snapshots, 'function imageManifestRowsForSourceKeys'), 'bounded keyed image manifest lookup missing');
