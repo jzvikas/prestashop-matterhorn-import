@@ -66,6 +66,28 @@ final class SnapshotRepository
         return \Db::getInstance()->executeS('SELECT s.source_key,s.payload,m.id_product' . $where . " AND s.source_key<='" . pSQL((string) $window['last']) . "' ORDER BY s.source_key LIMIT " . (int) $window['count']) ?: [];
     }
 
+    /** @param list<string> $sourceKeys @return list<array<string,mixed>> */
+    public function imageManifestRowsForSourceKeys(int $runId, int $shopId, string $source, array $sourceKeys, int $limit = 500): array
+    {
+        $keys = array_values(array_unique(array_filter(
+            array_map(static fn(mixed $key): string => trim((string) $key), $sourceKeys),
+            static fn(string $key): bool => $key !== ''
+        )));
+        if ($keys === []) { return []; }
+        $limit = max(1, min(2000, min($limit, count($keys))));
+        $quoted = implode(',', array_map(static fn(string $key): string => "'" . pSQL($key) . "'", $keys));
+        $where = sprintf(
+            " FROM `%s%s` s INNER JOIN `%s%s` m ON m.id_shop=%d AND m.source='%s' AND m.source_key=s.source_key " .
+            "WHERE s.id_run=%d AND s.source_key IN (%s)",
+            _DB_PREFIX_, self::TABLE, _DB_PREFIX_, self::MAPPING_TABLE, $shopId, pSQL($source), $runId, $quoted
+        );
+        $window = $this->payloadWindow('SELECT s.source_key,OCTET_LENGTH(s.payload) payload_bytes' . $where . ' ORDER BY s.source_key LIMIT ' . $limit, 'source_key');
+        if ($window === null) { return []; }
+        return \Db::getInstance()->executeS(
+            'SELECT s.source_key,s.payload,m.id_product' . $where . " AND s.source_key<='" . pSQL((string) $window['last']) . "' ORDER BY s.source_key LIMIT " . (int) $window['count']
+        ) ?: [];
+    }
+
     private function payloadWindow(string $sql,string $cursorField):?array
     {
         $rows=\Db::getInstance()->executeS($sql)?:[]; if($rows===[]){return null;} $bytes=0;$count=0;$last=null;
