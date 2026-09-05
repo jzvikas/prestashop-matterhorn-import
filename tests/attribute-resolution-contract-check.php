@@ -34,6 +34,10 @@ attrCheck(str_contains($resolver, "unset(\$row['attributes'])"), 'persistence re
 attrCheck(str_contains($resolver, "\$row['attribute_ids'] = \$attributeIds"), 'numeric attribute ids are persisted only after resolution');
 attrCheck(str_contains($resolver, 'private array $availabilityCache'), 'shop attribute availability must be cached per process');
 attrCheck(str_contains($resolver, 'availabilityKey($shopId, $attributeId)'), 'availability cache must be shop-scoped');
+attrCheck(str_contains($resolver, "(\$this->availabilityCache[\$key] ?? false) === true"), 'attribute availability may cache only positive observations');
+attrCheck(!str_contains($resolver, 'return $this->availabilityCache[$key] = (bool)'), 'negative attribute availability must not become sticky process state');
+attrCheck(str_contains($resolver, '$available = (bool) \\Db::getInstance()->getValue') && str_contains($resolver, '), false);'), 'attribute availability must use fresh Db state');
+attrCheck(str_contains($resolver, 'if ($available)') && str_contains($resolver, '$this->availabilityCache[$key] = true'), 'only successful attribute availability may seed process cache');
 
 $autoCreate = (string) file_get_contents(dirname(__DIR__) . '/src/Attribute/AttributeResolver.php');
 attrCheck(str_contains($autoCreate, 'LOCK_TIMEOUT_SECONDS'), 'attribute auto-create must have bounded advisory-lock wait');
