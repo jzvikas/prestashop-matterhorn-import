@@ -31,6 +31,7 @@ combinationCheck(str_contains($sync, 'Refusing to mutate global fields of shared
 combinationCheck(str_contains($sync, 'Refusing to override default combination owned outside Matterhorn'), 'external manual default combination conflict fails closed');
 combinationCheck(str_contains($sync, 'pa.id_product_attribute NOT IN'), 'default healing must inspect non-Matterhorn target-shop combinations');
 combinationCheck(str_contains($sync, 'StockAvailable::setQuantity'), 'combination stock uses shop-aware PrestaShop stock API');
+combinationCheck(str_contains($sync, "SET default_on=NULL WHERE id_shop=' . \$shopId"), 'default reset must write SQL NULL explicitly for strict MariaDB compatibility');
 
 combinationCheck(str_contains($sync, 'assertMappingOwner'), 'combination mutation must compare fresh mapping owner identity');
 combinationCheck(str_contains($sync, "hash_equals(\$source, (string) \$owner['source'])"), 'combination owner fence must include source');
