@@ -75,7 +75,7 @@ final class FeatureSynchronizer
                 if (($actual[$featureId] ?? null) === $ownedValue) {
                     unset($final[$featureId]);
                 }
-                $ownershipDelete[$featureId] = true;
+                $ownershipDelete[$featureId] = $ownedValue;
             }
         }
 
@@ -124,8 +124,15 @@ final class FeatureSynchronizer
             }
         }
 
-        foreach (array_keys($ownershipDelete) as $featureId) {
-            $this->state->delete($shopId, $source, $product->sourceKey, (int) $featureId);
+        foreach ($ownershipDelete as $featureId => $ownedValue) {
+            $this->state->delete(
+                $shopId,
+                $source,
+                $product->sourceKey,
+                $productId,
+                (int) $featureId,
+                (int) $ownedValue
+            );
         }
         foreach ($ownershipSave as $featureId => $valueId) {
             $this->state->save($shopId, $source, $product->sourceKey, $productId, (int) $featureId, (int) $valueId, $runId);
