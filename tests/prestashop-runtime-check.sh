@@ -32,7 +32,9 @@ bootstrap_action() {
     $action = (string) getenv("MH_ACTION");
     $ok = $action === "install" ? $module->install() : ($action === "uninstall" ? $module->uninstall() : false);
     if (!$ok) { throw new RuntimeException("Module action failed: " . $action); }
-    $kernel->shutdown();
+    // Module install/uninstall may invalidate the compiled prod container. Do not
+    // explicitly shut down that stale kernel: the short-lived PHP process exits
+    // immediately, while a later command boots a fresh kernel/cache generation.
   '
 }
 
