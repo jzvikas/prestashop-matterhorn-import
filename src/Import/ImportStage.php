@@ -88,6 +88,13 @@ final class ImportStage
 
                             $this->mapping->save($shopId, $source, $runId, $productId, $product);
                             $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images);
+                            $this->images->supersedeOlderUnresolvedForAuthoritativeManifest(
+                                $runId,
+                                $shopId,
+                                $source,
+                                $product->sourceKey,
+                                $productId
+                            );
                             // Keep progress beside the mapping/image durability write. If the next
                             // ObjectModel hook commits the shared connection, this item can no longer
                             // become durable without its matching done counter.
