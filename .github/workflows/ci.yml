@@ -87,7 +87,10 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
+          extensions: curl, fileinfo, simplexml, xmlreader, dom, mbstring
           coverage: none
+      - name: Install production Composer runtime
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
       - name: Pre-pull runtime images in parallel
         shell: bash
         run: |
