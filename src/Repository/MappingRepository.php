@@ -75,7 +75,7 @@ final class MappingRepository
     {
         if ($shopId <= 0 || $productId <= 0) { return null; }
         $row = \Db::getInstance()->getRow(sprintf(
-            "SELECT source,source_key FROM `%s%s` WHERE id_shop=%d AND id_product=%d LIMIT 1",
+            "SELECT source,source_key FROM `%s%s` WHERE id_shop=%d AND id_product=%d",
             _DB_PREFIX_, self::TABLE, $shopId, $productId
         ), false);
         if (!is_array($row) || trim((string) ($row['source'] ?? '')) === '' || trim((string) ($row['source_key'] ?? '')) === '') {
