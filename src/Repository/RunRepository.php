@@ -181,6 +181,17 @@ final class RunRepository
         return is_array($row) ? $row : null;
     }
 
+    public function latestCompletedReadId(int $shopId, string $source): int
+    {
+        $source = trim($source);
+        if ($shopId <= 0 || $source === '') { throw new \InvalidArgumentException('Latest completed READ lookup requires shop/source'); }
+        return (int) \Db::getInstance()->getValue(
+            'SELECT id_run FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_shop=' . $shopId .
+            " AND source='" . pSQL($source) . "' AND read_status='completed' ORDER BY id_run DESC LIMIT 1",
+            false
+        );
+    }
+
     public function latest(int $shopId, string $source): ?array
     {
         $row = \Db::getInstance()->getRow(
