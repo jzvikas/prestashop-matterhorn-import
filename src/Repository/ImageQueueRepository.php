@@ -64,6 +64,44 @@ final class ImageQueueRepository
         if ($values !== []) { $this->insertValues($values); }
     }
 
+    public function supersedeOlderUnresolvedForAuthoritativeManifest(
+        int $runId,
+        int $shopId,
+        string $source,
+        string $sourceKey,
+        int $productId
+    ): int {
+        $source = trim($source);
+        $sourceKey = trim($sourceKey);
+        if ($runId <= 0 || $shopId <= 0 || $source === '' || $sourceKey === '' || $productId <= 0) {
+            throw new \InvalidArgumentException('Authoritative image manifest supersede requires run/shop/source/source-key/product');
+        }
+
+        // Authoritative callers enqueue every currently desired URL first. Because uq_product_url
+        // reuses the same queue row and accepted enqueue moves that row to this run generation,
+        // any exact-owner row still left on an older generation is no longer part of the manifest.
+        // Clearing an active token here makes a stale downloader lose its next lease/row fence.
+        $db = \Db::getInstance();
+        $reason = 'superseded: removed from newer authoritative image manifest';
+        if (!$db->execute(sprintf(
+            "UPDATE `%s%s` SET status='done',locked_by=NULL,locked_until=NULL,available_at=NULL,last_error='%s',updated_at=NOW() " .
+            "WHERE id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d AND id_run<%d " .
+            "AND status IN ('pending','processing','failed')",
+            _DB_PREFIX_,
+            self::TABLE,
+            pSQL($reason, true),
+            $shopId,
+            pSQL($source),
+            pSQL($sourceKey),
+            $productId,
+            $runId
+        ))) {
+            throw new \RuntimeException('Matterhorn stale image manifest supersede failed');
+        }
+
+        return (int) $db->Affected_Rows();
+    }
+
     /** @return list<array<string,mixed>> */
     public function claim(string $worker, string $source, int $limit = 20, ?int $shopId = null): array
     {
