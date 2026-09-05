@@ -27,10 +27,18 @@ persistenceCheck(str_contains($base, "restoreDefaultShopShadows(\$productId, \$s
 persistenceCheck(str_contains($base, "restoreDefaultShopShadows(\$productId, \$shopId, ['active'])"), 'out-of-feed disable must repair PrestaShop global active shadow');
 persistenceCheck(str_contains($base, 'Product::getProductAttributesIds($productId)'), 'out-of-feed disable must enumerate product combinations');
 persistenceCheck(substr_count($base, 'StockAvailable::setQuantity($productId, $attributeId, 0, $shopId)') === 1, 'out-of-feed disable must zero each combination stock row');
+
 persistenceCheck(str_contains($associations, 'assertExclusiveGlobalOwnership'), 'association manager must expose global-field ownership guard');
 persistenceCheck(str_contains($associations, 'function restoreDefaultShopShadows'), 'association manager must expose duplicated shop-field repair');
 persistenceCheck(str_contains($associations, "['price' => true, 'active' => true]"), 'global product shadow repair must use a strict field allow-list');
-persistenceCheck(str_contains($associations, 'id_shop_default'), 'global product shadow repair must source values from the default shop');
+persistenceCheck(str_contains($associations, 'ensureLanguageRows($productId, $shopId)'), 'association recovery must repair every missing active target-shop language');
+persistenceCheck(str_contains($associations, 'missingLanguageIds($productId, $shopId)'), 'association recovery must verify complete target-shop language coverage');
+persistenceCheck(str_contains($associations, 'copyLanguageRow('), 'association recovery must support one-language repair');
+persistenceCheck(str_contains($associations, "'id_lang' => (string) \$targetLangId"), 'one-language repair must rewrite id_lang to the missing target language');
+persistenceCheck(str_contains($associations, 'has no active languages'), 'association recovery must fail closed for a shop with no active languages');
+persistenceCheck(str_contains($associations, "getValue(\n            'SELECT id_shop_default") && str_contains($associations, "false\n        );"), 'global product shadow default-shop read must bypass Db query cache');
+persistenceCheck(str_contains($associations, 'getRow(') && str_contains($associations, "product_shop` WHERE id_product=") && str_contains($associations, "false\n        );"), 'global product shadow source read must bypass Db query cache');
+
 persistenceCheck(str_contains($category, 'li_matterhornim_99dfbf_category_mapping'), 'category runtime must use generated module mapping table');
 persistenceCheck(!str_contains($category, 'lp_import_category_mapping'), 'generic category table token must not leak into standalone module');
 persistenceCheck(str_contains($categorySync, 'assertExclusiveGlobalOwnership($productId, $shopId)'), 'category_product mutation must fail closed for shared products');
