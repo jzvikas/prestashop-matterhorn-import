@@ -9,7 +9,7 @@ final class CombinationMappingRepository
         $rows = \Db::getInstance()->executeS(sprintf(
             "SELECT * FROM `%sli_matterhornim_99dfbf_combination_mapping` WHERE id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d",
             _DB_PREFIX_, $shopId, pSQL($source), pSQL($sourceKey), $productId
-        )) ?: [];
+        ), true, false) ?: [];
         $indexed = [];
         foreach ($rows as $row) {
             $indexed[(string) $row['semantic_key']] = $row;
