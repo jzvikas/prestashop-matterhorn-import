@@ -9,6 +9,7 @@ php tests/matterhorn-xml-streaming-bounds-check.php
 php tests/category-path-read-bound-check.php
 php tests/matterhorn-stock-bound-check.php
 php tests/matterhorn-price-bound-check.php
+php tests/matterhorn-catalog-text-bound-check.php
 php tests/supplier-warning-determinism-check.php
 php tests/supplier-metadata-isolation-check.php
 php tests/matterhorn-update-fixture-check.php
