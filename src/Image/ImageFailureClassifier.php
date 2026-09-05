@@ -14,6 +14,7 @@ final class ImageFailureClassifier
             'private/reserved or unresolved image host blocked',
             'image connection endpoint changed after validation',
             'image exceeds maximum download size',
+            'image exceeds prestashop resize memory limit',
             'unsupported image mime',
             'invalid or oversized image dimensions',
             'invalid image url port',
