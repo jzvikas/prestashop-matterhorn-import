@@ -35,6 +35,9 @@ $reconcileCommand = file_get_contents($root . '/src/Command/ImagesReconcileComma
 
 $checks = [
     [$worker, 'assertTransactionalCore()', 'worker transactional safety'],
+    [$worker, 'SourceInterface', 'image worker must resolve active supplier source'],
+    [$worker, 'sourceAdapter->name()', 'image worker must resolve source identity at tick start'],
+    [$worker, 'queue->claim($worker, $sourceName, $limit, $shopId)', 'image worker claim must be source scoped'],
     [$worker, 'renew($idQueue, $token)', 'lease renewal fencing'],
     [$worker, '$this->queue->lockOwned($idQueue, $token)', 'latest desired queue row must be locked/reloaded before image state commit'],
     [$worker, 'The hook commit released our queue row lock', 'hook-commit path must explicitly reacquire latest queue row'],
@@ -46,6 +49,10 @@ $checks = [
     [$downloader, 'private const MAX_URL_BYTES = 16384;', 'image URL operational bound'],
     [$downloader, 'strlen($url) > self::MAX_URL_BYTES', 'image URL length guard'],
     [$downloader, 'Image URL exceeds operational limit', 'image URL bound error clarity'],
+    [$queue, 'public function claim(string $worker, string $source', 'image queue claims must require source scope'],
+    [$queue, 'scopeWhere = " AND source=', 'image claim predicate must include source'],
+    [$queue, 'public function retryFailed(string $source', 'image retry must require source scope'],
+    [$queue, "WHERE status='failed' AND source='", 'image retry update must recheck source at write time'],
     [$queue, 'function lockOwned', 'queue must expose row-level lease lock'],
     [$queue, 'FOR UPDATE', 'queue desired metadata must be fenced by row lock'],
     [$queue, 'id_run=VALUES(id_run)', 'newer run must supersede queued desired run metadata'],
