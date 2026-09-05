@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 chdir('/var/www/html');
 require 'config/config.inc.php';
+require_once 'modules/matterhornimport/autoload.php';
 
 function domainAssert(bool $condition, string $message): void
 {
@@ -118,6 +119,92 @@ domainAssert(is_array($combination) && (int) $combination['id_product_attribute'
 domainAssert((string) $combination['ean13'] === '5902934981668', 'Combination EAN mismatch');
 $combinationId = (int) $combination['id_product_attribute'];
 domainAssert(freshStockQuantity($p206, $combinationId, 1) === 2, 'Initial XS stock mismatch');
+
+$combinationMapping = $db->getRow(
+    "SELECT source,source_key,semantic_key,id_product,id_product_attribute,structure_hash,stock_hash,last_seen_run_id FROM `{$table}combination_mapping` WHERE id_shop=1 AND id_product_attribute={$combinationId}",
+    false
+);
+domainAssert(is_array($combinationMapping), 'Combination ownership row missing before collision test');
+$foreignSource = 'runtime-foreign';
+$foreignSourceKey = 'runtime-foreign-key';
+$foreignSemanticKey = hash('sha256', 'runtime-foreign-combination-owner');
+domainAssert($db->update(
+    'li_matterhornim_99dfbf_combination_mapping',
+    ['source' => $foreignSource, 'source_key' => $foreignSourceKey, 'semantic_key' => $foreignSemanticKey],
+    'id_shop=1 AND id_product_attribute=' . $combinationId,
+    0,
+    false,
+    false
+), 'Could not prepare foreign combination owner collision');
+$foreignPrepared = $db->getRow(
+    "SELECT source,source_key,semantic_key,id_product,id_product_attribute,structure_hash,stock_hash,last_seen_run_id FROM `{$table}combination_mapping` WHERE id_shop=1 AND id_product_attribute={$combinationId}",
+    false
+);
+domainAssert(
+    is_array($foreignPrepared)
+    && (string) $foreignPrepared['source'] === $foreignSource
+    && (string) $foreignPrepared['source_key'] === $foreignSourceKey
+    && (string) $foreignPrepared['semantic_key'] === $foreignSemanticKey,
+    'Foreign combination owner fixture was not persisted'
+);
+$collisionCaught = false;
+try {
+    (new \Lp\MatterhornImport\Repository\CombinationMappingRepository())->save(
+        1,
+        (string) $combinationMapping['source'],
+        (string) $combinationMapping['source_key'],
+        (string) $combinationMapping['semantic_key'],
+        (int) $combinationMapping['id_product'],
+        (int) $combinationMapping['id_product_attribute'],
+        (string) $combinationMapping['structure_hash'],
+        (string) $combinationMapping['stock_hash'],
+        (int) $combinationMapping['last_seen_run_id']
+    );
+} catch (RuntimeException $e) {
+    $collisionCaught = str_contains($e->getMessage(), 'Combination attribute ownership conflict:');
+}
+domainAssert($collisionCaught, 'Foreign combination attribute owner did not fail closed');
+$afterCollision = $db->getRow(
+    "SELECT source,source_key,semantic_key,id_product,id_product_attribute,structure_hash,stock_hash,last_seen_run_id FROM `{$table}combination_mapping` WHERE id_shop=1 AND id_product_attribute={$combinationId}",
+    false
+);
+domainAssert(
+    is_array($afterCollision)
+    && (string) $afterCollision['source'] === $foreignSource
+    && (string) $afterCollision['source_key'] === $foreignSourceKey
+    && (string) $afterCollision['semantic_key'] === $foreignSemanticKey
+    && (int) $afterCollision['id_product'] === (int) $foreignPrepared['id_product']
+    && (string) $afterCollision['structure_hash'] === (string) $foreignPrepared['structure_hash']
+    && (string) $afterCollision['stock_hash'] === (string) $foreignPrepared['stock_hash']
+    && (int) $afterCollision['last_seen_run_id'] === (int) $foreignPrepared['last_seen_run_id'],
+    'Rejected combination ownership collision mutated the foreign row'
+);
+domainAssert($db->update(
+    'li_matterhornim_99dfbf_combination_mapping',
+    [
+        'source' => (string) $combinationMapping['source'],
+        'source_key' => (string) $combinationMapping['source_key'],
+        'semantic_key' => (string) $combinationMapping['semantic_key'],
+    ],
+    "id_shop=1 AND id_product_attribute={$combinationId} AND source='" . pSQL($foreignSource) . "' AND source_key='" . pSQL($foreignSourceKey) . "'",
+    0,
+    false,
+    false
+), 'Could not restore Matterhorn combination owner after collision test');
+$restoredOwner = $db->getRow(
+    "SELECT source,source_key,semantic_key,id_product,id_product_attribute FROM `{$table}combination_mapping` WHERE id_shop=1 AND id_product_attribute={$combinationId}",
+    false
+);
+domainAssert(
+    is_array($restoredOwner)
+    && (string) $restoredOwner['source'] === (string) $combinationMapping['source']
+    && (string) $restoredOwner['source_key'] === (string) $combinationMapping['source_key']
+    && (string) $restoredOwner['semantic_key'] === (string) $combinationMapping['semantic_key']
+    && (int) $restoredOwner['id_product'] === (int) $combinationMapping['id_product']
+    && (int) $restoredOwner['id_product_attribute'] === $combinationId,
+    'Matterhorn combination owner was not restored after collision test'
+);
+
 $description = (string) $db->getValue("SELECT description FROM `" . _DB_PREFIX_ . "product_lang` WHERE id_product={$p206} AND id_shop=1 AND id_lang={$languageId}", false);
 domainAssert(str_contains($description, 'Charming figs'), 'Matterhorn description missing');
 domainAssert((int) $db->getValue("SELECT COUNT(*) FROM `{$table}image_queue` WHERE id_run={$createRun} AND id_shop=1 AND source='matterhorn' AND source_key='206161'", false) === 4, 'Image manifest queue count mismatch');
