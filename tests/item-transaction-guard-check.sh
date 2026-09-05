@@ -17,28 +17,38 @@ feature_sync="src/Feature/FeatureSynchronizer.php"
 combination="src/Combination/CombinationSynchronizer.php"
 
 for file in "$guard" "$import_stage" "$update_stage" "$remove_stage" "$new_worker" "$base_writer" "$matterhorn_writer" "$category" "$manufacturer" "$feature_resolver" "$feature_sync" "$combination"; do
-  [[ -f "$file" ]] || { echo "missing $file" >&2; exit 1; }
+  [[ -f "$file" ]] || { echo "FAIL: missing $file" >&2; exit 1; }
 done
 
-grep -Fq "getValue('SELECT @@session.in_transaction', false)" "$guard"
-grep -Fq "START TRANSACTION" "$guard"
-grep -Fq "SAVEPOINT ' . \$this->savepoint" "$guard"
-grep -Fq 'recoveryCount' "$guard"
+require_literal() {
+  local file="$1"
+  local literal="$2"
+  local label="$3"
+  if ! grep -Fq -- "$literal" "$file"; then
+    echo "FAIL: $label ($file)" >&2
+    exit 1
+  fi
+}
 
-grep -Fq 'transactionGuard->arm($db, self::SAVEPOINT)' "$import_stage"
-grep -Fq 'transactionGuard->arm($db, self::SAVEPOINT)' "$update_stage"
-grep -Fq 'transactionGuard->disarm()' "$import_stage"
-grep -Fq 'transactionGuard->disarm()' "$update_stage"
+require_literal "$guard" "getValue('SELECT @@session.in_transaction', false)" 'guard transaction-state read must bypass Db query cache'
+require_literal "$guard" 'START TRANSACTION' 'guard must restore an externally committed transaction'
+require_literal "$guard" "SAVEPOINT ' . \$this->savepoint" 'guard must restore the caller savepoint'
+require_literal "$guard" 'recoveryCount' 'guard must expose recovery count'
 
-grep -Fq 'transactionGuard->arm($db)' "$remove_stage"
-grep -Fq 'transactionGuard->recoveryCount()' "$remove_stage"
-grep -Fq 'lockProductOwnership($shopId, $source, $sourceKey, $productId)' "$remove_stage"
+require_literal "$import_stage" 'transactionGuard->arm($db, self::SAVEPOINT)' 'IMPORT must arm item savepoint recovery'
+require_literal "$update_stage" 'transactionGuard->arm($db, self::SAVEPOINT)' 'UPDATE must arm item savepoint recovery'
+require_literal "$import_stage" 'transactionGuard->disarm()' 'IMPORT must disarm transaction recovery'
+require_literal "$update_stage" 'transactionGuard->disarm()' 'UPDATE must disarm transaction recovery'
 
-grep -Fq 'transactionGuard->arm($db)' "$new_worker"
-grep -Fq 'transactionGuard->recoveryCount()' "$new_worker"
+require_literal "$remove_stage" 'transactionGuard->arm($db)' 'REMOVE must arm per-product transaction recovery'
+require_literal "$remove_stage" 'transactionGuard->recoveryCount()' 'REMOVE must observe hook commit recovery'
+require_literal "$remove_stage" 'lockProductOwnership($shopId, $source, $sourceKey, $productId)' 'REMOVE must relock exact product ownership'
+
+require_literal "$new_worker" 'transactionGuard->arm($db)' 'new-product worker must arm transaction recovery'
+require_literal "$new_worker" 'transactionGuard->recoveryCount()' 'new-product worker must expose hook commit recovery'
 
 for file in "$base_writer" "$matterhorn_writer" "$category" "$manufacturer" "$feature_resolver" "$feature_sync" "$combination"; do
-  grep -Fq 'transactionGuard->restoreAfterExternalCommit()' "$file"
+  require_literal "$file" 'transactionGuard->restoreAfterExternalCommit()' 'nested ObjectModel path must restore transaction after hook commit'
 done
 
 echo 'Item transaction guard regression coverage present.'
