@@ -114,6 +114,15 @@ final class ImageQueueRepository
         return (int) \Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` WHERE id_run=%d AND id_shop=%d AND status<>'done'", _DB_PREFIX_, self::TABLE, $runId, $shopId));
     }
 
+    public function unresolvedForSource(int $shopId, string $source): int
+    {
+        if ($shopId <= 0 || trim($source) === '') { throw new \InvalidArgumentException('Image source queue check requires shop/source'); }
+        return (int) \Db::getInstance()->getValue(sprintf(
+            "SELECT COUNT(*) FROM `%s%s` WHERE id_shop=%d AND source='%s' AND status<>'done'",
+            _DB_PREFIX_, self::TABLE, $shopId, pSQL($source)
+        ));
+    }
+
     public function gc(int $days = 2): int
     {
         return (int) \Db::getInstance()->delete(self::TABLE, "status='done' AND updated_at < DATE_SUB(NOW(), INTERVAL " . max(0, $days) . ' DAY)');
@@ -138,10 +147,6 @@ final class ImageQueueRepository
 
     private function insertValues(array $values): void
     {
-        // The unique row represents the latest desired placement for this shop/product/URL.
-        // A newer run may supersede metadata even while an older worker owns the lease. The
-        // worker locks/reloads this row before state persistence, so it commits the newest
-        // run/position/cover atomically with queue completion.
         $sql = sprintf(
             "INSERT INTO `%s%s` (`id_run`,`id_shop`,`source`,`source_key`,`id_product`,`url`,`url_hash`,`position`,`is_cover`,`status`,`available_at`,`created_at`,`updated_at`) VALUES %s " .
             "ON DUPLICATE KEY UPDATE " .
