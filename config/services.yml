@@ -32,3 +32,9 @@ services:
     tags: ['console.command']
   Lp\MatterhornImport\Command\NewProductsCommand:
     tags: ['console.command']
+  Lp\MatterhornImport\Command\RetryCommand:
+    tags: ['console.command']
+  Lp\MatterhornImport\Command\DoctorCommand:
+    tags: ['console.command']
+  Lp\MatterhornImport\Command\StatusCommand:
+    tags: ['console.command']
