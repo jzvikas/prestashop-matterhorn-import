@@ -62,6 +62,9 @@ try {
     if (!$db->query("SHOW INDEX FROM `{$mapping}` WHERE Key_name='idx_feed_state'")?->fetch_assoc()) { throw new RuntimeException('Mapping idx_feed_state missing'); }
     if (!$db->query("SHOW INDEX FROM `{$mapping}` WHERE Key_name='idx_feed_product'")?->fetch_assoc()) { throw new RuntimeException('Mapping idx_feed_product missing'); }
 
+    $imageState = $prefix . 'li_matterhornim_99dfbf_image_state';
+    if (!$db->query("SHOW INDEX FROM `{$imageState}` WHERE Key_name='idx_revalidate'")?->fetch_assoc()) { throw new RuntimeException('Image state idx_revalidate missing'); }
+
     $imageQueue = $prefix . 'li_matterhornim_99dfbf_image_queue';
     foreach (['id_shop','source','source_key','id_product','url_hash','status','locked_by','locked_until','available_at'] as $columnName) {
         $safe = $db->real_escape_string($columnName);
