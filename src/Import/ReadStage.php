@@ -1,6 +1,7 @@
 <?php
 namespace Lp\MatterhornImport\Import;
 
+use Lp\MatterhornImport\Config\MatterhornPolicy;
 use Lp\MatterhornImport\Contract\CheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\ProductMapperInterface;
 use Lp\MatterhornImport\Contract\SourceInterface;
@@ -25,14 +26,16 @@ final class ReadStage
         private ErrorRepository $errors,
         private ShopContextManager $shopContext,
         private RunFailureRecorder $failureRecorder,
-        private ExecutionBudget $budget
+        private ExecutionBudget $budget,
+        private MatterhornPolicy $policy
     ) {}
 
     public function run(int $runId, int $maxItems = 0, int $timeLimitSeconds = 0): bool
     {
         $run = $this->runs->get($runId);
         if ($run === null) { throw new \RuntimeException('Matterhorn import run not found: ' . $runId); }
-        $this->shopContext->activate((int) $run['id_shop']);
+        $shopId = (int) $run['id_shop'];
+        $this->shopContext->activate($shopId);
         if ((string) $run['read_status'] === 'completed') {
             throw new \RuntimeException('READ is already completed for run #' . $runId);
         }
@@ -42,6 +45,10 @@ final class ReadStage
             }
         }
 
+        // Refresh once at invocation start and seed the shared policy service. Mapper and
+        // Size resolver consume this cached snapshot for every product in this READ slice.
+        $policySnapshot = $this->policy->snapshot($shopId, true);
+        $policyHash = $this->policy->hash($policySnapshot);
         $checkpoint = (int) ($run['read_checkpoint'] ?? 0);
         $checkpointSource = $this->source instanceof CheckpointableSourceInterface ? $this->source : null;
         $this->budget->start($maxItems, $timeLimitSeconds);
@@ -49,14 +56,18 @@ final class ReadStage
         try {
             $fingerprint = $checkpointSource?->fingerprint();
             $storedFingerprint = (string) ($run['source_fingerprint'] ?? '');
+            $storedPolicyHash = (string) ($run['source_policy_hash'] ?? '');
             if ($checkpoint > 0) {
                 if ($checkpointSource === null) { throw new \RuntimeException('Source does not support READ checkpoint resume; start a new run'); }
                 if ($storedFingerprint === '' || !hash_equals($storedFingerprint, (string) $fingerprint)) {
                     throw new \RuntimeException('Source changed since READ checkpoint; start a new run');
                 }
+                if ($storedPolicyHash === '' || !hash_equals($storedPolicyHash, $policyHash)) {
+                    throw new \RuntimeException('Matterhorn semantic configuration changed since READ checkpoint; start a new run');
+                }
                 $this->runs->resume($runId);
             } else {
-                $this->prepareFreshRead($runId, $fingerprint);
+                $this->prepareFreshRead($runId, $fingerprint, $policyHash);
             }
 
             $this->runs->stage($runId, 'read', 'running');
@@ -135,14 +146,14 @@ final class ReadStage
         }
     }
 
-    private function prepareFreshRead(int $runId, ?string $fingerprint): void
+    private function prepareFreshRead(int $runId, ?string $fingerprint, string $policyHash): void
     {
         $db = \Db::getInstance();
         if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start READ reset transaction'); }
         try {
             $this->snapshots->purgeRun($runId);
             $this->errors->purgeStage($runId, 'read');
-            $this->runs->resetRead($runId, $fingerprint);
+            $this->runs->resetRead($runId, $fingerprint, $policyHash);
             if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit READ reset'); }
         } catch (\Throwable $e) {
             $db->execute('ROLLBACK');
