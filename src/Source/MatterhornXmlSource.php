@@ -150,6 +150,11 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
         }
 
         $productDepth = $reader->depth;
+        $seenFields = [];
+        $singletonFields = [
+            'name', 'creation_date', 'brand', 'category_path', 'category', 'color', 'type',
+            'images', 'price', 'description', 'options',
+        ];
         while ($reader->read()) {
             if (
                 $reader->nodeType === \XMLReader::END_ELEMENT
@@ -163,6 +168,9 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
             }
 
             $field = $reader->localName;
+            if (in_array($field, $singletonFields, true)) {
+                $this->assertSingletonField($seenFields, $field, $record, 'product');
+            }
             if ($field === 'images') {
                 $imageResult = $this->readImages($reader, $record, $recordBytes);
                 $row['images'] = $imageResult['urls'];
@@ -347,6 +355,7 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
             'avaible_in' => 'available_in',
             'ean' => 'ean',
         ];
+        $seenFields = [];
         while ($reader->read()) {
             if ($reader->nodeType === \XMLReader::END_ELEMENT && $reader->depth === $depth && $reader->localName === 'option') {
                 return $option;
@@ -359,6 +368,7 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
                 $this->skipCurrentElementCounting($reader, $record, 'options/option/' . $rawField, $recordBytes);
                 continue;
             }
+            $this->assertSingletonField($seenFields, $rawField, $record, 'options/option');
             $option[$fieldMap[$rawField]] = trim($this->readScalarElement(
                 $reader,
                 $record,
@@ -368,6 +378,18 @@ final class MatterhornXmlSource implements CheckpointableSourceInterface
             ));
         }
         throw new \RuntimeException('Unexpected EOF inside Matterhorn <option> at source record ' . $record);
+    }
+
+    /** @param array<string,bool> $seenFields */
+    private function assertSingletonField(array &$seenFields, string $field, int $record, string $scope): void
+    {
+        if (isset($seenFields[$field])) {
+            throw new \RuntimeException(
+                'Duplicate Matterhorn singleton field ' . $scope . '/' . $field .
+                ' at source record ' . $record
+            );
+        }
+        $seenFields[$field] = true;
     }
 
     private function readBoundedAttribute(
