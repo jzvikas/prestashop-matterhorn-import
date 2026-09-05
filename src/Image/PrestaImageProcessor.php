@@ -64,20 +64,34 @@ final class PrestaImageProcessor
         if ($valid !== 2) {
             throw new \RuntimeException('Cannot transfer cover between invalid product images');
         }
-        if (!$db->execute(sprintf('UPDATE `%simage_shop` SET cover=NULL WHERE id_product=%d AND id_shop=%d AND cover=1', _DB_PREFIX_, $productId, $shopId))) {
-            throw new \RuntimeException('Cannot clear previous target-shop cover');
-        }
-        if (!$db->execute(sprintf('UPDATE `%simage_shop` SET cover=1 WHERE id_image=%d AND id_product=%d AND id_shop=%d', _DB_PREFIX_, $newImageId, $productId, $shopId))) {
-            throw new \RuntimeException('Cannot set replacement target-shop cover');
-        }
-        $oldShopCount = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $oldImageId), false);
-        if ($oldShopCount === 1) {
-            if (!$db->execute(sprintf('UPDATE `%simage` SET cover=NULL WHERE id_product=%d AND cover=1', _DB_PREFIX_, $productId))) {
-                throw new \RuntimeException('Cannot clear previous global cover');
-            }
-            if (!$db->execute(sprintf('UPDATE `%simage` SET cover=1 WHERE id_image=%d AND id_product=%d', _DB_PREFIX_, $newImageId, $productId))) {
-                throw new \RuntimeException('Cannot set replacement global cover');
-            }
+
+        $this->setTargetShopCover($db, $productId, $shopId, $newImageId);
+
+        // image.cover is PrestaShop's legacy/global shadow while image_shop.cover is the
+        // authoritative shop-scoped cover. Move that shadow only when the old image is
+        // itself the current global cover and is still exclusive to this target shop in
+        // the same SQL statement. A concurrent/foreign shop association therefore makes
+        // this update a safe no-op instead of letting stale pre-read topology overwrite it.
+        $imageTable = _DB_PREFIX_ . 'image';
+        $imageShopTable = _DB_PREFIX_ . 'image_shop';
+        $globalSql = sprintf(
+            'UPDATE `%1$s` i ' .
+            'INNER JOIN `%1$s` old_cover ON old_cover.id_image=%2$d AND old_cover.id_product=i.id_product AND old_cover.cover=1 ' .
+            'INNER JOIN `%1$s` replacement_image ON replacement_image.id_image=%3$d AND replacement_image.id_product=i.id_product ' .
+            'INNER JOIN `%4$s` old_target ON old_target.id_image=old_cover.id_image AND old_target.id_product=i.id_product AND old_target.id_shop=%5$d ' .
+            'INNER JOIN `%4$s` new_target ON new_target.id_image=replacement_image.id_image AND new_target.id_product=i.id_product AND new_target.id_shop=%5$d ' .
+            'LEFT JOIN `%4$s` old_other ON old_other.id_image=old_cover.id_image AND old_other.id_product=i.id_product AND old_other.id_shop<>%5$d ' .
+            'SET i.cover=CASE WHEN i.id_image=%3$d THEN 1 ELSE NULL END ' .
+            'WHERE i.id_product=%6$d AND i.id_image IN (%2$d,%3$d) AND old_other.id_image IS NULL',
+            $imageTable,
+            $oldImageId,
+            $newImageId,
+            $imageShopTable,
+            $shopId,
+            $productId
+        );
+        if (!$db->execute($globalSql)) {
+            throw new \RuntimeException('Cannot transfer exclusive global image cover shadow');
         }
     }
 
@@ -164,21 +178,25 @@ final class PrestaImageProcessor
             if (!$valid) {
                 throw new \RuntimeException('Cannot reconcile missing product image ' . $idImage);
             }
-            $shopCount = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage), false);
-            if ($shopCount === 1 && !$db->execute(sprintf(
-                'UPDATE `%simage` SET position=%d WHERE id_image=%d AND id_product=%d',
-                _DB_PREFIX_, $placement['position'] + 1, $idImage, $productId
+
+            // image.position is global. Update it only while this image is exclusive to the
+            // target shop in the same statement; shared images keep their existing global
+            // position instead of relying on a stale COUNT -> UPDATE decision.
+            if (!$db->execute(sprintf(
+                'UPDATE `%1$simage` i ' .
+                'INNER JOIN `%1$simage_shop` target ON target.id_image=i.id_image AND target.id_product=i.id_product AND target.id_shop=%2$d ' .
+                'LEFT JOIN `%1$simage_shop` other ON other.id_image=i.id_image AND other.id_product=i.id_product AND other.id_shop<>%2$d ' .
+                'SET i.position=%3$d WHERE i.id_image=%4$d AND i.id_product=%5$d AND other.id_image IS NULL',
+                _DB_PREFIX_,
+                $shopId,
+                $placement['position'] + 1,
+                $idImage,
+                $productId
             ))) {
                 throw new \RuntimeException('Cannot reconcile image position ' . $idImage);
             }
         }
 
-        if (!$db->execute(sprintf(
-            'UPDATE `%simage_shop` SET cover=NULL WHERE id_product=%d AND id_shop=%d AND cover=1',
-            _DB_PREFIX_, $productId, $shopId
-        ))) {
-            throw new \RuntimeException('Cannot clear target-shop cover during reconciliation');
-        }
         $coverId = null;
         foreach ($byImage as $placement) {
             if ($placement['is_cover']) {
@@ -190,12 +208,7 @@ final class PrestaImageProcessor
             $first = reset($byImage);
             $coverId = (int) $first['id_image'];
         }
-        if (!$db->execute(sprintf(
-            'UPDATE `%simage_shop` SET cover=1 WHERE id_image=%d AND id_product=%d AND id_shop=%d',
-            _DB_PREFIX_, $coverId, $productId, $shopId
-        ))) {
-            throw new \RuntimeException('Cannot set reconciled target-shop cover');
-        }
+        $this->setTargetShopCover($db, $productId, $shopId, $coverId);
     }
 
     public function cleanupFilesystem(AttachedImage $attached): void
@@ -219,6 +232,35 @@ final class PrestaImageProcessor
                     @unlink($file);
                 }
             }
+        }
+    }
+
+    private function setTargetShopCover(\Db $db, int $productId, int $shopId, int $coverImageId): void
+    {
+        $table = _DB_PREFIX_ . 'image_shop';
+        $sql = sprintf(
+            'UPDATE `%1$s` current_cover INNER JOIN `%1$s` replacement ' .
+            'ON replacement.id_image=%2$d AND replacement.id_product=%3$d AND replacement.id_shop=%4$d ' .
+            'SET current_cover.cover=CASE WHEN current_cover.id_image=%2$d THEN 1 ELSE NULL END ' .
+            'WHERE current_cover.id_product=%3$d AND current_cover.id_shop=%4$d ' .
+            'AND (current_cover.cover=1 OR current_cover.id_image=%2$d)',
+            $table,
+            $coverImageId,
+            $productId,
+            $shopId
+        );
+        if (!$db->execute($sql)) {
+            throw new \RuntimeException('Cannot set target-shop product cover');
+        }
+
+        $covers = $db->executeS(sprintf(
+            'SELECT id_image FROM `%s` WHERE id_product=%d AND id_shop=%d AND cover=1 ORDER BY id_image LIMIT 2',
+            $table,
+            $productId,
+            $shopId
+        ), true, false) ?: [];
+        if (count($covers) !== 1 || (int) ($covers[0]['id_image'] ?? 0) !== $coverImageId) {
+            throw new \RuntimeException('Target-shop product cover could not be verified after update');
         }
     }
 }
