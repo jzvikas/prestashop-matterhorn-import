@@ -35,7 +35,8 @@ final class NewProductsCommand extends Command
         $started = microtime(true);
         $total = [
             'processed'=>0,'done'=>0,'failed'=>0,'deferred'=>0,'lost'=>0,
-            'generation_requeued'=>0,'existing_updated'=>0,'recovered'=>0,'hook_commit_recoveries'=>0,
+            'generation_requeued'=>0,'generation_adopted'=>0,'stale_superseded'=>0,
+            'existing_updated'=>0,'recovered'=>0,'hook_commit_recoveries'=>0,
         ];
         do {
             $result = $this->worker->tick($worker, $limit, $shopId);
