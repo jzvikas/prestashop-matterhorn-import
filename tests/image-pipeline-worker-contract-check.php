@@ -6,6 +6,7 @@ $root = dirname(__DIR__);
 $required = [
     'src/Image/AttachedImage.php',
     'src/Image/ImageFailureClassifier.php',
+    'src/Image/SafeImageDownloader.php',
     'src/Image/PrestaImageProcessor.php',
     'src/Image/ImageWorker.php',
     'src/Image/ImageReconciler.php',
@@ -20,6 +21,7 @@ foreach ($required as $file) {
 }
 
 $worker = file_get_contents($root . '/src/Image/ImageWorker.php');
+$downloader = file_get_contents($root . '/src/Image/SafeImageDownloader.php');
 $queue = file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
 $processor = file_get_contents($root . '/src/Image/PrestaImageProcessor.php');
 $reconciler = file_get_contents($root . '/src/Image/ImageReconciler.php');
@@ -41,6 +43,9 @@ $checks = [
     [$worker, 'failureClassifier->isRetryable', 'retry classification'],
     [$worker, '$this->orphans->record(', 'durable externally committed image orphan marker'],
     [$worker, "'orphan_recorded'", 'orphan recovery metric'],
+    [$downloader, 'private const MAX_URL_BYTES = 16384;', 'image URL operational bound'],
+    [$downloader, 'strlen($url) > self::MAX_URL_BYTES', 'image URL length guard'],
+    [$downloader, 'Image URL exceeds operational limit', 'image URL bound error clarity'],
     [$queue, 'function lockOwned', 'queue must expose row-level lease lock'],
     [$queue, 'FOR UPDATE', 'queue desired metadata must be fenced by row lock'],
     [$queue, 'id_run=VALUES(id_run)', 'newer run must supersede queued desired run metadata'],
@@ -85,6 +90,10 @@ $checks = [
 
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!is_string($haystack) || !str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
+}
+if (!is_string($downloader) || strpos($downloader, 'strlen($url) > self::MAX_URL_BYTES') > strpos($downloader, 'parse_url($url)')) {
+    fwrite(STDERR, "FAIL: image URL length guard must run before URL/network resolution\n");
+    exit(1);
 }
 if (str_contains((string) $reconciler, "last_seen_run_id'] !== \$runId")) {
     fwrite(STDERR, "FAIL: unchanged image states must not require current-run freshness\n");
