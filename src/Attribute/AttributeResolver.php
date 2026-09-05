@@ -107,7 +107,7 @@ final class AttributeResolver
         if ($attributeId <= 0) { throw new \RuntimeException('Created attribute value has invalid ID: ' . $value); }
         foreach (\Language::getLanguages(false, $shopId) as $lang) {
             if (!$db->insert('attribute_lang', ['id_attribute' => $attributeId, 'id_lang' => (int) $lang['id_lang'], 'name' => $value])) {
-                throw new \RuntimeException('Could not create attribute translation: ' . $value); }
+                throw new \RuntimeException('Could not create attribute translation: ' . $value);
             }
         }
         if (!$db->insert('attribute_shop', ['id_attribute' => $attributeId, 'id_shop' => $shopId])) {
@@ -118,12 +118,12 @@ final class AttributeResolver
 
     private function acquireLock(\Db $db, string $scope): string
     {
-        $name = 'matterhorn:attr:' . substr(hash('sha256', $scope), 0, 40);
+        $name = 'lpimp:attr:' . substr(hash('sha256', $scope), 0, 40);
         if ((int) $db->getValue(
             "SELECT GET_LOCK('" . pSQL($name) . "'," . self::LOCK_TIMEOUT_SECONDS . ')',
             false
         ) !== 1) {
-            throw new \RuntimeException('Could not acquire Matterhorn attribute resolver lock');
+            throw new \RuntimeException('Could not acquire attribute resolver lock');
         }
         return $name;
     }
