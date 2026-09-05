@@ -217,10 +217,29 @@ final class ImageReconciler
     {
         if ($shopId <= 0 || $productId <= 0 || $idImage <= 0) { return false; }
         $db = \Db::getInstance();
-        if (!(bool) $db->getValue(sprintf('SELECT 1 FROM `%simage` WHERE id_image=%d AND id_product=%d', _DB_PREFIX_, $idImage, $productId))) { return false; }
-        $shopCount = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage));
-        if ($shopCount <= 1) { return false; }
-        if (!$db->delete('image_shop', 'id_image=' . $idImage . ' AND id_product=' . $productId . ' AND id_shop=' . $shopId)) {
+        $valid = (bool) $db->getValue(sprintf(
+            'SELECT 1 FROM `%simage` WHERE id_image=%d AND id_product=%d',
+            _DB_PREFIX_,
+            $idImage,
+            $productId
+        ), false);
+        if (!$valid) { return false; }
+
+        // Keep the other-shop guard and destructive detach in one SQL statement. Two shops can
+        // reconcile the same shared image concurrently; InnoDB then serializes the conflicting
+        // image_shop rows instead of allowing both workers to act on stale pre-delete counts.
+        $table = _DB_PREFIX_ . 'image_shop';
+        $sql = sprintf(
+            'DELETE target FROM `%s` target INNER JOIN `%s` other ' .
+            'ON other.id_image=target.id_image AND other.id_shop<>target.id_shop ' .
+            'WHERE target.id_image=%d AND target.id_product=%d AND target.id_shop=%d',
+            $table,
+            $table,
+            $idImage,
+            $productId,
+            $shopId
+        );
+        if (!$db->execute($sql)) {
             throw new \RuntimeException('Cannot detach stale image from target shop');
         }
         return (int) $db->Affected_Rows() === 1;
