@@ -13,7 +13,7 @@ Supplier/source name: `matterhorn`.
 
 ## Non-negotiable architecture
 
-Reuse the skeleton's infrastructure rather than creating a second import framework. The final module must contain the generated equivalents of READ -> IMPORT -> UPDATE -> REMOVE orchestration, run/snapshot/mapping repositories, domain hashes, transactions/savepoints, interrupted-create recovery, locks, retry, global new-product queue, separate persistent image queue/workers/reconciliation, GC, doctor/status CLI, Back Office bounded status/config, multishop isolation, REMOVE safety, install/uninstall/upgrades and release tests.
+Reuse the skeleton's infrastructure rather than creating a second import framework. The final module must contain the generated equivalents of READ -> IMPORT -> UPDATE -> REMOVE orchestration, run/snapshot/mapping repositories, domain hashes, transactions/savepoints, interrupted-create recovery, locks, retry, global new-product queue, separate persistent image queue/workers/reconciliation/periodic revalidation, GC, doctor/status CLI, Back Office bounded status/config, multishop isolation, REMOVE safety, install/uninstall/upgrades and release tests.
 
 Supplier-specific behavior belongs in Source/Mapper/Matterhorn services and small writer/policy extensions. Do not hard-code Matterhorn rules into orchestration/repository/image core. Do not disable or weaken skeleton security/safety controls.
 
@@ -104,9 +104,13 @@ Implement a small Matterhorn-specific `GranularProductWriterInterface` extension
 
 Reuse skeleton CategoryAutoMapper/CategorySynchronizer, ManufacturerResolver, FeatureSynchronizer, CombinationSynchronizer, ImageQueue/ImageWorker/ImageReconciler and ownership state. Do not write parallel frameworks or destructive custom SQL.
 
+Image correctness must cover both manifest changes and content changes behind an unchanged URL. Keep manifest reconciliation authoritative and resumable. Add a separate bounded age-based image revalidation scheduler that only runs against the latest fully completed and reconciled run, reads desired URLs from that run's retained snapshot, excludes out-of-feed products and products with unresolved image jobs, and re-enqueues work through the existing secure image queue. Revalidation must use the worker's conditional HTTP validators (`ETag`/`Last-Modified`) where available; it must not redownload every image during every catalog import.
+
+Stale image-state discovery must remain bounded for multi-million-row image state: use a supporting `(id_shop, source, updated_at, source_key)` index, an explicit DB row-scan ceiling, bounded product limit and the existing bounded snapshot payload window. Missing latest-run manifest rows are integrity failures, not infinite deferrals.
+
 ## Out-of-feed
 
-Keep generic `DeactivateOutOfFeedPolicy`: out-of-feed product -> inactive + stock 0. Never physically delete products by default. Preserve READ validity, source-size sanity, dry-run percentage and partial-run safety guards so bad/truncated feeds cannot mass-disable the catalog.
+Keep generic `DeactivateOutOfFeedPolicy`: out-of-feed product -> inactive + stock 0, including combination stock. Never physically delete products by default. Preserve READ validity, source-size sanity, dry-run percentage and partial-run safety guards so bad/truncated feeds cannot mass-disable the catalog.
 
 ## Special prices
 
@@ -122,11 +126,13 @@ Shop-scoped where data affects a shop:
 - Size attribute group name;
 - generic REMOVE safety and skeleton policies.
 
+Source language/category/feature/Size semantics must be snapshotted into the run policy hash so a paused READ cannot resume after semantic configuration changes.
+
 No hard-coded shop IDs, DB prefixes or `ps_` table names.
 
 ## Expected commands
 
-Final generated module must expose the skeleton equivalents with prefix `matterhornimport:` including doctor, run, read, import, update, remove/dry-run, images, images:reconcile, new-products:enqueue, new-products, retry, status and gc.
+Final generated module must expose the skeleton equivalents with prefix `matterhornimport:` including doctor, run, read, import, update, remove/dry-run, images, images:reconcile, images:revalidate, new-products:enqueue, new-products, retry, status and gc.
 
 ## Recommended operational separation
 
@@ -134,20 +140,26 @@ Document independent cron/process lanes for:
 1. normal READ/import/update/remove cycle;
 2. global new-product worker;
 3. one or more image workers with unique worker names;
-4. retry/recovery;
-5. GC.
+4. resumable authoritative image reconciliation after workers drain;
+5. periodic bounded stale image revalidation scheduling, followed by normal image workers;
+6. retry/recovery;
+7. GC.
 
-Images must remain separate from product processing and retain lease fencing/retry/backoff/SSRF validation.
+Images must remain separate from product processing and retain lease fencing/retry/backoff/SSRF validation. Periodic revalidation must not be folded into every import run.
 
 ## Fixture and tests
 
-Keep deterministic supplier fixtures including products 206161, 34375 and 228723. Test nested options, checkpoint resume, fingerprinting, image order/dedup, category path/key, manufacturer, Color/Type, Size resolution, option ref/stock/EAN, invalid optional EAN, duplicate option id, duplicate semantic Size, sanitized description, product with no options, deterministic default combination and domain-hash isolation.
+Keep deterministic supplier fixtures including products 206161, 34375 and 228723. Test nested options, checkpoint resume, fingerprinting, policy-hash resume fencing, image order/dedup, category path/key, manufacturer, Color/Type, configurable Size resolution, option ref/stock/EAN, invalid optional EAN, duplicate option id, duplicate semantic Size, sanitized description, product with no options, deterministic default combination and domain-hash isolation.
 
-Add real MariaDB + PrestaShop 9.1.5 lifecycle coverage as infrastructure is restored from the skeleton: install -> READ -> IMPORT -> images -> changed feed -> UPDATE -> missing product -> REMOVE dry-run -> REMOVE. Verify mapping, shop associations, descriptions, prices, manufacturer, categories, features, combinations, EAN, stock, image ownership, selective hashes and out-of-feed deactivate/stock-zero.
+Add image tests for same-URL changed content, conditional 304 refresh, latest-reconciled-run scheduling guard, stale-state DB scan bound, out-of-feed/unresolved-job exclusion, missing-manifest fail-closed behavior and bounded payload deferral.
+
+Add real MariaDB + PrestaShop 9.1.5 lifecycle coverage as infrastructure is restored from the skeleton: install -> READ -> IMPORT -> images -> changed feed -> UPDATE -> missing product -> REMOVE dry-run -> REMOVE. Verify mapping, shop associations, descriptions, prices, manufacturer, categories, features, combinations, EAN, stock, image ownership, selective hashes, out-of-feed deactivate/stock-zero, module command registration, multishop shadow-field repair and upgrade/reinstall-safe schema indexes.
 
 ## Performance/security constraints
 
 Never load the whole feed into PHP memory. Never download images during READ. Avoid per-item uncached lookups where process-local cache is safe. Keep existing batched snapshot writes, keyset pagination and optimizer/index guards. Preserve image SSRF protections, public DNS validation, DNS pinning, no redirects/credentials/proxy, connected-IP verification, MIME/byte/pixel limits, lease fencing and multishop destructive-delete safeguards. Supplier HTML must not become an XSS bypass.
+
+For high-volume image maintenance, do not use an unbounded `GROUP BY` over all stale image-state rows merely to obtain a small scheduler batch. Stale selection must stop after a hard bounded index scan and deduplicate product/source keys in process memory.
 
 ## Implementation order
 
@@ -158,7 +170,7 @@ Never load the whole feed into PHP memory. Never download images during READ. Av
 5. Matterhorn description writer + source-language policy;
 6. restore/generate full skeleton DB schema + installer/upgrades + run/snapshot/mapping repositories;
 7. full READ/IMPORT/UPDATE/REMOVE orchestration;
-8. image queue/workers/reconciliation;
+8. image queue/workers/reconciliation and bounded stale-content revalidation;
 9. global new-products/retry/locks/GC/doctor/status;
 10. bounded BO config/status;
 11. MariaDB/PrestaShop 9.1.5 lifecycle and multishop tests;
@@ -166,4 +178,4 @@ Never load the whole feed into PHP memory. Never download images during READ. Av
 
 ## Completion gate
 
-Do not call the module PROD-ready until PHP 8.4 syntax/static checks, Composer validation, Symfony services, generated-module identity, MariaDB schema/upgrades, PrestaShop 9.1.5 install/uninstall, READ/IMPORT/UPDATE/REMOVE lifecycle, image pipeline, retry/recovery, multishop isolation, domain-hash isolation and all CI jobs are green. Record genuine limitations instead of claiming tests passed when they were not executed.
+Do not call the module PROD-ready until PHP 8.4 syntax/static checks, Composer validation, Symfony services, generated-module identity, MariaDB schema/upgrades, PrestaShop 9.1.5 install/uninstall, READ/IMPORT/UPDATE/REMOVE lifecycle, image pipeline including reconciliation/revalidation, retry/recovery, multishop isolation, domain-hash isolation and all CI jobs are green. Record genuine limitations instead of claiming tests passed when they were not executed.
