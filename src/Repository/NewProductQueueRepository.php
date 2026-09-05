@@ -42,6 +42,39 @@ final class NewProductQueueRepository
         return (int) $db->Affected_Rows() === 1 || $this->ownsActiveLease($id, $token);
     }
 
+    /** @return array<string,mixed> */
+    public function lockOwned(int $id, string $token): array
+    {
+        if ($id <= 0 || trim($token) === '') { throw new \InvalidArgumentException('New-product queue lock requires id/token'); }
+        $row = \Db::getInstance()->getRow(sprintf(
+            "SELECT * FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW() FOR UPDATE",
+            _DB_PREFIX_, self::TABLE, $id, pSQL($token)
+        ), false);
+        if (!is_array($row) || $row === []) {
+            throw new \RuntimeException('Matterhorn new-product queue ownership lost before locked persistence');
+        }
+        return $row;
+    }
+
+    public function supersede(int $id, string $token, int $expectedRunId, string $reason): void
+    {
+        if ($id <= 0 || $expectedRunId <= 0 || trim($token) === '') {
+            throw new \InvalidArgumentException('New-product supersede requires queue/token/run');
+        }
+        $db = \Db::getInstance();
+        $message = 'superseded: ' . mb_substr(trim($reason), 0, 3980);
+        if (!$db->execute(sprintf(
+            "UPDATE `%s%s` SET status='done',locked_by=NULL,locked_until=NULL,available_at=NULL,last_error='%s',updated_at=NOW() " .
+            "WHERE id_queue=%d AND id_run=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()",
+            _DB_PREFIX_, self::TABLE, pSQL($message, true), $id, $expectedRunId, pSQL($token)
+        ))) {
+            throw new \RuntimeException('Matterhorn new-product queue supersede update failed');
+        }
+        if ((int) $db->Affected_Rows() !== 1) {
+            throw new \RuntimeException('Matterhorn new-product queue ownership/generation changed before supersede');
+        }
+    }
+
     /** @return bool true if this generation finalized, false if a newer generation was requeued */
     public function done(int $id, string $token, int $productId, int $expectedRunId = 0): bool
     {
