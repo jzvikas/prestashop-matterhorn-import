@@ -4,6 +4,7 @@ namespace Lp\MatterhornImport\Repository;
 final class ErrorRepository
 {
     private const TABLE = 'li_matterhornim_99dfbf_error';
+    private const WARNING_PREFIX = 'WARNING: ';
 
     public function add(int $runId, string $stage, ?string $sourceKey, \Throwable|string $error): void
     {
@@ -31,5 +32,21 @@ final class ErrorRepository
     public function countForRun(int $runId): int
     {
         return (int) \Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . (int) $runId);
+    }
+
+    public function countWarningsForRun(int $runId): int
+    {
+        return (int) \Db::getInstance()->getValue(
+            "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . self::TABLE . "` WHERE id_run=" . (int) $runId .
+            " AND message LIKE '" . pSQL(self::WARNING_PREFIX) . "%'"
+        );
+    }
+
+    public function countErrorsForRun(int $runId): int
+    {
+        return (int) \Db::getInstance()->getValue(
+            "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . self::TABLE . "` WHERE id_run=" . (int) $runId .
+            " AND message NOT LIKE '" . pSQL(self::WARNING_PREFIX) . "%'"
+        );
     }
 }
