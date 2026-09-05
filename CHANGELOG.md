@@ -11,14 +11,24 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Removed ownership-sensitive `ON DUPLICATE KEY UPDATE` behavior from mapping persistence; exact owners update in place while foreign product-owner collisions now fail explicitly.
 - Added runtime database safety validation for the exact unique ownership index and MariaDB regression coverage for duplicate-source ownership rejection and legacy conflict detection.
 - Fenced image and new-product retry resets with `status='failed'` at UPDATE time so a stale retry candidate list cannot clear a worker lease acquired concurrently.
-- Bypassed PrestaShop `Db` query caching for advisory locks, transaction-state decisions, mutable run state, worker lease/queue reads and Back Office live status reads.
+- Bypassed PrestaShop `Db` query caching for advisory locks, transaction-state decisions, mutable run/snapshot state, worker lease/queue reads, catalog resolver decisions and Back Office live status reads.
+- Serialized manufacturer, category, attribute and feature creation with shared `lpimp:*` advisory-lock namespaces so concurrent supplier modules recheck the same global PrestaShop catalog namespace before creating rows.
+- Reused shared features when adding a missing global feature value instead of creating a duplicate same-name feature in the target shop.
+- Avoided sticky negative attribute-availability caching so a concurrently associated Size attribute can become visible during the same long-running worker process.
+- Fenced feature synchronization with fresh target-shop exclusivity checks, pre-mutation state revalidation and exact-value optimistic deletes so concurrent Back Office changes fail closed instead of being overwritten.
+- Hardened combination synchronization with fresh ownership/default reads, exact target-product checks and atomic multishop detach guarded by another live shop association.
+- Revalidated exclusive combination ownership immediately before global ObjectModel deletion and fail closed on shared or ambiguous association topology.
+- Fenced authoritative specific-price deletion to the exact live rule that was inspected, preserving a concurrent manual edit while relinquishing module ownership.
 - Made multishop image detach atomic with one guarded `DELETE ... INNER JOIN` statement instead of a racy pre-delete shop-count check.
+- Revalidated live image ownership immediately before destructive cleanup and made image-state GC recheck current references at delete time.
+- Corrected image-orphan retry backoff to MySQL/MariaDB left-to-right assignment semantics and bounded orphan GC pages independently of the caller chunk size.
 - Rejected image URLs above 16 KiB before `parse_url`, DNS lookup or network access.
+- Failed closed when an HTTP `304 Not Modified` response races with stale or missing image-state ownership instead of accepting an unverifiable cached asset.
 - Kept supplier normalization warnings observable in snapshot payloads/status without letting warning-only differences dirty catalog domain hashes.
 - Removed the UPDATE fallback that routed payload-only metadata changes into unnecessary product core writes.
 - Canonicalized supplier warning ordering so semantically identical option reordering does not churn snapshot payload hashes.
 - Preserved Matterhorn `avaible_in` and `creation_date` as supplier metadata without assigning stock/delivery/date-add semantics or dirtying catalog domain hashes.
-- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, DB cache bypass, image URL bounds, atomic multishop detach and ownership schema safety.
+- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, live DB cache bypass, shared resolver locks, category path concurrency, feature concurrent changes, atomic combination/image detach, specific-price optimistic deletion, image URL bounds, stale-304 handling and ownership schema safety.
 - Made the GitHub Actions release workflow manually dispatchable when push-trigger execution is unavailable.
 
 ## 0.1.6
