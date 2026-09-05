@@ -4,10 +4,60 @@ namespace Lp\MatterhornImport\Repository;
 final class NewProductQueueRepository
 {
     private const TABLE = 'li_matterhornim_99dfbf_new_product_queue';
+    private const SNAPSHOT_TABLE = 'li_matterhornim_99dfbf_snapshot';
+    private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';
     private const LEASE_MINUTES = 10;
     private const MAX_ATTEMPTS = 5;
     private const ENQUEUE_CHUNK = 500;
+    private const MAX_FETCH_PAYLOAD_BYTES = 8388608; // 8 MiB per enqueue preload window
     private const MAX_WRITE_VALUES_BYTES = 7340032; // 7 MiB escaped VALUES; reserve ~1 MiB for SQL syntax
+
+    /** @return list<array<string,mixed>> */
+    public function nextUnqueuedRows(int $runId, int $shopId, string $source, string $after = '', int $limit = 500): array
+    {
+        if ($runId <= 0 || $shopId <= 0 || trim($source) === '') {
+            throw new \InvalidArgumentException('New-product candidate scan requires run/shop/source');
+        }
+        $limit = max(1, min(2000, $limit));
+        $cursor = $after === '' ? '' : " AND s.source_key>'" . pSQL($after) . "'";
+        $from = sprintf(
+            " FROM `%s%s` s " .
+            "LEFT JOIN `%s%s` m ON m.id_shop=%d AND m.source='%s' AND m.source_key=s.source_key " .
+            "LEFT JOIN `%s%s` q ON q.id_shop=%d AND q.source='%s' AND q.source_key=s.source_key " .
+            "WHERE s.id_run=%d AND m.id_product IS NULL AND (q.id_queue IS NULL OR q.id_run<%d)%s",
+            _DB_PREFIX_, self::SNAPSHOT_TABLE,
+            _DB_PREFIX_, self::MAPPING_TABLE, $shopId, pSQL($source),
+            _DB_PREFIX_, self::TABLE, $shopId, pSQL($source),
+            $runId, $runId, $cursor
+        );
+
+        $windowRows = \Db::getInstance()->executeS(
+            'SELECT s.source_key,OCTET_LENGTH(s.payload) payload_bytes' . $from . ' ORDER BY s.source_key LIMIT ' . $limit,
+            true,
+            false
+        ) ?: [];
+        if ($windowRows === []) { return []; }
+
+        $bytes = 0;
+        $count = 0;
+        $last = '';
+        foreach ($windowRows as $row) {
+            $rowBytes = max(0, (int) ($row['payload_bytes'] ?? 0));
+            if ($count > 0 && $bytes + $rowBytes > self::MAX_FETCH_PAYLOAD_BYTES) { break; }
+            $bytes += $rowBytes;
+            $count++;
+            $last = (string) ($row['source_key'] ?? '');
+            if ($bytes >= self::MAX_FETCH_PAYLOAD_BYTES) { break; }
+        }
+        if ($count <= 0 || $last === '') { return []; }
+
+        return \Db::getInstance()->executeS(
+            'SELECT s.source_key,s.payload,s.payload_hash' . $from .
+            " AND s.source_key<='" . pSQL($last) . "' ORDER BY s.source_key LIMIT " . $count,
+            true,
+            false
+        ) ?: [];
+    }
 
     public function enqueueBatch(int $runId, int $shopId, string $source, array $rows): int
     {
