@@ -1,6 +1,7 @@
 <?php
 namespace Lp\MatterhornImport\Command;
 
+use Lp\MatterhornImport\Config\OperationalSettings;
 use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\Repository\ErrorRepository;
 use Lp\MatterhornImport\Repository\ImageQueueRepository;
@@ -14,29 +15,21 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 final class StatusCommand extends Command
 {
-    public function __construct(private SourceInterface $source, private RunRepository $runs, private ImageQueueRepository $images, private NewProductQueueRepository $newProducts, private ErrorRepository $errors)
+    public function __construct(private SourceInterface $source, private RunRepository $runs, private ImageQueueRepository $images, private NewProductQueueRepository $newProducts, private ErrorRepository $errors, private OperationalSettings $settings)
     {
         parent::__construct('matterhornimport:status');
     }
-
-    protected function configure(): void
-    {
-        $this->addOption('shop', null, InputOption::VALUE_REQUIRED, 'Shop');
-    }
-
+    protected function configure(): void { $this->addOption('shop', null, InputOption::VALUE_REQUIRED, 'Shop'); }
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $shopId = CommandInput::positiveInt($input->getOption('shop'), '--shop');
         $source = $this->source->name();
         $run = $this->runs->latest($shopId, $source);
-        $runId = $run ? (int) $run['id_run'] : 0;
+        $runId = $run ? (int)$run['id_run'] : 0;
         $payload = [
-            'shop_id'=>$shopId,
-            'source'=>$source,
-            'run'=>$run,
+            'shop_id'=>$shopId,'source'=>$source,'effective_settings'=>$this->settings->values($shopId),'run'=>$run,
             'errors_total'=>$runId > 0 ? $this->errors->countForRun($runId) : 0,
-            'images'=>$this->images->counts($shopId),
-            'new_products'=>$this->newProducts->counts($shopId),
+            'images'=>$this->images->counts($shopId),'new_products'=>$this->newProducts->counts($shopId),
         ];
         $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($json === false) { throw new \RuntimeException('Could not encode Matterhorn status'); }
