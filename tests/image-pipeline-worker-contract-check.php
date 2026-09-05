@@ -9,6 +9,7 @@ $required = [
     'src/Image/PrestaImageProcessor.php',
     'src/Image/ImageWorker.php',
     'src/Image/ImageReconciler.php',
+    'src/Repository/ImageQueueRepository.php',
     'src/Repository/ImageOrphanRepository.php',
     'src/Command/ImagesCommand.php',
     'src/Command/ImagesReconcileCommand.php',
@@ -21,6 +22,7 @@ foreach ($required as $file) {
 }
 
 $worker = file_get_contents($root . '/src/Image/ImageWorker.php');
+$queue = file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
 $processor = file_get_contents($root . '/src/Image/PrestaImageProcessor.php');
 $reconciler = file_get_contents($root . '/src/Image/ImageReconciler.php');
 $orphans = file_get_contents($root . '/src/Repository/ImageOrphanRepository.php');
@@ -33,11 +35,18 @@ $reconcileCommand = file_get_contents($root . '/src/Command/ImagesReconcileComma
 $checks = [
     [$worker, 'assertTransactionalCore()', 'worker transactional safety'],
     [$worker, 'renew($idQueue, $token)', 'lease renewal fencing'],
+    [$worker, '$this->queue->lockOwned($idQueue, $token)', 'latest desired queue row must be locked/reloaded before image state commit'],
+    [$worker, 'The hook commit released our queue row lock', 'hook-commit path must explicitly reacquire latest queue row'],
     [$worker, 'findByContentHash', 'content deduplication'],
     [$worker, 'GET_LOCK', 'content dedup lock'],
     [$worker, 'failureClassifier->isRetryable', 'retry classification'],
     [$worker, '$this->orphans->record(', 'durable externally committed image orphan marker'],
     [$worker, "'orphan_recorded'", 'orphan recovery metric'],
+    [$queue, 'function lockOwned', 'queue must expose row-level lease lock'],
+    [$queue, 'FOR UPDATE', 'queue desired metadata must be fenced by row lock'],
+    [$queue, 'id_run=VALUES(id_run)', 'newer run must supersede queued desired run metadata'],
+    [$queue, 'position=VALUES(position)', 'newer run must supersede desired image position'],
+    [$queue, "status=IF(status='processing','processing','pending')", 'processing lease must survive desired-run supersession while non-processing rows are requeued'],
     [$processor, 'associateTo([$shopId], $productId)', 'shop image association'],
     [$processor, 'ImageType::getImagesTypes', 'thumbnail generation'],
     [$processor, 'count($shopRows) !== 1', 'multishop destructive-delete guard'],
@@ -45,6 +54,7 @@ $checks = [
     [$reconciler, 'Only the latest shop/source run may reconcile images', 'latest-run guard'],
     [$reconciler, 'unresolvedForRun', 'unresolved queue guard'],
     [$reconciler, 'statesForProduct', 'module-owned image-state reconciliation'],
+    [$reconciler, "last_seen_run_id'] !== $runId", 'reconciliation must require current-run desired image state'],
     [$orphans, 'available_at', 'orphan recovery backoff'],
     [$orphans, 'function defer', 'orphan retry deferral'],
     [$gc, 'drainImageOrphans', 'GC orphan recovery lane'],
