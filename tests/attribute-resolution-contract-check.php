@@ -34,4 +34,12 @@ attrCheck(str_contains($resolver, "\$row['attribute_ids'] = \$attributeIds"), 'n
 attrCheck(str_contains($resolver, 'private array $availabilityCache'), 'shop attribute availability must be cached per process');
 attrCheck(str_contains($resolver, 'availabilityKey($shopId, $attributeId)'), 'availability cache must be shop-scoped');
 
+$autoCreate = (string) file_get_contents(dirname(__DIR__) . '/src/Attribute/AttributeResolver.php');
+attrCheck(str_contains($autoCreate, 'LOCK_TIMEOUT_SECONDS'), 'attribute auto-create must have bounded advisory-lock wait');
+attrCheck(str_contains($autoCreate, "GET_LOCK('"), 'attribute auto-create must serialize duplicate creation');
+attrCheck(str_contains($autoCreate, "'group:' . $shopId"), 'attribute group lock must be shop/name scoped');
+attrCheck(str_contains($autoCreate, "'value:' . $shopId . ':' . $groupId"), 'attribute value lock must be shop/group/name scoped');
+attrCheck(substr_count($autoCreate, '$this->findGroup(') >= 1 && substr_count($autoCreate, '$this->findAttribute(') >= 1, 'resolver must recheck state while holding creation locks');
+attrCheck(str_contains($autoCreate, 'RELEASE_LOCK'), 'attribute auto-create locks must always be releasable');
+
 echo "Attribute resolution contract checks: OK\n";
