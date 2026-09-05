@@ -75,17 +75,18 @@ final class NewProductQueueRepository
         $rows = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . $limit, true, false) ?: [];
         if ($rows === []) { return 0; }
         $ids = implode(',', array_map(static fn(array $row): int => (int) $row['id_queue'], $rows));
-        // The candidate list is only a bounded preload. Recheck failed status while updating so a
-        // concurrent retry+claim cannot have its processing lease cleared by this stale ID list.
         if (!$db->execute("UPDATE `" . _DB_PREFIX_ . self::TABLE . "` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE status='failed' AND id_queue IN (" . $ids . ')')) {
             throw new \RuntimeException('Matterhorn new-product queue retry reset failed');
         }
         return (int) $db->Affected_Rows();
     }
 
-    public function counts(?int $shopId = null): array
+    public function counts(?int $shopId = null, ?string $source = null): array
     {
-        $where = $shopId === null ? '' : ' WHERE id_shop=' . (int) $shopId;
+        $clauses = [];
+        if ($shopId !== null) { $clauses[] = 'id_shop=' . (int) $shopId; }
+        if ($source !== null && trim($source) !== '') { $clauses[] = "source='" . pSQL(trim($source)) . "'"; }
+        $where = $clauses === [] ? '' : ' WHERE ' . implode(' AND ', $clauses);
         return \Db::getInstance()->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . self::TABLE . '`' . $where . ' GROUP BY status', true, false) ?: [];
     }
 
@@ -117,9 +118,6 @@ final class NewProductQueueRepository
 
     private function insertValues(array $values): void
     {
-        // A newer run may refresh payload/id_run while an older worker retains its processing lease.
-        // The old worker finalizer is expectedRunId-fenced and requeues the row after its generation
-        // completes, ensuring the newest supplier payload is subsequently applied without lease theft.
         $sql = sprintf("INSERT INTO `%s%s` (`id_run`,`id_shop`,`source`,`source_key`,`payload`,`payload_hash`,`status`,`attempts`,`available_at`,`locked_by`,`locked_until`,`last_error`,`created_at`,`updated_at`) VALUES %s ON DUPLICATE KEY UPDATE payload=IF(VALUES(id_run)>=id_run,VALUES(payload),payload),payload_hash=IF(VALUES(id_run)>=id_run,VALUES(payload_hash),payload_hash),attempts=IF(status='processing',attempts,IF(VALUES(id_run)>id_run,0,attempts)),available_at=IF(status='processing',available_at,IF(VALUES(id_run)>id_run,NULL,available_at)),locked_by=IF(status='processing',locked_by,IF(VALUES(id_run)>id_run,NULL,locked_by)),locked_until=IF(status='processing',locked_until,IF(VALUES(id_run)>id_run,NULL,locked_until)),last_error=IF(status='processing',last_error,IF(VALUES(id_run)>id_run,NULL,last_error)),updated_at=IF(VALUES(id_run)>=id_run,NOW(),updated_at),status=IF(status='processing','processing',IF(VALUES(id_run)>id_run,'pending',status)),id_run=GREATEST(id_run,VALUES(id_run))", _DB_PREFIX_, self::TABLE, implode(',', $values));
         if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Matterhorn new-product queue enqueue failed'); }
     }
