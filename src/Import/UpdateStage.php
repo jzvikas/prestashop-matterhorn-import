@@ -15,6 +15,7 @@ use Lp\MatterhornImport\Repository\SnapshotRepository;
 use Lp\MatterhornImport\SpecificPrice\SpecificPriceSynchronizer;
 use Lp\MatterhornImport\Util\DatabaseSafety;
 use Lp\MatterhornImport\Util\ExecutionBudget;
+use Lp\MatterhornImport\Util\ItemTransactionGuard;
 use Lp\MatterhornImport\Util\RunFailureRecorder;
 use Lp\MatterhornImport\Util\TransientDatabaseFailure;
 
@@ -34,6 +35,7 @@ final class UpdateStage
         private ImageQueueRepository $images,
         private ErrorRepository $errors,
         private DatabaseSafety $safety,
+        private ItemTransactionGuard $transactionGuard,
         private RunFailureRecorder $failureRecorder,
         private ExecutionBudget $budget
     ) {}
@@ -74,11 +76,13 @@ final class UpdateStage
                                 $productId = $this->writer->create($product, $shopId);
                                 if ($productId <= 0) { throw new \RuntimeException('Mapped orphan recreation returned invalid product ID for ' . $product->sourceKey); }
                                 $recreated = true;
+                                $this->transactionGuard->restoreAfterExternalCommit();
                             }
 
                             $domains = $recreated ? $this->fullDomains() : $this->changedDomains($row);
                             if (!$recreated && (int) ($row['product_shop_exists'] ?? 1) !== 1) {
                                 $this->writer->update($productId, $product, $shopId);
+                                $this->transactionGuard->restoreAfterExternalCommit();
                                 $associationRecovered = true;
                                 $domains = $this->fullDomains();
                             }
@@ -92,18 +96,26 @@ final class UpdateStage
                             if (!$recreated && !$associationRecovered && $writerDomains !== []) {
                                 if ($this->writer instanceof GranularProductWriterInterface) { $this->writer->updateDomains($productId, $product, $shopId, $writerDomains); }
                                 else { $this->writer->update($productId, $product, $shopId); }
+                                $this->transactionGuard->restoreAfterExternalCommit();
                             }
-                            if ($featureChanged) { $this->features->sync($runId, $shopId, $source, $productId, $product); }
+                            if ($featureChanged) {
+                                $this->features->sync($runId, $shopId, $source, $productId, $product);
+                                $this->transactionGuard->restoreAfterExternalCommit();
+                            }
                             if ($combinationChanged) {
                                 $resolved = $this->combinationAttributes->resolve($product, $shopId, $source);
                                 $this->combinations->sync($runId, $shopId, $source, $productId, $resolved);
+                                $this->transactionGuard->restoreAfterExternalCommit();
                             }
-                            if ($specificPriceChanged) { $this->specificPrices->sync($runId, $shopId, $source, $productId, $product); }
+                            if ($specificPriceChanged) {
+                                $this->specificPrices->sync($runId, $shopId, $source, $productId, $product);
+                                $this->transactionGuard->restoreAfterExternalCommit();
+                            }
 
-                            $this->restoreItemSavepointAfterExternalCommit($db);
                             if (!$imagesSame) { $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images); }
                             $this->mapping->save($shopId, $source, $runId, $productId, $product);
                             if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not release UPDATE item savepoint'); }
+                            $this->transactionGuard->disarm();
                             $done++;
                             $this->budget->markItem();
                         } catch (\Throwable $itemError) {
@@ -118,6 +130,7 @@ final class UpdateStage
                     if ($batchFailures > 0) { $this->runs->increment($runId, 'update_failed', $batchFailures); }
                     if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit UPDATE batch'); }
                 } catch (\Throwable $batchError) {
+                    $this->transactionGuard->disarm();
                     $db->execute('ROLLBACK');
                     throw $batchError;
                 }
@@ -133,6 +146,7 @@ final class UpdateStage
             $this->runs->stage($runId, 'update', 'completed');
             return true;
         } catch (\Throwable $e) {
+            $this->transactionGuard->disarm();
             $this->failureRecorder->record($runId, 'update', $e);
             throw $e;
         }
@@ -142,22 +156,21 @@ final class UpdateStage
     {
         if (!$this->transactionIsActive($db) && !$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not restore UPDATE transaction'); }
         if (!$db->execute('SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not create UPDATE item savepoint: ' . $db->getMsgError()); }
-    }
-
-    private function restoreItemSavepointAfterExternalCommit(\Db $db): void
-    {
-        if ($this->transactionIsActive($db)) { return; }
-        if (!$db->execute('START TRANSACTION') || !$db->execute('SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not restore UPDATE transaction after PrestaShop commit'); }
+        $this->transactionGuard->arm($db, self::SAVEPOINT);
     }
 
     private function rollbackItemSavepoint(\Db $db, \Throwable $cause): void
     {
-        if (!$this->transactionIsActive($db)) { return; }
-        if (!$db->execute('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT)) {
-            $db->execute('ROLLBACK');
-            throw new \RuntimeException('Could not roll back UPDATE item savepoint', 0, $cause);
+        try {
+            if (!$this->transactionIsActive($db)) { return; }
+            if (!$db->execute('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT)) {
+                $db->execute('ROLLBACK');
+                throw new \RuntimeException('Could not roll back UPDATE item savepoint', 0, $cause);
+            }
+            if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not release UPDATE savepoint after rollback', 0, $cause); }
+        } finally {
+            $this->transactionGuard->disarm();
         }
-        if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not release UPDATE savepoint after rollback', 0, $cause); }
     }
 
     private function transactionIsActive(\Db $db): bool
