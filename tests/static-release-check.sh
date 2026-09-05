@@ -25,6 +25,7 @@ php tests/image-pipeline-worker-contract-check.php
 php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
 php tests/new-product-worker-contract-check.php
+php tests/error-observability-contract-check.php
 php tests/operations-contract-check.php
 php tests/back-office-config-contract-check.php
 php tests/performance-contract-check.php
