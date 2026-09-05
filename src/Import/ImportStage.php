@@ -62,7 +62,6 @@ final class ImportStage
             while (!$this->budget->shouldStop() && ($rows = $this->snapshots->newRows($runId, $shopId, $source, $cursor, $batch)) !== []) {
                 $db = \Db::getInstance();
                 if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start IMPORT batch transaction'); }
-                $done = 0;
                 $batchFailures = 0;
                 try {
                     foreach ($rows as $row) {
@@ -89,22 +88,24 @@ final class ImportStage
 
                             $this->mapping->save($shopId, $source, $runId, $productId, $product);
                             $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images);
+                            // Keep progress beside the mapping/image durability write. If the next
+                            // ObjectModel hook commits the shared connection, this item can no longer
+                            // become durable without its matching done counter.
+                            $this->runs->increment($runId, 'import_done', 1);
                             if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) {
                                 throw new \RuntimeException('Could not release IMPORT item savepoint: ' . $db->getMsgError());
                             }
                             $this->transactionGuard->disarm();
-                            $done++;
                             $this->budget->markItem();
                         } catch (\Throwable $itemError) {
                             if (TransientDatabaseFailure::isRetryable($itemError)) { throw $itemError; }
                             $this->rollbackItemSavepoint($db, $itemError);
                             $batchFailures++;
+                            $this->runs->increment($runId, 'import_failed', 1);
                             $this->budget->markItem();
                             $this->errors->add($runId, 'import', $product?->sourceKey ?? $cursor, $itemError);
                         }
                     }
-                    if ($done > 0) { $this->runs->increment($runId, 'import_done', $done); }
-                    if ($batchFailures > 0) { $this->runs->increment($runId, 'import_failed', $batchFailures); }
                     if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit IMPORT batch'); }
                 } catch (\Throwable $batchError) {
                     $this->transactionGuard->disarm();
