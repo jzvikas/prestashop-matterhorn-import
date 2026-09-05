@@ -51,7 +51,12 @@ $check(str_contains($revalidation, 'payload_window_deferred'), 'image revalidati
 $check(str_contains($product, 'private ?string $jsonCache'), 'ProductData JSON serialization cache missing');
 $check(str_contains($product, 'private array $hashCache'), 'ProductData domain hash cache missing');
 $check(str_contains($product, '$this->jsonCache ??='), 'ProductData JSON cache not used');
-$check(str_contains($product, "$this->hashCache['combination_stock']"), 'combination stock hash cache missing');
+$check(str_contains($product, 'private ?array $combinationHashCache = null'), 'bounded two-hash combination cache missing');
+$check(str_contains($product, "return \$this->combinationHashes()['structure'];"), 'combination structure hash must use shared projection pass');
+$check(str_contains($product, "return \$this->combinationHashes()['stock'];"), 'combination stock hash must use shared projection pass');
+$check(str_contains($product, "'structure' => \$this->hashValue([") && str_contains($product, "'stock' => \$this->hashValue(\$stock)"), 'shared projection pass must cache only final combination hashes');
+$check(substr_count($product, 'combinationAttributeTokens(') === 2, 'combination semantic-token projection must have one implementation call site plus method declaration');
+$check(!str_contains($product, 'combinationProjection(bool $stockOnly)'), 'legacy duplicate combination projection passes must be removed');
 
 $check(str_contains($attributeMapping, 'private array $pairCache'), 'attribute mapping process cache missing');
 $check(str_contains($attributeResolver, 'private array $availabilityCache'), 'attribute shop-availability cache missing');
