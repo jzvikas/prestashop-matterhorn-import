@@ -11,6 +11,9 @@ use Lp\MatterhornImport\Matterhorn\MatterhornHtmlSanitizer;
 final class MatterhornProductMapper implements ProductMapperInterface
 {
     private const MAX_IMAGE_URL_BYTES = 16384;
+    private const MAX_PRESTASHOP_REFERENCE_BYTES = 64;
+    private const MAX_MANUFACTURER_NAME_CHARS = 64;
+    private const MAX_CATEGORY_NAME_CHARS = 128;
 
     public function __construct(
         private readonly SizeResolverInterface $sizes,
@@ -26,6 +29,12 @@ final class MatterhornProductMapper implements ProductMapperInterface
             throw new \InvalidArgumentException('Matterhorn product id must be a non-empty numeric value');
         }
         $reference = 'MH-' . $sourceKey;
+        if (strlen($reference) > self::MAX_PRESTASHOP_REFERENCE_BYTES) {
+            throw new \InvalidArgumentException(
+                'Matterhorn product ' . $sourceKey . ' reference exceeds PrestaShop ' .
+                self::MAX_PRESTASHOP_REFERENCE_BYTES . '-byte limit'
+            );
+        }
         $name = trim((string) ($row['name'] ?? ''));
         if ($name === '') { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' is missing name'); }
         if (mb_strlen($name, 'UTF-8') > 128) { $name = mb_substr($name, 0, 128, 'UTF-8'); }
@@ -71,11 +80,25 @@ final class MatterhornProductMapper implements ProductMapperInterface
         }
         if ($sourceLanguageId > 0) { $extra['source_language_id'] = $sourceLanguageId; }
         $brand = trim((string) ($row['brand'] ?? ''));
-        if ($brand !== '') { $extra['manufacturer'] = ['name' => $brand, 'auto_create' => true]; }
+        if ($brand !== '') {
+            if (mb_strlen($brand, 'UTF-8') > self::MAX_MANUFACTURER_NAME_CHARS) {
+                throw new \InvalidArgumentException(
+                    'Matterhorn manufacturer name exceeds PrestaShop ' . self::MAX_MANUFACTURER_NAME_CHARS .
+                    '-character limit for product ' . $sourceKey
+                );
+            }
+            $extra['manufacturer'] = ['name' => $brand, 'auto_create' => true];
+        }
 
         $category = is_array($row['category'] ?? null) ? $row['category'] : [];
         $categoryId = trim((string) ($category['id'] ?? ''));
         $categoryName = trim((string) ($category['name'] ?? ''));
+        if ($categoryName !== '' && mb_strlen($categoryName, 'UTF-8') > self::MAX_CATEGORY_NAME_CHARS) {
+            throw new \InvalidArgumentException(
+                'Matterhorn category name exceeds PrestaShop ' . self::MAX_CATEGORY_NAME_CHARS .
+                '-character limit for product ' . $sourceKey
+            );
+        }
         $categoryPath = $this->categories->normalize((string) ($row['category_path'] ?? ''));
         if ($categoryId !== '') {
             $extra['categories'] = [[
@@ -112,6 +135,12 @@ final class MatterhornProductMapper implements ProductMapperInterface
             $optionId = trim((string) ($option['id'] ?? ''));
             $size = trim((string) ($option['name'] ?? ''));
             if ($optionId === '') { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' contains option without id'); }
+            if (strlen($optionId) > self::MAX_PRESTASHOP_REFERENCE_BYTES) {
+                throw new \InvalidArgumentException(
+                    'Matterhorn option reference exceeds PrestaShop ' . self::MAX_PRESTASHOP_REFERENCE_BYTES .
+                    '-byte limit for product ' . $sourceKey
+                );
+            }
             if (isset($seenOptionIds[$optionId])) { throw new \InvalidArgumentException('Duplicate Matterhorn option id ' . $optionId . ' for product ' . $sourceKey); }
             $seenOptionIds[$optionId] = true;
             if ($size === '') { throw new \InvalidArgumentException('Matterhorn option ' . $optionId . ' has empty size for product ' . $sourceKey); }
