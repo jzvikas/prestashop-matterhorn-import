@@ -12,6 +12,9 @@ final class PrestaImageProcessor
     public function attach(int $productId, int $shopId, DownloadedImage $download, int $position, bool $cover): AttachedImage
     {
         $this->shopContext->activate($shopId);
+        if (!\ImageManager::checkImageMemoryLimit($download->path)) {
+            throw new \RuntimeException('Image exceeds PrestaShop resize memory limit');
+        }
         $image = new \Image();
         $image->id_product = $productId;
         $image->position = $position + 1;
