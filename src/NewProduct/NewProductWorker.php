@@ -201,6 +201,13 @@ final class NewProductWorker
                         $idProduct,
                         $product->images
                     );
+                    $this->images->supersedeOlderUnresolvedForAuthoritativeManifest(
+                        $expectedRunId,
+                        $jobShop,
+                        $source,
+                        $product->sourceKey,
+                        $idProduct
+                    );
 
                     if (!$this->queue->renew($idQueue, $token)) {
                         throw new \RuntimeException('New-product queue ownership lost before commit');
