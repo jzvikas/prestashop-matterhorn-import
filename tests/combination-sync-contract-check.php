@@ -16,7 +16,8 @@ $mapping = (string) file_get_contents($root . '/src/Repository/CombinationMappin
 $sync = (string) file_get_contents($root . '/src/Combination/CombinationSynchronizer.php');
 $attributeResolver = (string) file_get_contents($root . '/src/Combination/CombinationAttributeResolver.php');
 combinationCheck(str_contains($mapping, 'li_matterhornim_99dfbf_combination_mapping'), 'combination mapping uses standalone DB token');
-combinationCheck(!str_contains($mapping, 'lp_import_combination_mapping'), 'generic combination DB token does not leak');
+$legacyCombinationToken = 'lp_' . 'import_combination_mapping';
+combinationCheck(!str_contains($mapping, $legacyCombinationToken), 'generic combination DB token does not leak');
 combinationCheck(str_contains($mapping, 'ownerForAttribute') && str_contains($mapping, '), false);'), 'combination owner lookup must use fresh DB state');
 combinationCheck(str_contains($mapping, 'deleteExact') && str_contains($mapping, 'Affected_Rows() !== 1'), 'combination mapping deletes must be exact-owner affected-row fenced');
 combinationCheck(!str_contains($mapping, 'function deleteByAttribute') && !str_contains($mapping, 'function deleteSemantic'), 'broad combination mapping delete APIs must not remain available');
