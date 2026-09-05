@@ -85,6 +85,9 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
         }
         if ($price) { $product->price = $data->price; }
         if (!$product->update()) { throw new \RuntimeException('Matterhorn product update failed: ' . $productId); }
+        if ($price && !$core) {
+            $this->associations->restoreDefaultShopShadows($productId, $shopId, ['price']);
+        }
     }
 
     private function sourceLanguageId(int $shopId, ProductData $data): int
