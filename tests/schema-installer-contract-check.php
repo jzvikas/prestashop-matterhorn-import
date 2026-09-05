@@ -25,6 +25,10 @@ schemaCheck(!str_contains($install, 'PREFIX_lp_import_'), 'generic skeleton tabl
 schemaCheck(!str_contains($attributeInstall, 'PREFIX_lp_import_'), 'generic skeleton table token must not leak into attribute schema');
 schemaCheck(!str_contains($imageOrphanInstall, 'PREFIX_lp_import_'), 'generic skeleton table token must not leak into image orphan schema');
 schemaCheck(str_contains($install, 'PREFIX_li_matterhornim_99dfbf_run'), 'generated Matterhorn DB token must own run table');
+schemaCheck(str_contains($install, '`source_policy_hash` CHAR(64) NULL'), 'fresh run schema must include 0.1.4 policy hash');
+schemaCheck(str_contains($install, 'KEY `idx_shop_source_run` (`id_shop`,`source`,`id_run`)'), 'fresh run schema must include latest-run index');
+schemaCheck(str_contains($install, 'KEY `idx_feed_product` (`id_shop`,`source`,`out_of_feed`,`id_product`)'), 'fresh mapping schema must include REMOVE keyset index');
+schemaCheck(substr_count($install, 'KEY `idx_shop_claim` (`id_shop`,`status`,`available_at`,`id_queue`)') === 2, 'fresh queue schema must include both per-shop claim indexes');
 schemaCheck(str_contains($imageOrphanInstall, 'PREFIX_li_matterhornim_99dfbf_image_orphan'), 'generated Matterhorn DB token must own image orphan table');
 schemaCheck(str_contains($imageOrphanInstall, 'ENGINE=InnoDB'), 'image orphan recovery schema must require InnoDB');
 schemaCheck(str_contains($uninstall, 'PREFIX_li_matterhornim_99dfbf_image_orphan'), 'uninstall must target image orphan recovery table');
@@ -32,6 +36,9 @@ schemaCheck(str_contains($installer, "'install.sql'"), 'installer must load cano
 schemaCheck(str_contains($installer, "'attribute-mapping.sql'"), 'installer must load canonical attribute mapping schema');
 schemaCheck(str_contains($installer, "'image-orphan.sql'"), 'installer must load image orphan recovery schema');
 schemaCheck(!str_contains($installer, 'performance-indexes.sql'), 'fresh/reinstall path must not execute non-idempotent raw index SQL');
+schemaCheck(str_contains($installer, '$schemaPreExisted = true'), 'install failure cleanup must default to preserving possible existing data');
+schemaCheck(str_contains($installer, '$schemaPreExisted = $this->tableExists(self::RUN_TABLE)'), 'installer must detect retained schema before creating/upgrading');
+schemaCheck(str_contains($installer, 'if (!$schemaPreExisted)'), 'failed reinstall must not drop retained schema');
 schemaCheck(str_contains($installer, 'ensureRunPolicySchema()'), 'fresh install must ensure semantic READ policy schema');
 schemaCheck(str_contains($installer, "COLUMN_NAME='source_policy_hash'"), 'run policy column detection must be idempotent');
 schemaCheck(str_contains($installer, 'ADD COLUMN `source_policy_hash` CHAR(64) NULL'), 'run policy hash column definition missing');
