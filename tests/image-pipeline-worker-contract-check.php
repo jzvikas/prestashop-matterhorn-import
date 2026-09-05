@@ -11,20 +11,19 @@ $required = [
     'src/Image/ImageReconciler.php',
     'src/Repository/ImageQueueRepository.php',
     'src/Repository/ImageOrphanRepository.php',
+    'src/Repository/RunRepository.php',
     'src/Command/ImagesCommand.php',
     'src/Command/ImagesReconcileCommand.php',
 ];
 foreach ($required as $file) {
-    if (!is_file($root . '/' . $file)) {
-        fwrite(STDERR, "Missing image pipeline file: {$file}\n");
-        exit(1);
-    }
+    if (!is_file($root . '/' . $file)) { fwrite(STDERR, "Missing image pipeline file: {$file}\n"); exit(1); }
 }
 
 $worker = file_get_contents($root . '/src/Image/ImageWorker.php');
 $queue = file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
 $processor = file_get_contents($root . '/src/Image/PrestaImageProcessor.php');
 $reconciler = file_get_contents($root . '/src/Image/ImageReconciler.php');
+$runs = file_get_contents($root . '/src/Repository/RunRepository.php');
 $orphans = file_get_contents($root . '/src/Repository/ImageOrphanRepository.php');
 $gc = file_get_contents($root . '/src/Gc/GcService.php');
 $snapshots = file_get_contents($root . '/src/Repository/SnapshotRepository.php');
@@ -47,14 +46,27 @@ $checks = [
     [$queue, 'id_run=VALUES(id_run)', 'newer run must supersede queued desired run metadata'],
     [$queue, 'position=VALUES(position)', 'newer run must supersede desired image position'],
     [$queue, "status=IF(status='processing','processing','pending')", 'processing lease must survive desired-run supersession while non-processing rows are requeued'],
+    [$queue, 'function unresolvedForSource', 'reconciliation must fence the entire shop/source queue'],
     [$processor, 'associateTo([$shopId], $productId)', 'shop image association'],
     [$processor, 'ImageType::getImagesTypes', 'thumbnail generation'],
     [$processor, 'count($shopRows) !== 1', 'multishop destructive-delete guard'],
     [$processor, 'syncProductPlacement', 'image placement reconciliation'],
     [$reconciler, 'Only the latest shop/source run may reconcile images', 'latest-run guard'],
-    [$reconciler, 'unresolvedForRun', 'unresolved queue guard'],
+    [$reconciler, 'unresolvedForRun', 'current-run unresolved queue guard'],
+    [$reconciler, 'unresolvedForSource', 'cross-run source queue guard'],
+    [$reconciler, 'image_reconcile_checkpoint', 'resume from persisted checkpoint'],
+    [$reconciler, 'imageReconcileCheckpoint($runId, $sourceKey)', 'checkpoint after successful product reconciliation'],
+    [$reconciler, '$this->budget->shouldStop()', 'bounded reconciliation stop checks'],
+    [$reconciler, '$this->budget->markItem()', 'bounded reconciliation progress accounting'],
+    [$reconciler, "imageReconcileFinish($runId, $paused ? 'paused' : 'completed')", 'reconciliation completion state'],
+    [$reconciler, "imageReconcileFinish($runId, 'failed')", 'reconciliation failure state'],
+    [$reconciler, "$this->errors->add($runId, 'image', $currentSourceKey, $e)", 'source-scoped reconciliation error logging'],
     [$reconciler, 'statesForProduct', 'module-owned image-state reconciliation'],
     [$reconciler, "last_seen_run_id'] ?? 0) <= 0", 'reconciliation must accept live unchanged state from an earlier run'],
+    [$runs, 'function imageReconcileStart', 'run repository reconciliation start state'],
+    [$runs, 'function imageReconcileCheckpoint', 'run repository reconciliation checkpoint'],
+    [$runs, 'image_reconcile_done=image_reconcile_done+1', 'cumulative reconciliation progress'],
+    [$runs, 'function imageReconcileFinish', 'run repository reconciliation finish state'],
     [$orphans, 'available_at', 'orphan recovery backoff'],
     [$orphans, 'function defer', 'orphan retry deferral'],
     [$gc, 'drainImageOrphans', 'GC orphan recovery lane'],
@@ -65,15 +77,14 @@ $checks = [
     [$imagesCommand, "parent::__construct('matterhornimport:images')", 'image worker command name'],
     [$imagesCommand, "'orphan_record_failed'", 'image CLI orphan marker failure visibility'],
     [$reconcileCommand, "parent::__construct('matterhornimport:images:reconcile')", 'image reconcile command name'],
+    [$reconcileCommand, "addOption('max-items'", 'bounded reconcile max-items CLI'],
+    [$reconcileCommand, "addOption('time-limit'", 'bounded reconcile time-limit CLI'],
     [$services, 'Lp\\MatterhornImport\\Command\\ImagesCommand:', 'image worker service registration'],
     [$services, 'Lp\\MatterhornImport\\Command\\ImagesReconcileCommand:', 'image reconcile service registration'],
 ];
 
 foreach ($checks as [$haystack, $needle, $label]) {
-    if (!is_string($haystack) || !str_contains($haystack, $needle)) {
-        fwrite(STDERR, "FAIL: {$label}\n");
-        exit(1);
-    }
+    if (!is_string($haystack) || !str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
 }
 if (str_contains((string) $reconciler, "last_seen_run_id'] !== $runId")) {
     fwrite(STDERR, "FAIL: unchanged image states must not require current-run freshness\n");
