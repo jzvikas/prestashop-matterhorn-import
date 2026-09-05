@@ -34,7 +34,7 @@ final class ImagesCommand extends Command
         $worker = CommandInput::workerLabel($input->getOption('worker'));
         $started = microtime(true);
         $total = [
-            'processed'=>0,'done'=>0,'failed'=>0,'lost'=>0,'deduplicated'=>0,'not_modified'=>0,
+            'processed'=>0,'done'=>0,'failed'=>0,'lost'=>0,'superseded'=>0,'deduplicated'=>0,'not_modified'=>0,
             'replaced_deleted'=>0,'replacement_cleanup_failed'=>0,'hook_commit_recoveries'=>0,
             'attached_rollback_deleted'=>0,'attached_rollback_delete_failed'=>0,
             'orphan_recorded'=>0,'orphan_record_failed'=>0,
