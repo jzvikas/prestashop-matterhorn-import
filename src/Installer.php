@@ -105,10 +105,9 @@ final class Installer
         try {
             $db = \Db::getInstance();
             $table = _DB_PREFIX_ . self::MAPPING_TABLE;
-            $columnExists = (bool) $db->getValue(
+            $columnExists = $this->schemaExists(
                 "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='out_of_feed' LIMIT 1",
-                false
+                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='out_of_feed' LIMIT 1"
             );
             if (!$columnExists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($table) . '` ADD COLUMN `out_of_feed` TINYINT(1) NOT NULL DEFAULT 0 AFTER `image_hash`'
@@ -116,10 +115,9 @@ final class Installer
                 throw new \RuntimeException('Could not add Matterhorn out_of_feed mapping state: ' . $db->getMsgError());
             }
 
-            $indexExists = (bool) $db->getValue(
+            $indexExists = $this->schemaExists(
                 "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='idx_feed_state' LIMIT 1",
-                false
+                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='idx_feed_state' LIMIT 1"
             );
             if (!$indexExists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($table) . '` ADD KEY `idx_feed_state` (`id_shop`,`source`,`out_of_feed`,`last_seen_run_id`)'
@@ -173,10 +171,9 @@ final class Installer
             }
 
             $oldUnique = 'uq_shop_source_product';
-            $oldUniqueExists = (bool) $db->getValue(
+            $oldUniqueExists = $this->schemaExists(
                 "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($oldUnique) . "' LIMIT 1",
-                false
+                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($oldUnique) . "' LIMIT 1"
             );
             if ($oldUniqueExists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($table) . '` DROP INDEX `' . bqSQL($oldUnique) . '`'
@@ -195,14 +192,13 @@ final class Installer
         try {
             $db = \Db::getInstance();
             $table = _DB_PREFIX_ . self::RUN_TABLE;
-            $exists = (bool) $db->getValue(
+            $exists = $this->schemaExists(
                 "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='source_policy_hash' LIMIT 1",
-                false
+                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='source_policy_hash' LIMIT 1"
             );
             if (!$exists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($table) . '` ADD COLUMN `source_policy_hash` CHAR(64) NULL AFTER `source_fingerprint`'
-            )) {
+            ) && (int) $db->getNumberError() !== 1060) {
                 throw new \RuntimeException('Could not add Matterhorn run source_policy_hash: ' . $db->getMsgError());
             }
             return true;
@@ -223,28 +219,26 @@ final class Installer
             $db = \Db::getInstance();
             $runTable = _DB_PREFIX_ . self::RUN_TABLE;
             foreach ($columns as $column => $definition) {
-                $exists = (bool) $db->getValue(
+                $exists = $this->schemaExists(
                     "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
-                    "AND TABLE_NAME='" . pSQL($runTable) . "' AND COLUMN_NAME='" . pSQL($column) . "' LIMIT 1",
-                    false
+                    "AND TABLE_NAME='" . pSQL($runTable) . "' AND COLUMN_NAME='" . pSQL($column) . "' LIMIT 1"
                 );
                 if (!$exists && !$db->execute(
                     'ALTER TABLE `' . bqSQL($runTable) . '` ADD COLUMN `' . bqSQL($column) . '` ' . $definition
-                )) {
+                ) && (int) $db->getNumberError() !== 1060) {
                     throw new \RuntimeException('Could not add Matterhorn run column ' . $column . ': ' . $db->getMsgError());
                 }
             }
 
             $queueTable = _DB_PREFIX_ . self::IMAGE_QUEUE_TABLE;
             $index = 'idx_shop_source_status';
-            $indexExists = (bool) $db->getValue(
+            $indexExists = $this->schemaExists(
                 "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($queueTable) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1",
-                false
+                "AND TABLE_NAME='" . pSQL($queueTable) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1"
             );
             if (!$indexExists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($queueTable) . '` ADD KEY `' . $index . '` (`id_shop`,`source`,`status`,`id_queue`)'
-            )) {
+            ) && (int) $db->getNumberError() !== 1061) {
                 throw new \RuntimeException('Could not add Matterhorn image source-status index: ' . $db->getMsgError());
             }
             return true;
@@ -279,14 +273,13 @@ final class Installer
             foreach ($indexes as $suffix => $definitions) {
                 $table = _DB_PREFIX_ . $suffix;
                 foreach ($definitions as $index => $definition) {
-                    $exists = (bool) $db->getValue(
+                    $exists = $this->schemaExists(
                         "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                        "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1",
-                        false
+                        "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1"
                     );
                     if (!$exists && !$db->execute(
                         'ALTER TABLE `' . bqSQL($table) . '` ADD KEY `' . bqSQL($index) . '` ' . $definition
-                    )) {
+                    ) && (int) $db->getNumberError() !== 1061) {
                         throw new \RuntimeException('Could not add performance index ' . $index . ' on ' . $table . ': ' . $db->getMsgError());
                     }
                 }
@@ -322,10 +315,19 @@ final class Installer
     private function tableExists(string $suffix): bool
     {
         $table = _DB_PREFIX_ . $suffix;
-        return (bool) \Db::getInstance()->getValue(
-            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL($table) . "' LIMIT 1",
-            false
+        return $this->schemaExists(
+            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL($table) . "' LIMIT 1"
         );
+    }
+
+    private function schemaExists(string $sql): bool
+    {
+        $db = \Db::getInstance();
+        $rows = $db->executeS($sql, true, false);
+        if (!is_array($rows)) {
+            throw new \RuntimeException('Could not inspect Matterhorn schema: ' . $db->getMsgError());
+        }
+        return $rows !== [];
     }
 
     private function uninstallSchemaOnly(): bool
