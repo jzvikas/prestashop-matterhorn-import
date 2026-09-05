@@ -108,6 +108,12 @@ domainAssert((int) $db->getValue("SELECT active FROM `" . _DB_PREFIX_ . "product
 runMatterhornConsole(['matterhornimport:remove','--run=' . $updateRun,'--shop=1','--batch=10','--max-items=100','--time-limit=120','--json']);
 domainAssert((int) $db->getValue("SELECT active FROM `" . _DB_PREFIX_ . "product_shop` WHERE id_product={$p228} AND id_shop=1") === 0, 'Out-of-feed product not deactivated');
 domainAssert(StockAvailable::getQuantityAvailableByProduct($p228, 0, 1) === 0, 'Out-of-feed base stock not zero');
+foreach (Product::getProductAttributesIds($p228) as $attributeRow) {
+    $attributeId = (int) ($attributeRow['id_product_attribute'] ?? 0);
+    if ($attributeId > 0) {
+        domainAssert(StockAvailable::getQuantityAvailableByProduct($p228, $attributeId, 1) === 0, 'Out-of-feed combination stock not zero: ' . $attributeId);
+    }
+}
 domainAssert((int) $db->getValue("SELECT out_of_feed FROM `{$table}mapping` WHERE id_shop=1 AND source='matterhorn' AND source_key='228723'") === 1, 'Out-of-feed mapping state missing');
 domainAssert((string) $db->getValue("SELECT status FROM `{$table}run` WHERE id_run={$updateRun}") === 'completed', 'Changed-feed lifecycle did not complete');
 
