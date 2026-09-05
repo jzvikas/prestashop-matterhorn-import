@@ -22,6 +22,8 @@ use Lp\MatterhornImport\Util\TransientDatabaseFailure;
 final class ImportStage
 {
     private const SAVEPOINT = 'matterhorn_import_item';
+    private const FAILURE_SAMPLE_LIMIT = 3;
+    private const FAILURE_SAMPLE_MESSAGE_BYTES = 240;
 
     public function __construct(
         private ProductWriterInterface $writer,
@@ -56,6 +58,7 @@ final class ImportStage
             $this->runs->stage($runId, 'import', 'running');
             $cursor = '';
             $failures = 0;
+            $failureSamples = [];
             $batch = max(1, min(2000, $batch));
             $paused = false;
 
@@ -100,7 +103,11 @@ final class ImportStage
                             $this->rollbackItemSavepoint($db, $itemError);
                             $batchFailures++;
                             $this->budget->markItem();
-                            $this->errors->add($runId, 'import', $product?->sourceKey ?? $cursor, $itemError);
+                            $failedSourceKey = $product?->sourceKey ?? $cursor;
+                            $this->errors->add($runId, 'import', $failedSourceKey, $itemError);
+                            if (count($failureSamples) < self::FAILURE_SAMPLE_LIMIT) {
+                                $failureSamples[] = $this->failureSample($failedSourceKey, $itemError);
+                            }
                         }
                     }
                     if ($done > 0) { $this->runs->increment($runId, 'import_done', $done); }
@@ -115,7 +122,10 @@ final class ImportStage
                 if ($paused || $this->budget->shouldStop()) { $paused = true; break; }
             }
 
-            if ($failures > 0) { throw new \RuntimeException('IMPORT completed with ' . $failures . ' failed item(s); retry required'); }
+            if ($failures > 0) {
+                $sampleText = $failureSamples === [] ? '' : '; examples: ' . implode(' | ', $failureSamples);
+                throw new \RuntimeException('IMPORT completed with ' . $failures . ' failed item(s); retry required' . $sampleText);
+            }
             if ($paused || $this->budget->shouldStop()) {
                 $this->runs->stage($runId, 'import', 'paused');
                 $this->runs->finish($runId, 'paused');
@@ -128,6 +138,16 @@ final class ImportStage
             $this->failureRecorder->record($runId, 'import', $e);
             throw $e;
         }
+    }
+
+    private function failureSample(string $sourceKey, \Throwable $error): string
+    {
+        $message = preg_replace('/\s+/', ' ', trim($error->getMessage())) ?? trim($error->getMessage());
+        if (strlen($message) > self::FAILURE_SAMPLE_MESSAGE_BYTES) {
+            $message = substr($message, 0, self::FAILURE_SAMPLE_MESSAGE_BYTES) . '...';
+        }
+
+        return '[' . $sourceKey . '] ' . ($message !== '' ? $message : $error::class);
     }
 
     private function beginItemSavepoint(\Db $db): void
