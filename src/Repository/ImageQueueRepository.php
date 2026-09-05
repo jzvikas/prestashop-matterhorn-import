@@ -158,26 +158,42 @@ final class ImageQueueRepository
     {
         // The same product/url row is a desired-state handoff across import generations. A stale
         // producer must never move that desired state backwards after a newer run has queued it.
-        // Keep id_run assignment last: MySQL/MariaDB evaluate single-table UPDATE assignments from
-        // left to right, so every VALUES(id_run)>=id_run predicate below compares against the
-        // previously persisted generation rather than an id_run value already changed in this SET.
+        // A processing lease may survive only while the exact source/source_key owner is unchanged;
+        // a newer owner handoff revokes the old worker before source identity is replaced.
+        // Keep source/source_key and id_run assignments after the lease expressions: MySQL/MariaDB
+        // evaluate single-table UPDATE assignments from left to right, so owner/generation predicates
+        // below still see the previously persisted identity and generation.
+        $accept = "(VALUES(id_run)>id_run OR (VALUES(id_run)=id_run AND VALUES(source)=source AND VALUES(source_key)=source_key))";
+        $sameOwner = "(VALUES(source)=source AND VALUES(source_key)=source_key)";
         $sql = sprintf(
             "INSERT INTO `%s%s` (`id_run`,`id_shop`,`source`,`source_key`,`id_product`,`url`,`url_hash`,`position`,`is_cover`,`status`,`available_at`,`created_at`,`updated_at`) VALUES %s " .
             "ON DUPLICATE KEY UPDATE " .
-            "source=IF(VALUES(id_run)>=id_run,VALUES(source),source)," .
-            "source_key=IF(VALUES(id_run)>=id_run,VALUES(source_key),source_key)," .
-            "url=IF(VALUES(id_run)>=id_run,VALUES(url),url)," .
-            "position=IF(VALUES(id_run)>=id_run,VALUES(position),position)," .
-            "is_cover=IF(VALUES(id_run)>=id_run,VALUES(is_cover),is_cover)," .
-            "attempts=IF(VALUES(id_run)>=id_run,IF(status='processing',attempts,0),attempts)," .
-            "available_at=IF(VALUES(id_run)>=id_run,IF(status='processing',available_at,NULL),available_at)," .
-            "locked_by=IF(VALUES(id_run)>=id_run,IF(status='processing',locked_by,NULL),locked_by)," .
-            "locked_until=IF(VALUES(id_run)>=id_run,IF(status='processing',locked_until,NULL),locked_until)," .
-            "last_error=IF(VALUES(id_run)>=id_run,IF(status='processing',last_error,NULL),last_error)," .
-            "updated_at=IF(VALUES(id_run)>=id_run,VALUES(updated_at),updated_at)," .
-            "status=IF(VALUES(id_run)>=id_run,IF(status='processing','processing','pending'),status)," .
+            "attempts=IF(%s,IF(status='processing' AND %s,attempts,0),attempts)," .
+            "available_at=IF(%s,IF(status='processing' AND %s,available_at,NULL),available_at)," .
+            "locked_by=IF(%s,IF(status='processing' AND %s,locked_by,NULL),locked_by)," .
+            "locked_until=IF(%s,IF(status='processing' AND %s,locked_until,NULL),locked_until)," .
+            "last_error=IF(%s,IF(status='processing' AND %s,last_error,NULL),last_error)," .
+            "updated_at=IF(%s,VALUES(updated_at),updated_at)," .
+            "status=IF(%s,IF(status='processing' AND %s,'processing','pending'),status)," .
+            "url=IF(%s,VALUES(url),url)," .
+            "position=IF(%s,VALUES(position),position)," .
+            "is_cover=IF(%s,VALUES(is_cover),is_cover)," .
+            "source=IF(%s,VALUES(source),source)," .
+            "source_key=IF(%s,VALUES(source_key),source_key)," .
             "id_run=GREATEST(id_run,VALUES(id_run))",
-            _DB_PREFIX_, self::TABLE, implode(',', $values)
+            _DB_PREFIX_, self::TABLE, implode(',', $values),
+            $accept, $sameOwner,
+            $accept, $sameOwner,
+            $accept, $sameOwner,
+            $accept, $sameOwner,
+            $accept, $sameOwner,
+            $accept,
+            $accept, $sameOwner,
+            $accept,
+            $accept,
+            $accept,
+            $accept,
+            $accept
         );
         if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Matterhorn image queue batch insert failed'); }
     }
