@@ -27,14 +27,14 @@ $execFile = static function (string $file) use ($parse, $db): void {
     }
 };
 
-$installFiles = ['install.sql', 'attribute-mapping.sql'];
+$installFiles = ['install.sql', 'attribute-mapping.sql', 'image-orphan.sql'];
 $uninstallFiles = ['uninstall-attribute-mapping.sql', 'uninstall.sql'];
 $expected = [
     'li_matterhornim_99dfbf_run','li_matterhornim_99dfbf_snapshot','li_matterhornim_99dfbf_mapping',
     'li_matterhornim_99dfbf_category_mapping','li_matterhornim_99dfbf_feature_mapping','li_matterhornim_99dfbf_feature_value_mapping',
     'li_matterhornim_99dfbf_feature_state','li_matterhornim_99dfbf_combination_mapping','li_matterhornim_99dfbf_specific_price_state',
     'li_matterhornim_99dfbf_new_product_queue','li_matterhornim_99dfbf_error','li_matterhornim_99dfbf_image_state','li_matterhornim_99dfbf_image_queue',
-    'li_matterhornim_99dfbf_attribute_group_mapping','li_matterhornim_99dfbf_attribute_value_mapping',
+    'li_matterhornim_99dfbf_image_orphan','li_matterhornim_99dfbf_attribute_group_mapping','li_matterhornim_99dfbf_attribute_value_mapping',
 ];
 
 try {
@@ -58,6 +58,12 @@ try {
     foreach (['id_shop','source','source_key','id_product','url_hash','status','locked_by','locked_until','available_at'] as $columnName) {
         $safe = $db->real_escape_string($columnName);
         if (!$db->query("SHOW COLUMNS FROM `{$imageQueue}` LIKE '{$safe}'")?->fetch_assoc()) { throw new RuntimeException('Image queue column missing: ' . $columnName); }
+    }
+
+    $imageOrphan = $prefix . 'li_matterhornim_99dfbf_image_orphan';
+    foreach (['id_queue','id_shop','source','source_key','id_product','id_image','reason','attempts','available_at'] as $columnName) {
+        $safe = $db->real_escape_string($columnName);
+        if (!$db->query("SHOW COLUMNS FROM `{$imageOrphan}` LIKE '{$safe}'")?->fetch_assoc()) { throw new RuntimeException('Image orphan column missing: ' . $columnName); }
     }
 
     foreach ($uninstallFiles as $file) { $execFile($file); }
