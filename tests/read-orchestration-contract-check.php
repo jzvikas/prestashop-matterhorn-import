@@ -19,6 +19,9 @@ $checks = [
     [$read, 'valid row count dropped below 80%'],
     [$read, 'START TRANSACTION'],
     [$read, 'MAX_PRODUCT_PAYLOAD_BYTES'],
+    [$read, "['supplier_warnings']"],
+    [$read, '$batchWarnings'],
+    [$read, "'WARNING: ' . $item['message']"],
     [$run, 'read_checkpoint'],
     [$run, 'source_fingerprint'],
     [$run, 'source_policy_hash'],
@@ -35,5 +38,8 @@ $checks = [
 ];
 foreach ($checks as [$haystack,$needle]) {
     if (!str_contains($haystack, $needle)) { throw new RuntimeException('READ contract missing: ' . $needle); }
+}
+if (str_contains($read, '$batchInvalid++') && substr_count($read, '$batchInvalid++') !== 1) {
+    throw new RuntimeException('READ warnings must not increment invalid-row counters');
 }
 echo "READ orchestration contract: OK\n";
