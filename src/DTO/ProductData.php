@@ -3,6 +3,10 @@ namespace Lp\MatterhornImport\DTO;
 
 final class ProductData
 {
+    private ?string $jsonCache = null;
+    /** @var array<string,string> */
+    private array $hashCache = [];
+
     public function __construct(
         public readonly string $sourceKey,
         public readonly string $reference,
@@ -27,10 +31,14 @@ final class ProductData
         ];
     }
 
-    public function payloadHash(): string { return $this->hashValue($this->payload()); }
+    public function payloadHash(): string
+    {
+        return $this->hashCache['payload'] ??= $this->hashValue($this->payload());
+    }
 
     public function coreHash(): string
     {
+        if (isset($this->hashCache['core'])) { return $this->hashCache['core']; }
         $extra = $this->extra;
         unset(
             $extra['attributes'],
@@ -45,7 +53,7 @@ final class ProductData
             $extra['specific_prices_authoritative'],
             $extra['specific_prices_adopt_existing']
         );
-        return $this->hashValue([
+        return $this->hashCache['core'] = $this->hashValue([
             'reference' => $this->reference,
             'name' => $this->name,
             'active' => $this->active,
@@ -53,48 +61,53 @@ final class ProductData
         ]);
     }
 
-    public function priceHash(): string { return $this->hashValue(['price' => $this->price]); }
-    public function stockHash(): string { return $this->hashValue(['quantity' => $this->quantity]); }
-    public function attributeHash(): string { return $this->hashValue($this->extra['attributes'] ?? []); }
+    public function priceHash(): string { return $this->hashCache['price'] ??= $this->hashValue(['price' => $this->price]); }
+    public function stockHash(): string { return $this->hashCache['stock'] ??= $this->hashValue(['quantity' => $this->quantity]); }
+    public function attributeHash(): string { return $this->hashCache['attribute'] ??= $this->hashValue($this->extra['attributes'] ?? []); }
 
     public function featureHash(): string
     {
+        if (isset($this->hashCache['feature'])) { return $this->hashCache['feature']; }
         if (!array_key_exists('features', $this->extra) && empty($this->extra['features_authoritative']) && empty($this->extra['features_auto_create'])) {
-            return $this->hashValue([]);
+            return $this->hashCache['feature'] = $this->hashValue([]);
         }
-        return $this->hashValue([
+        return $this->hashCache['feature'] = $this->hashValue([
             'authoritative' => !empty($this->extra['features_authoritative']),
             'auto_create' => !empty($this->extra['features_auto_create']),
             'rows' => $this->featureProjection(),
         ]);
     }
 
-    public function categoryHash(): string { return $this->hashValue($this->extra['categories'] ?? []); }
+    public function categoryHash(): string { return $this->hashCache['category'] ??= $this->hashValue($this->extra['categories'] ?? []); }
 
     public function combinationHash(): string
     {
-        return $this->hashValue([
+        return $this->hashCache['combination'] ??= $this->hashValue([
             'authoritative' => !empty($this->extra['combinations_authoritative']),
             'attributes_auto_create' => !empty($this->extra['combination_attributes_auto_create']),
             'rows' => $this->combinationProjection(false),
         ]);
     }
 
-    public function combinationStockHash(): string { return $this->hashValue($this->combinationProjection(true)); }
+    public function combinationStockHash(): string
+    {
+        return $this->hashCache['combination_stock'] ??= $this->hashValue($this->combinationProjection(true));
+    }
 
     public function specificPriceHash(): string
     {
+        if (isset($this->hashCache['specific_price'])) { return $this->hashCache['specific_price']; }
         if (!array_key_exists('specific_prices', $this->extra) && empty($this->extra['specific_prices_authoritative']) && empty($this->extra['specific_prices_adopt_existing'])) {
-            return $this->hashValue([]);
+            return $this->hashCache['specific_price'] = $this->hashValue([]);
         }
-        return $this->hashValue([
+        return $this->hashCache['specific_price'] = $this->hashValue([
             'authoritative' => !empty($this->extra['specific_prices_authoritative']),
             'adopt_existing' => !empty($this->extra['specific_prices_adopt_existing']),
             'rows' => $this->specificPriceProjection(),
         ]);
     }
 
-    public function imageHash(): string { return $this->hashValue(array_values($this->images)); }
+    public function imageHash(): string { return $this->hashCache['image'] ??= $this->hashValue(array_values($this->images)); }
 
     public function domainHashes(): array
     {
@@ -108,7 +121,7 @@ final class ProductData
 
     public function toJson(): string
     {
-        return json_encode([
+        return $this->jsonCache ??= json_encode([
             'sourceKey' => $this->sourceKey, 'reference' => $this->reference, 'name' => $this->name,
             'price' => $this->price, 'quantity' => $this->quantity, 'active' => $this->active,
             'images' => $this->images, 'extra' => $this->extra,
@@ -118,8 +131,10 @@ final class ProductData
     public static function fromJson(string $json): self
     {
         $v = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-        return new self((string) $v['sourceKey'], (string) $v['reference'], (array) $v['name'], (float) $v['price'],
+        $product = new self((string) $v['sourceKey'], (string) $v['reference'], (array) $v['name'], (float) $v['price'],
             (int) $v['quantity'], (bool) $v['active'], (array) ($v['images'] ?? []), (array) ($v['extra'] ?? []));
+        $product->jsonCache = $json;
+        return $product;
     }
 
     private function featureProjection(): array
