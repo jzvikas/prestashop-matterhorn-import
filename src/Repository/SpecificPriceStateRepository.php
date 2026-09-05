@@ -7,7 +7,7 @@ final class SpecificPriceStateRepository
 
     public function allForProduct(int $shopId, string $source, string $sourceKey, int $productId): array
     {
-        $rows = \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d ORDER BY semantic_key", _DB_PREFIX_, self::TABLE, $shopId, pSQL($source), pSQL($sourceKey), $productId)) ?: [];
+        $rows = \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE id_shop=%d AND source='%s' AND source_key='%s' AND id_product=%d ORDER BY semantic_key", _DB_PREFIX_, self::TABLE, $shopId, pSQL($source), pSQL($sourceKey), $productId), true, false) ?: [];
         $out = [];
         foreach ($rows as $row) {
             $key = (string) ($row['semantic_key'] ?? '');
