@@ -34,13 +34,19 @@ class MatterhornImport extends Module
         }
 
         $settings = new OperationalSettings();
+        $languages = $this->languageOptions($shopId);
         $output = '';
         if (\Tools::isSubmit('submitMatterhornImport')) {
             try {
                 $source = trim((string) \Tools::getValue('MATTERHORNIMPORT_SOURCE_FILE', ''));
+                $sourceLanguageId = filter_var(trim((string) \Tools::getValue('MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', '0')), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                $categoryAutoCreate = filter_var(trim((string) \Tools::getValue('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', '1')), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1]]);
+                $featureAutoCreate = filter_var(trim((string) \Tools::getValue('MATTERHORNIMPORT_FEATURE_AUTO_CREATE', '1')), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1]]);
                 $sizeGroup = trim((string) \Tools::getValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', 'Size'));
                 $maxRemove = filter_var(trim((string) \Tools::getValue('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', '25')), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 100]]);
                 if ($source !== '' && (!is_file($source) || !is_readable($source))) { throw new \InvalidArgumentException('Source XML file is not readable.'); }
+                if ($sourceLanguageId === false || !isset($languages[(int) $sourceLanguageId])) { throw new \InvalidArgumentException('Source language must belong to the selected shop.'); }
+                if ($categoryAutoCreate === false || $featureAutoCreate === false) { throw new \InvalidArgumentException('Auto-create policies must be 0 or 1.'); }
                 if ($sizeGroup === '') { throw new \InvalidArgumentException('Size attribute group name cannot be empty.'); }
                 if ($maxRemove === false) { throw new \InvalidArgumentException('Maximum REMOVE percentage must be an integer from 1 to 100.'); }
 
@@ -49,6 +55,9 @@ class MatterhornImport extends Module
                 $validatedOperational = $settings->validate($rawOperational);
 
                 $ok = \Configuration::updateValue('MATTERHORNIMPORT_SOURCE_FILE', $source, false, $shopGroupId, $shopId);
+                $ok = \Configuration::updateValue('MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', (string) $sourceLanguageId, false, $shopGroupId, $shopId) && $ok;
+                $ok = \Configuration::updateValue('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', (string) $categoryAutoCreate, false, $shopGroupId, $shopId) && $ok;
+                $ok = \Configuration::updateValue('MATTERHORNIMPORT_FEATURE_AUTO_CREATE', (string) $featureAutoCreate, false, $shopGroupId, $shopId) && $ok;
                 $ok = \Configuration::updateValue('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', $sizeGroup, false, $shopGroupId, $shopId) && $ok;
                 $ok = \Configuration::updateValue('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', (string) $maxRemove, false, $shopGroupId, $shopId) && $ok;
                 if (!$ok) { throw new \RuntimeException('Could not save core Matterhorn settings.'); }
@@ -60,6 +69,15 @@ class MatterhornImport extends Module
         }
 
         $source = (string) \Configuration::get('MATTERHORNIMPORT_SOURCE_FILE', null, $shopGroupId, $shopId);
+        $sourceLanguageId = (int) \Configuration::get('MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', null, $shopGroupId, $shopId);
+        if (!isset($languages[$sourceLanguageId])) {
+            $sourceLanguageId = (int) \Configuration::get('PS_LANG_DEFAULT', null, $shopGroupId, $shopId);
+        }
+        if (!isset($languages[$sourceLanguageId]) && $languages !== []) {
+            $sourceLanguageId = (int) array_key_first($languages);
+        }
+        $categoryAutoCreate = $this->boolConfig('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', $shopGroupId, $shopId, true);
+        $featureAutoCreate = $this->boolConfig('MATTERHORNIMPORT_FEATURE_AUTO_CREATE', $shopGroupId, $shopId, true);
         $sizeGroup = (string) \Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', null, $shopGroupId, $shopId);
         if ($sizeGroup === '') { $sizeGroup = 'Size'; }
         $maxRemove = (int) \Configuration::get('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', null, $shopGroupId, $shopId);
@@ -69,13 +87,16 @@ class MatterhornImport extends Module
         $output .= $this->renderStatus($shopId);
         $output .= '<div class="panel"><h3>' . $this->trans('Matterhorn Wholesale Import settings', [], 'Modules.Matterhornimport.Admin') . '</h3><form method="post">';
         $output .= $this->field('MATTERHORNIMPORT_SOURCE_FILE', 'Source XML file', $source, 'text');
+        $output .= $this->selectField('MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', 'Supplier/source language', $sourceLanguageId, $languages, 'CREATE fills required shop languages from the supplier value as fallback; UPDATE changes only this supplier-owned language.');
+        $output .= $this->selectField('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', 'Auto-create missing categories', $categoryAutoCreate ? 1 : 0, [1 => 'Yes', 0 => 'No']);
+        $output .= $this->selectField('MATTERHORNIMPORT_FEATURE_AUTO_CREATE', 'Auto-create Color/Type features', $featureAutoCreate ? 1 : 0, [1 => 'Yes', 0 => 'No']);
         $output .= $this->field('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', 'Size attribute group', $sizeGroup, 'text');
         $output .= $this->field('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', 'Maximum REMOVE percentage', (string) $maxRemove, 'number', 1, 100, 'REMOVE is blocked when missing feed products exceed this percentage of currently in-feed mapped products.');
         $output .= '<hr><h4>Operational limits</h4>';
         $labels = [
             OperationalSettings::BATCH_SIZE => ['Stage batch size', 1, 10000],
-            OperationalSettings::MAX_ITEMS => ['Maximum items per stage (0 = unlimited)', 0, 1000000000],
-            OperationalSettings::TIME_LIMIT => ['Stage time limit seconds (0 = unlimited)', 0, 86400],
+            OperationalSettings::MAX_ITEMS => ['Maximum items per invocation (0 = unlimited)', 0, 1000000000],
+            OperationalSettings::TIME_LIMIT => ['Soft runtime limit seconds (0 = unlimited)', 0, 86400],
             OperationalSettings::IMAGE_WORKER_LIMIT => ['Image jobs per tick', 1, 500],
             OperationalSettings::IMAGE_WORKER_RUNTIME => ['Image worker runtime seconds (0 = one tick)', 0, 86400],
             OperationalSettings::NEW_PRODUCT_WORKER_LIMIT => ['New-product jobs per tick', 1, 200],
@@ -84,7 +105,7 @@ class MatterhornImport extends Module
         ];
         foreach ($labels as $key => [$label, $min, $max]) { $output .= $this->field($key, $label, (string) $operational[$key], 'number', $min, $max); }
         $output .= '<button class="btn btn-primary" type="submit" name="submitMatterhornImport">' . $this->trans('Save', [], 'Modules.Matterhornimport.Admin') . '</button></form></div>';
-        $output .= '<div class="panel"><h3>Recommended CLI</h3><pre>' . htmlspecialchars("php bin/console matterhornimport:doctor --shop={$shopId}\nphp bin/console matterhornimport:status --shop={$shopId}\nphp bin/console matterhornimport:images --shop={$shopId}\nphp bin/console matterhornimport:new-products --shop={$shopId}", ENT_QUOTES, 'UTF-8') . '</pre></div>';
+        $output .= '<div class="panel"><h3>Recommended CLI lanes</h3><pre>' . htmlspecialchars("# Product cycle\nphp bin/console matterhornimport:run --shop={$shopId}\n\n# Independent workers\nphp bin/console matterhornimport:new-products --shop={$shopId}\nphp bin/console matterhornimport:images --shop={$shopId}\n\n# Operations\nphp bin/console matterhornimport:retry --shop={$shopId}\nphp bin/console matterhornimport:gc --shop={$shopId}\nphp bin/console matterhornimport:doctor --shop={$shopId}\nphp bin/console matterhornimport:status --shop={$shopId}", ENT_QUOTES, 'UTF-8') . '</pre></div>';
         return $output;
     }
 
@@ -101,6 +122,40 @@ class MatterhornImport extends Module
         }
         $runText = !$run ? 'No import run yet.' : sprintf('#%d %s — READ %s / IMPORT %s / UPDATE %s / REMOVE %s', (int) $run['id_run'], (string) $run['status'], (string) $run['read_status'], (string) $run['import_status'], (string) $run['update_status'], (string) $run['remove_status']);
         return '<div class="panel"><h3>Current shop status</h3><p><strong>' . htmlspecialchars($runText, ENT_QUOTES, 'UTF-8') . '</strong></p><p>' . htmlspecialchars(implode(' | ', $queue), ENT_QUOTES, 'UTF-8') . '</p></div>';
+    }
+
+    /** @return array<int,string> */
+    private function languageOptions(int $shopId): array
+    {
+        $options = [];
+        foreach (\Language::getLanguages(false, $shopId) as $language) {
+            $id = (int) ($language['id_lang'] ?? 0);
+            if ($id <= 0) { continue; }
+            $label = trim((string) ($language['name'] ?? $language['iso_code'] ?? ('Language #' . $id)));
+            $options[$id] = $label === '' ? 'Language #' . $id : $label;
+        }
+        if ($options === []) { throw new \RuntimeException('Selected shop has no active languages.'); }
+        return $options;
+    }
+
+    private function boolConfig(string $key, int $shopGroupId, int $shopId, bool $default): bool
+    {
+        $raw = \Configuration::get($key, null, $shopGroupId, $shopId);
+        if ($raw === false || $raw === null || $raw === '') { return $default; }
+        return (int) $raw !== 0;
+    }
+
+    /** @param array<int,string> $options */
+    private function selectField(string $name, string $label, int $value, array $options, string $help = ''): string
+    {
+        $html = '<div class="form-group"><label>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</label><select class="form-control" name="' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '">';
+        foreach ($options as $optionValue => $optionLabel) {
+            $selected = (int) $optionValue === $value ? ' selected' : '';
+            $html .= '<option value="' . (int) $optionValue . '"' . $selected . '>' . htmlspecialchars($optionLabel, ENT_QUOTES, 'UTF-8') . '</option>';
+        }
+        $html .= '</select></div>';
+        if ($help !== '') { $html .= '<p class="help-block">' . htmlspecialchars($help, ENT_QUOTES, 'UTF-8') . '</p>'; }
+        return $html;
     }
 
     private function field(string $name, string $label, string $value, string $type, ?int $min = null, ?int $max = null, string $help = ''): string
