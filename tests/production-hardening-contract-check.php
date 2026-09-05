@@ -10,6 +10,7 @@ $update = (string) file_get_contents($root . '/src/Import/UpdateStage.php');
 $newWorker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
 $production = (string) file_get_contents($root . '/docs/PRODUCTION.md');
 $mapper = (string) file_get_contents($root . '/src/Mapper/MatterhornProductMapper.php');
+$dbSafety = (string) file_get_contents($root . '/src/Util/DatabaseSafety.php');
 $composer = json_decode((string) file_get_contents($root . '/composer.json'), true, 512, JSON_THROW_ON_ERROR);
 $self = realpath(__FILE__);
 
@@ -41,6 +42,16 @@ if (!str_contains($update, "'specific_price'")) { $fail('UPDATE does not route s
 if (!str_contains($production, 'READ -> IMPORT -> UPDATE -> REMOVE')) { $fail('production stage order missing'); }
 if (!str_contains($production, 'matterhornimport:images:reconcile')) { $fail('production image reconciliation documentation missing'); }
 if (!str_contains($production, 'flock -n')) { $fail('production overlap guard example missing'); }
+
+foreach ([
+    "'manufacturer_lang'" => 'manufacturer language transaction safety',
+    "'attribute_group_lang'" => 'Size group translation transaction safety',
+    "'attribute_lang'" => 'Size value translation transaction safety',
+    "'li_matterhornim_99dfbf_attribute_group_mapping'" => 'Size group mapping transaction safety',
+    "'li_matterhornim_99dfbf_attribute_value_mapping'" => 'Size value mapping transaction safety',
+] as $needle => $label) {
+    if (!str_contains($dbSafety, $needle)) { $fail($label); }
+}
 
 $requires = is_array($composer['require'] ?? null) ? $composer['require'] : [];
 if ((str_contains($mapper, 'mb_strlen(') || str_contains($mapper, 'mb_substr(') || str_contains($mapper, 'mb_strtolower(')) && !array_key_exists('ext-mbstring', $requires)) {
