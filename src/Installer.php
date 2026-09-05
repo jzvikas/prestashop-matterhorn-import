@@ -5,6 +5,7 @@ final class Installer
 {
     private const RETAIN_DATA_KEY = 'MATTERHORNIMPORT_RETAIN_DATA_ON_UNINSTALL';
     private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';
+    private const RUN_TABLE = 'li_matterhornim_99dfbf_run';
     private const CONFIG_KEYS = [
         'MATTERHORNIMPORT_SOURCE_FILE',
         'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID',
@@ -38,6 +39,9 @@ final class Installer
             }
             if (!$this->upgradeMappingState()) {
                 throw new \RuntimeException('Could not initialize Matterhorn mapping state schema');
+            }
+            if (!$this->ensureRunPolicySchema()) {
+                throw new \RuntimeException('Could not initialize Matterhorn run policy schema');
             }
             if (!$this->ensurePerformanceIndexes()) {
                 throw new \RuntimeException('Could not initialize Matterhorn performance indexes');
@@ -85,6 +89,27 @@ final class Installer
             return true;
         } catch (\Throwable $e) {
             error_log('[matterhornimport] mapping-state schema upgrade failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    public function ensureRunPolicySchema(): bool
+    {
+        try {
+            $db = \Db::getInstance();
+            $table = _DB_PREFIX_ . self::RUN_TABLE;
+            $exists = (bool) $db->getValue(
+                "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
+                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='source_policy_hash' LIMIT 1"
+            );
+            if (!$exists && !$db->execute(
+                'ALTER TABLE `' . bqSQL($table) . '` ADD COLUMN `source_policy_hash` CHAR(64) NULL AFTER `source_fingerprint`'
+            )) {
+                throw new \RuntimeException('Could not add Matterhorn run source_policy_hash: ' . $db->getMsgError());
+            }
+            return true;
+        } catch (\Throwable $e) {
+            error_log('[matterhornimport] run-policy schema upgrade failed: ' . $e->getMessage());
             return false;
         }
     }
