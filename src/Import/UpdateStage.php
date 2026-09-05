@@ -111,7 +111,16 @@ final class UpdateStage
                                 $this->transactionGuard->restoreAfterExternalCommit();
                             }
 
-                            if (!$imagesSame) { $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images); }
+                            if (!$imagesSame) {
+                                $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images);
+                                $this->images->supersedeOlderUnresolvedForAuthoritativeManifest(
+                                    $runId,
+                                    $shopId,
+                                    $source,
+                                    $product->sourceKey,
+                                    $productId
+                                );
+                            }
                             $this->mapping->save($shopId, $source, $runId, $productId, $product);
                             // Keep progress beside the mapping/hash write so a later ObjectModel hook
                             // cannot commit this item while leaving update_done behind in memory.
