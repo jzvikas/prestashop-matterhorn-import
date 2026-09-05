@@ -33,7 +33,12 @@ final class ImagesCommand extends Command
         $idleSleepMs = CommandInput::nonNegativeInt($input->getOption('idle-sleep-ms'), '--idle-sleep-ms', 60000);
         $worker = CommandInput::workerLabel($input->getOption('worker'));
         $started = microtime(true);
-        $total = ['processed'=>0,'done'=>0,'failed'=>0,'lost'=>0,'deduplicated'=>0,'not_modified'=>0,'replaced_deleted'=>0,'replacement_cleanup_failed'=>0,'hook_commit_recoveries'=>0,'attached_rollback_deleted'=>0,'attached_rollback_delete_failed'=>0];
+        $total = [
+            'processed'=>0,'done'=>0,'failed'=>0,'lost'=>0,'deduplicated'=>0,'not_modified'=>0,
+            'replaced_deleted'=>0,'replacement_cleanup_failed'=>0,'hook_commit_recoveries'=>0,
+            'attached_rollback_deleted'=>0,'attached_rollback_delete_failed'=>0,
+            'orphan_recorded'=>0,'orphan_record_failed'=>0,
+        ];
         do {
             $result = $this->worker->tick($worker, $limit, $shopId);
             foreach (array_keys($total) as $key) { $total[$key] += (int) ($result[$key] ?? 0); }
