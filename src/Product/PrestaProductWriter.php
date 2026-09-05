@@ -33,11 +33,15 @@ final class PrestaProductWriter implements GranularProductWriterInterface
         $this->shopContext->activate($shopId);
         $this->associations->ensure($productId, $shopId);
         $domains = array_values(array_unique($domains));
-        $needsProduct = in_array('core', $domains, true) || in_array('price', $domains, true);
+        $core = in_array('core', $domains, true);
+        $needsProduct = $core || in_array('price', $domains, true);
         if ($needsProduct) {
+            if ($core) {
+                $this->associations->assertExclusiveGlobalOwnership($productId, $shopId);
+            }
             $p = new \Product($productId, false, null, $shopId);
             if (!\Validate::isLoadedObject($p)) { throw new \RuntimeException('Product not found: ' . $productId); }
-            if (in_array('core', $domains, true)) { $this->applyCore($p, $data, $shopId); }
+            if ($core) { $this->applyCore($p, $data, $shopId); }
             if (in_array('price', $domains, true)) { $p->price = $data->price; }
             if (!$p->update()) { throw new \RuntimeException('PrestaShop product update failed: ' . $productId); }
         }
