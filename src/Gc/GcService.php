@@ -151,10 +151,20 @@ final class GcService
 
     private function deleteSnapshots(int $keepRunId, int $limit, ?int $shopId): int
     {
-        $where = 'id_run<' . $keepRunId;
-        if ($shopId !== null) { $where .= ' AND id_run IN (SELECT id_run FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_run` WHERE id_shop=' . $shopId . ')'; }
+        $runTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_run';
+        $snapshotTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_snapshot';
+        $shopWhere = $shopId === null ? '' : ' AND r.id_shop=' . $shopId;
+
+        // Image reconciliation reads the desired manifest directly from snapshot payloads and only
+        // permits the latest shop/source run. Preserve that latest run until a newer generation
+        // exists; at that point the older run cannot be reconciled anymore and is safe to collect.
+        $sql = 'DELETE FROM `' . $snapshotTable . '` WHERE id_run<' . $keepRunId .
+            ' AND id_run IN (' .
+            'SELECT r.id_run FROM `' . $runTable . '` r WHERE 1=1' . $shopWhere .
+            ' AND EXISTS (SELECT 1 FROM `' . $runTable . '` newer ' .
+            'WHERE newer.id_shop=r.id_shop AND newer.source=r.source AND newer.id_run>r.id_run)' .
+            ') ORDER BY id_run,source_key LIMIT ' . $limit;
         $db = \Db::getInstance();
-        $sql = 'DELETE FROM `' . _DB_PREFIX_ . 'li_matterhornim_99dfbf_snapshot` WHERE ' . $where . ' ORDER BY id_run,source_key LIMIT ' . $limit;
         if (!$db->execute($sql)) { throw new \RuntimeException('Bounded snapshot GC failed'); }
         return (int) $db->Affected_Rows();
     }
