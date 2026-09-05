@@ -4,9 +4,24 @@ Standalone high-throughput Matterhorn Wholesale supplier import module for **Pre
 
 ## Status
 
-Work in progress. The supplier adapter has a streaming Matterhorn XML reader, semantic mapper, category path normalization, safe HTML handling and **pure READ-time Size descriptors**. READ no longer queries or mutates PrestaShop attributes. Numeric Size attribute IDs are resolved later by the generic skeleton persistence resolver. READ -> IMPORT -> UPDATE -> REMOVE orchestration and the canonical run/snapshot/mapping schema are restored. The image pipeline foundation now includes the persistent queue/state model, batched enqueue, renewable lease fencing, conditional HTTP revalidation and the skeleton-grade SSRF/DNS/MIME/byte/pixel download protections. Image attachment/reconciliation workers, global new-product/retry/GC/status/BO and real PrestaShop lifecycle coverage still remain before PROD can be declared.
+The production implementation is now assembled across the supplier adapter and reusable skeleton domains:
 
-Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IMPORT_BUILD_PROMPT.md).
+- streaming `XMLReader` Matterhorn source with checkpoint resume and source fingerprinting;
+- semantic mapper with isolated domain hashes;
+- category path mapping, manufacturer resolution, Color/Type features and sanitized descriptions;
+- pure READ-time Size descriptors resolved to PrestaShop attributes only during persistence;
+- Size combinations with option reference, stock and validated EAN13;
+- guarded `READ -> IMPORT -> UPDATE -> REMOVE` orchestration with bounded resume and REMOVE safety;
+- generic specific-price ownership/synchronization infrastructure, which is a no-op for the current Matterhorn feed because the supplier does not provide specific prices;
+- secure persistent image queue/state, lease fencing, HTTP revalidation, SSRF/DNS protections, attachment worker, deduplication and authoritative reconciliation;
+- global new-product queue/worker with interrupted-create recovery and retry/backoff;
+- `retry`, `doctor`, `status` and bounded `gc` operational commands;
+- shop-scoped Back Office configuration and live run/queue status;
+- static contracts, real MariaDB schema lifecycle coverage and a Docker PrestaShop 9.1.5 multishop/install/uninstall lifecycle gate.
+
+**The implementation is not marked release-green yet:** the GitHub Actions free-minute limit is currently exhausted, so the newly added lifecycle gates have been prepared but have not been executed on the latest commits. They must be run after the Actions quota resets before PROD release approval.
+
+Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IMPORT_BUILD_PROMPT.md). Production/cron operations: [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
 ## Supplier mapping
 
@@ -32,7 +47,31 @@ Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IM
 
 Matterhorn XML is read with `XMLReader` and `LIBXML_NONET`; only one `<product>` payload is materialized at a time. The adapter supports record checkpoint resume and a source fingerprint. It never downloads images or writes catalog attributes during READ.
 
-## Development checks
+## CLI
+
+The module exposes the complete command surface under `matterhornimport:`:
+
+```text
+matterhornimport:doctor
+matterhornimport:run
+matterhornimport:read
+matterhornimport:import
+matterhornimport:update
+matterhornimport:remove
+matterhornimport:images
+matterhornimport:images:reconcile
+matterhornimport:new-products:enqueue
+matterhornimport:new-products
+matterhornimport:retry
+matterhornimport:status
+matterhornimport:gc
+```
+
+For normal operation prefer `matterhornimport:run --shop=<id>` and separate image workers. See `docs/PRODUCTION.md` for the scalable new-product lane, reconciliation and cron examples.
+
+## Release checks
+
+Static release checks:
 
 ```bash
 composer validate --no-check-publish
@@ -40,12 +79,20 @@ composer install --no-dev --prefer-dist --no-interaction --no-progress --optimiz
 bash tests/static-release-check.sh
 ```
 
-The current CI uses PHP 8.4 and verifies PHP syntax, supplier parser/mapper/domain-hash behavior, persistence/orchestration contracts and the secure image-pipeline foundation.
+Real database lifecycle, against MariaDB 10.11+:
 
-## Planned final CLI
+```bash
+LP_DB_HOST=127.0.0.1 LP_DB_USER=root LP_DB_PASSWORD=root LP_DB_NAME=matterhorn_test php tests/database-lifecycle-check.php
+```
 
-The completed module will expose the generated skeleton command set under the `matterhornimport:` prefix, including `doctor`, `run`, `read`, `import`, `update`, `remove`, `images`, `images:reconcile`, `new-products:enqueue`, `new-products`, `retry`, `status` and `gc`.
+Real PrestaShop lifecycle, using Docker:
+
+```bash
+bash tests/prestashop-runtime-check.sh
+```
+
+GitHub Actions defines all three gates: PHP 8.4 static contracts, MariaDB schema lifecycle, and PrestaShop **9.1.5 / PHP 8.4** install + command registration + multishop isolation + product association recovery + uninstall retention/destructive-uninstall lifecycle.
 
 ## Production rule
 
-Do not treat this repository as production-ready until the complete PHP 8.4 / MariaDB / real PrestaShop 9.1.5 lifecycle, multishop, image, retry/recovery and READ -> IMPORT -> UPDATE -> REMOVE gates are green.
+Do not treat a release commit as production-approved until all current CI gates run and are green. Tests must not be disabled or bypassed to obtain a green release.
