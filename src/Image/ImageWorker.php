@@ -43,7 +43,7 @@ final class ImageWorker
                 continue;
             }
             if (!$this->mappingMatches($row)) {
-                if ($this->queue->supersede($idQueue, $token, 'mapping no longer owns queued product')) { $superseded++; }
+                if ($this->queue->supersede($idQueue, $token, 'active mapping no longer owns queued product')) { $superseded++; }
                 else { $lost++; }
                 continue;
             }
@@ -59,7 +59,7 @@ final class ImageWorker
                 $prior = $this->state->findByUrlHash((int) $row['id_shop'], (string) $row['source'], (string) $row['source_key'], (int) $row['id_product'], (string) $row['url_hash']);
                 $download = $this->downloader->download((string) $row['url'], is_array($prior) ? ($prior['etag'] ?? null) : null, is_array($prior) ? ($prior['last_modified'] ?? null) : null);
                 if (!$this->queue->renew($idQueue, $token)) { $lost++; continue; }
-                if (!$this->mappingMatches($row)) { throw new StaleImageJobException('mapping changed while image was downloading'); }
+                if (!$this->mappingMatches($row)) { throw new StaleImageJobException('active mapping changed while image was downloading'); }
 
                 if ($download === null) {
                     if (!is_array($prior) || (int) ($prior['id_image'] ?? 0) <= 0) { throw new \RuntimeException('Image returned 304 without reusable state'); }
@@ -82,7 +82,7 @@ final class ImageWorker
                 $contentLock = $this->contentLockName((int) $row['id_shop'], (int) $row['id_product'], $download->contentHash);
                 if (!$this->acquireContentLock($db, $contentLock)) { throw new \RuntimeException('Timed out waiting for image content dedup lock'); }
                 if (!$this->queue->renew($idQueue, $token)) { $lost++; continue; }
-                if (!$this->mappingMatches($row)) { throw new StaleImageJobException('mapping changed before image persistence'); }
+                if (!$this->mappingMatches($row)) { throw new StaleImageJobException('active mapping changed before image persistence'); }
                 if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start image transaction'); }
                 $transaction = true;
                 $row = $this->queue->lockOwned($idQueue, $token);
@@ -185,13 +185,13 @@ final class ImageWorker
 
     private function mappingMatches(array $row): bool
     {
-        return $this->mapping->ownsProduct((int) $row['id_shop'], (string) $row['source'], (string) $row['source_key'], (int) $row['id_product']);
+        return $this->mapping->ownsActiveProduct((int) $row['id_shop'], (string) $row['source'], (string) $row['source_key'], (int) $row['id_product']);
     }
 
     private function assertLockedMappingOwnership(array $row): void
     {
-        if (!$this->mapping->lockProductOwnership((int) $row['id_shop'], (string) $row['source'], (string) $row['source_key'], (int) $row['id_product'])) {
-            throw new StaleImageJobException('mapping ownership changed before image state commit');
+        if (!$this->mapping->lockActiveProductOwnership((int) $row['id_shop'], (string) $row['source'], (string) $row['source_key'], (int) $row['id_product'])) {
+            throw new StaleImageJobException('active mapping ownership changed before image state commit');
         }
     }
 
