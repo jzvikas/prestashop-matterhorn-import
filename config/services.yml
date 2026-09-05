@@ -24,3 +24,7 @@ services:
     tags: ['console.command']
   Lp\MatterhornImport\Command\RemoveCommand:
     tags: ['console.command']
+  Lp\MatterhornImport\Command\ImagesCommand:
+    tags: ['console.command']
+  Lp\MatterhornImport\Command\ImagesReconcileCommand:
+    tags: ['console.command']
