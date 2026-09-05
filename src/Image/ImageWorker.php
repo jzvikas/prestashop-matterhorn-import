@@ -211,11 +211,17 @@ final class ImageWorker
     }
 
     private function contentLockName(int $shopId,int $productId,string $contentHash): string { return 'matterhorn-img:'.substr(hash('sha256',$shopId.':'.$productId.':'.$contentHash),0,44); }
-    private function acquireContentLock(\Db $db,string $name): bool { return (string)$db->getValue(sprintf("SELECT GET_LOCK('%s',%d)",pSQL($name),self::CONTENT_LOCK_TIMEOUT_SECONDS))==='1'; }
-    private function releaseContentLock(\Db $db,string $name): void { try{$db->getValue("SELECT RELEASE_LOCK('".pSQL($name)."')");}catch(\Throwable){} }
+    private function acquireContentLock(\Db $db,string $name): bool
+    {
+        return (string)$db->getValue(
+            sprintf("SELECT GET_LOCK('%s',%d)",pSQL($name),self::CONTENT_LOCK_TIMEOUT_SECONDS),
+            false
+        )==='1';
+    }
+    private function releaseContentLock(\Db $db,string $name): void { try{$db->getValue("SELECT RELEASE_LOCK('".pSQL($name)."')", false);}catch(\Throwable){} }
     private function transactionIsActive(\Db $db): bool
     {
-        $value=$db->getValue('SELECT @@session.in_transaction');
+        $value=$db->getValue('SELECT @@session.in_transaction', false);
         if($value===false){throw new \RuntimeException('Could not inspect image transaction state: '.$db->getMsgError());}
         return (int)$value===1;
     }
