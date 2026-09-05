@@ -57,6 +57,8 @@ schemaCheck(str_contains($installer, 'if (!$schemaPreExisted)'), 'failed reinsta
 schemaCheck(str_contains($installer, "COLUMN_NAME='out_of_feed' LIMIT 1"), 'mapping-state upgrade must detect an already-created out_of_feed column');
 schemaCheck(str_contains($installer, "INDEX_NAME='idx_feed_state' LIMIT 1"), 'mapping-state upgrade must detect an already-created feed-state index');
 schemaCheck(!str_contains($installer, 'SHOW COLUMNS FROM') && !str_contains($installer, 'SHOW INDEX FROM'), 'mapping-state detection must use INFORMATION_SCHEMA instead of SHOW-result shape assumptions');
+schemaCheck(str_contains($installer, '$db->getNumberError() !== 1060'), 'mapping-state column ensure must tolerate only confirmed duplicate-column fallback');
+schemaCheck(str_contains($installer, '$db->getNumberError() !== 1061'), 'mapping-state index ensure must tolerate only confirmed duplicate-key fallback');
 schemaCheck(str_contains($installer, 'ensureExclusiveProductOwnership()'), 'fresh/reinstall must ensure exclusive product ownership');
 schemaCheck(str_contains($installer, "'uq_shop_product_owner'"), 'ownership migration must target uq_shop_product_owner');
 schemaCheck(str_contains($installer, 'GROUP BY id_shop,id_product HAVING COUNT(*)>1'), 'ownership migration must detect legacy cross-source conflicts before adding unique index');
