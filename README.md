@@ -9,18 +9,20 @@ The production implementation is now assembled across the supplier adapter and r
 - streaming `XMLReader` Matterhorn source with checkpoint resume, source fingerprinting and READ semantic-policy fencing;
 - semantic mapper with isolated domain hashes;
 - category path mapping, manufacturer resolution, Color/Type features and sanitized descriptions;
-- pure READ-time Size descriptors resolved to PrestaShop attributes only during persistence, with shop-scoped Size group policy;
+- pure READ-time Size descriptors resolved to PrestaShop attributes only during persistence, with shop-scoped configurable Size group policy;
 - Size combinations with option reference, stock and validated EAN13;
 - guarded `READ -> IMPORT -> UPDATE -> REMOVE` orchestration with bounded resume and REMOVE safety;
 - out-of-feed deactivation that zeroes both base and combination stock;
 - generic specific-price ownership/synchronization infrastructure, which is a no-op for the current Matterhorn feed because the supplier does not provide specific prices;
-- secure persistent image queue/state, lease fencing, cross-run/mapping fencing, HTTP revalidation, SSRF/DNS protections, attachment worker, deduplication, orphan recovery and authoritative reconciliation;
-- global new-product queue/worker with interrupted-create recovery and retry/backoff;
+- secure persistent image queue/state, lease fencing, cross-run/mapping fencing, HTTP revalidation, SSRF/DNS protections, attachment worker, deduplication, orphan recovery and resumable authoritative reconciliation;
+- bounded age-based image revalidation that catches supplier image-content changes even when the URL itself does not change, using conditional HTTP through the existing image worker;
+- global new-product queue/worker with interrupted-create recovery, generation fencing and retry/backoff;
+- multishop hardening for global category/feature/combination ownership and PrestaShop duplicated `product`/`product_shop` shadow fields;
 - `retry`, `doctor`, `status` and bounded `gc` operational commands;
 - shop-scoped Back Office configuration and live run/queue status;
 - static contracts, changed-feed domain isolation coverage, real MariaDB schema lifecycle coverage and a Docker PrestaShop 9.1.5 runtime gate.
 
-The real PrestaShop gate now covers module install and command registration, Matterhorn CREATE, manufacturer/category/features, Size combinations, EAN and stock, description persistence, image-manifest enqueue, selective changed-feed UPDATE hashes, REMOVE dry-run, out-of-feed deactivate/stock-zero, multishop isolation/product association recovery, and retention/destructive-uninstall behavior.
+The real PrestaShop gate covers module install and command registration, Matterhorn CREATE, manufacturer/category/features, Size combinations, EAN and stock, description persistence, image-manifest enqueue, selective changed-feed UPDATE hashes, REMOVE dry-run, out-of-feed deactivate/stock-zero, multishop isolation/product association recovery, and retention/destructive-uninstall behavior.
 
 **The implementation is not marked release-green yet:** the GitHub Actions free-minute limit is currently exhausted, so the latest static, MariaDB and PrestaShop lifecycle gates have been prepared but have not executed on the latest commits. They must run after the Actions quota resets before PROD release approval.
 
@@ -41,14 +43,14 @@ Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IM
 | `description` | sanitized product description HTML |
 | `images/image_url` | ordered persistent image queue manifest |
 | `options/option/@id` | combination reference |
-| `option_name` | semantic `matterhorn:size:<value>` descriptor, resolved to PrestaShop `Size` later |
+| `option_name` | semantic `matterhorn:size:<value>` descriptor, resolved to the configured PrestaShop Size group later |
 | `STOCK` | combination quantity |
 | `ean` | combination EAN13 when valid |
 | `avaible_in` | raw supplier metadata only; not stock |
 
 ## Streaming model
 
-Matterhorn XML is read with `XMLReader` and `LIBXML_NONET`; only one `<product>` payload is materialized at a time. The adapter supports record checkpoint resume and a source fingerprint. It never downloads images or writes catalog attributes during READ.
+Matterhorn XML is read with `XMLReader` and `LIBXML_NONET`; only one `<product>` payload is materialized at a time. The adapter supports record checkpoint resume and a source fingerprint. The source language, category/feature auto-create policy and Size group are snapshotted into the run policy hash, so a paused READ cannot resume after those semantics change. READ never downloads images or writes catalog attributes.
 
 ## CLI
 
@@ -63,6 +65,7 @@ matterhornimport:update
 matterhornimport:remove
 matterhornimport:images
 matterhornimport:images:reconcile
+matterhornimport:images:revalidate
 matterhornimport:new-products:enqueue
 matterhornimport:new-products
 matterhornimport:retry
@@ -70,7 +73,7 @@ matterhornimport:status
 matterhornimport:gc
 ```
 
-For normal operation prefer `matterhornimport:run --shop=<id>` and separate image workers. See `docs/PRODUCTION.md` for the scalable new-product lane, reconciliation and cron examples.
+For normal operation prefer `matterhornimport:run --shop=<id>` and separate image workers. After the latest image manifest is reconciled, use bounded periodic `matterhornimport:images:revalidate` scheduling to detect same-URL supplier image changes without rechecking every image on every import. See `docs/PRODUCTION.md` for the scalable lanes and cron examples.
 
 ## Release checks
 
