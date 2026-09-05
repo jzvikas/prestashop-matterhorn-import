@@ -20,10 +20,9 @@ $checks = [
     [$module, 'Select one concrete shop before configuring Matterhorn Import.', 'concrete-shop BO guard'],
     [$module, '$settings->save($shopId, $shopGroupId', 'shop-scoped BO settings persistence'],
     [$module, 'Current shop status', 'BO status panel'],
-    [$module, "\$source = 'matterhorn';", 'BO operational source scope'],
-    [$module, "AND source='\" . \$sourceSql . \"'", 'BO queue/orphan status must stay source scoped'],
+    [$module, "$source = 'matterhorn';", 'BO operational source scope'],
+    [$module, "AND source='" . $sourceSql . "'", 'BO queue/orphan status must stay source scoped'],
     [$module, 'GROUP BY status', 'BO queue status aggregation'],
-    [$module, "true,\n                false\n            ) ?: []", 'BO mutable queue state must bypass Db query cache'],
     [$module, 'image_reconcile_status', 'BO image reconciliation status'],
     [$module, 'image_reconcile_checkpoint', 'BO image reconciliation checkpoint'],
     [$module, 'image_reconcile_done', 'BO image reconciliation progress'],
@@ -38,7 +37,7 @@ $checks = [
     [$policy, 'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', 'source-language policy source'],
     [$mapper, '$policy = ($this->policy ?? new MatterhornPolicy())->current()', 'mapper reads stable Matterhorn policy snapshot'],
     [$mapper, "extra['source_language_id']", 'source language captured in snapshot payload'],
-    [$mapper, "'auto_create' => \$categoryAutoCreate", 'category auto-create policy captured in payload'],
+    [$mapper, "'auto_create' => $categoryAutoCreate", 'category auto-create policy captured in payload'],
     [$mapper, "extra['features_auto_create']", 'feature auto-create policy captured in payload'],
     [$writer, "data->extra['source_language_id']", 'writer consumes snapshot language policy'],
     [$images, '$this->settings->imageWorkerLimit($shopId)', 'image worker BO default'],
@@ -49,6 +48,14 @@ $checks = [
 ];
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
+}
+
+if (!preg_match(
+    '/executeS\(\s*[^;]*?GROUP BY status[^;]*?,\s*true\s*,\s*false\s*\)/s',
+    $module
+)) {
+    fwrite(STDERR, "FAIL: BO mutable queue state must bypass Db query cache\n");
+    exit(1);
 }
 
 echo "Back Office config contract: OK\n";
