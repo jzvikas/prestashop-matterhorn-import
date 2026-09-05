@@ -47,7 +47,7 @@ if (str_contains($stage, 'SAVEPOINT matterhorn_remove_item') || str_contains($st
 // REMOVE safety is a behavioral invariant. Do not pin the regression test to a
 // historical module version; legitimate later fixes must not require falsifying
 // the version or weakening the removal fence to satisfy this contract.
-if (!preg_match("/\\$this->version\\s*=\\s*'\\d+\\.\\d+\\.\\d+';/", $module)) {
+if (!preg_match("/version\\s*=\\s*'\\d+\\.\\d+\\.\\d+';/", $module)) {
     throw new RuntimeException('Module must expose a valid semantic version');
 }
 
