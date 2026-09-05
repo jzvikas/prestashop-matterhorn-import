@@ -1,6 +1,7 @@
 <?php
 namespace Lp\MatterhornImport\Image;
 
+use Lp\MatterhornImport\Repository\ImageOrphanRepository;
 use Lp\MatterhornImport\Repository\ImageQueueRepository;
 use Lp\MatterhornImport\Repository\ImageStateRepository;
 use Lp\MatterhornImport\Util\DatabaseSafety;
@@ -15,7 +16,8 @@ final class ImageWorker
         private PrestaImageProcessor $processor,
         private DatabaseSafety $safety,
         private ImageStateRepository $state,
-        private ImageFailureClassifier $failureClassifier
+        private ImageFailureClassifier $failureClassifier,
+        private ImageOrphanRepository $orphans
     ) {
     }
 
@@ -24,6 +26,7 @@ final class ImageWorker
         $this->safety->assertTransactionalCore();
         $done = $failed = $lost = $deduplicated = $notModified = $replacedDeleted = $replacementCleanupFailed = 0;
         $hookCommitRecoveries = $attachedRollbackDeletes = $attachedRollbackDeleteFailed = 0;
+        $orphanRecorded = $orphanRecordFailed = 0;
 
         foreach ($this->queue->claim($worker, $limit, $shopId) as $row) {
             $idQueue = (int) $row['id_queue'];
@@ -139,14 +142,34 @@ final class ImageWorker
                 }
                 if ($attached instanceof AttachedImage && !$commitAttempted) {
                     if ($externalImageCommit) {
+                        $cleaned = false;
+                        $cleanupError = null;
                         try {
-                            if ($this->processor->deleteImage($attached->idImage, (int) $row['id_product'], (int) $row['id_shop'])) {
-                                $attachedRollbackDeletes++;
-                            } else {
-                                $attachedRollbackDeleteFailed++;
-                            }
-                        } catch (\Throwable) {
+                            $cleaned = $this->processor->deleteImage($attached->idImage, (int) $row['id_product'], (int) $row['id_shop']);
+                        } catch (\Throwable $deleteError) {
+                            $cleanupError = $deleteError->getMessage();
+                        }
+                        if ($cleaned) {
+                            $attachedRollbackDeletes++;
+                        } else {
                             $attachedRollbackDeleteFailed++;
+                            try {
+                                $this->orphans->record(
+                                    $row,
+                                    $attached->idImage,
+                                    'hook_commit_rollback_cleanup',
+                                    $cleanupError ?? $e->getMessage()
+                                );
+                                $orphanRecorded++;
+                            } catch (\Throwable $orphanError) {
+                                $orphanRecordFailed++;
+                                error_log(sprintf(
+                                    '[matterhornimport] failed to persist image orphan marker queue=%d image=%d: %s',
+                                    $idQueue,
+                                    $attached->idImage,
+                                    $orphanError->getMessage()
+                                ));
+                            }
                         }
                     } else {
                         $this->processor->cleanupFilesystem($attached);
@@ -174,15 +197,15 @@ final class ImageWorker
             'hook_commit_recoveries' => $hookCommitRecoveries,
             'attached_rollback_deleted' => $attachedRollbackDeletes,
             'attached_rollback_delete_failed' => $attachedRollbackDeleteFailed,
+            'orphan_recorded' => $orphanRecorded,
+            'orphan_record_failed' => $orphanRecordFailed,
             'processed' => $done + $failed + $lost,
         ];
     }
 
     private function replacementCandidate(?array $prior, DownloadedImage $download, int $newImageId): ?array
     {
-        if (!is_array($prior)) {
-            return null;
-        }
+        if (!is_array($prior)) { return null; }
         $oldImageId = (int) ($prior['id_image'] ?? 0);
         $oldHash = (string) ($prior['content_hash'] ?? '');
         if ($oldImageId <= 0 || $oldHash === '' || $oldImageId === $newImageId || hash_equals($oldHash, $download->contentHash)) {
