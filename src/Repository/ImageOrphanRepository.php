@@ -36,12 +36,15 @@ final class ImageOrphanRepository
     }
 
     /** @return list<array<string,mixed>> */
-    public function due(int $limit, ?int $shopId = null): array
+    public function due(int $limit, ?int $shopId = null, ?string $source = null): array
     {
         $limit = max(1, min(2000, $limit));
-        $shopWhere = $shopId === null ? '' : ' AND id_shop=' . (int) $shopId;
+        $scopeWhere = $shopId === null ? '' : ' AND id_shop=' . (int) $shopId;
+        if ($source !== null && trim($source) !== '') {
+            $scopeWhere .= " AND source='" . pSQL(trim($source)) . "'";
+        }
         return \Db::getInstance()->executeS(
-            'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE (available_at IS NULL OR available_at<=NOW())' . $shopWhere . ' ORDER BY id_orphan LIMIT ' . $limit,
+            'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE (available_at IS NULL OR available_at<=NOW())' . $scopeWhere . ' ORDER BY id_orphan LIMIT ' . $limit,
             true,
             false
         ) ?: [];
