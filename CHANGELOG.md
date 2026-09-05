@@ -7,7 +7,8 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Kept supplier normalization warnings observable in snapshot payloads/status without letting warning-only differences dirty catalog domain hashes.
 - Removed the UPDATE fallback that routed payload-only metadata changes into unnecessary product core writes.
 - Canonicalized supplier warning ordering so semantically identical option reordering does not churn snapshot payload hashes.
-- Added regression coverage for warning/domain isolation and warning-order determinism to the static release gate.
+- Preserved Matterhorn `avaible_in` and `creation_date` as supplier metadata without assigning stock/delivery/date-add semantics or dirtying catalog domain hashes.
+- Added regression coverage for warning/domain isolation, warning-order determinism and supplier metadata isolation to the static release gate.
 - Made the GitHub Actions release workflow manually dispatchable when push-trigger execution is unavailable.
 
 ## 0.1.6
