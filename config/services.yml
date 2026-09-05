@@ -24,3 +24,6 @@ services:
 
   Lp\MatterhornImport\Contract\OutOfFeedPolicyInterface:
     alias: Lp\MatterhornImport\Product\DeactivateOutOfFeedPolicy
+
+  Lp\MatterhornImport\Command\ReadCommand:
+    tags: ['console.command']
