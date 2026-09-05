@@ -82,6 +82,10 @@ final class MatterhornProductMapper implements ProductMapperInterface
                 $warnings[] = 'image #' . ((int) $index + 1) . ' non-HTTP URL was skipped';
                 continue;
             }
+            if (isset($parts['user']) || isset($parts['pass'])) {
+                $warnings[] = 'image #' . ((int) $index + 1) . ' URL credentials were skipped';
+                continue;
+            }
             $images[] = $url;
         }
 
