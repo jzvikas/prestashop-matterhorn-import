@@ -7,21 +7,24 @@ Standalone high-throughput Matterhorn Wholesale supplier import module for **Pre
 The production implementation is now assembled across the supplier adapter and reusable skeleton domains:
 
 - streaming `XMLReader` Matterhorn source with checkpoint resume, source fingerprinting and READ semantic-policy fencing;
-- semantic mapper with isolated domain hashes;
+- semantic mapper with isolated domain hashes and single-pass combination structure/stock hashing to avoid duplicate READ projection work;
 - category path mapping, manufacturer resolution, Color/Type features and sanitized descriptions;
 - pure READ-time Size descriptors resolved to PrestaShop attributes only during persistence, with shop-scoped configurable Size group policy;
 - Size combinations with option reference, stock and validated EAN13;
 - guarded `READ -> IMPORT -> UPDATE -> REMOVE` orchestration with bounded resume and REMOVE safety;
+- shared item-transaction recovery across IMPORT, UPDATE, REMOVE, the global new-product worker and nested PrestaShop ObjectModel paths so hook-triggered commits cannot silently dissolve module durability boundaries;
+- one-transaction-per-product REMOVE with exact mapping ownership re-lock/fencing after an external commit;
 - exclusive per-shop product ownership enforced by `uq_shop_product_owner (id_shop, id_product)` with a fail-closed retained-data upgrade path;
 - out-of-feed deactivation that zeroes both base and combination stock;
-- generic specific-price ownership/synchronization infrastructure, which is a no-op for the current Matterhorn feed because the supplier does not provide specific prices;
+- generic specific-price ownership/synchronization infrastructure with bounded semantic lookup; it remains a no-op for the current Matterhorn feed because the supplier does not provide specific prices;
 - secure persistent image queue/state, lease fencing, cross-run/mapping fencing, HTTP revalidation, SSRF/DNS protections, attachment worker, deduplication, orphan recovery and resumable authoritative reconciliation;
 - bounded age-based image revalidation that catches supplier image-content changes even when the URL itself does not change, using conditional HTTP through the existing image worker;
-- global new-product queue/worker with interrupted-create recovery, generation fencing and retry/backoff;
-- multishop hardening for global category/feature/combination ownership and PrestaShop duplicated `product`/`product_shop` shadow fields;
+- global new-product queue/worker with interrupted-create recovery, generation fencing, retry/backoff and transactional generation finalization with mapping/image durability;
+- multishop hardening for global category/feature/combination ownership, partial `product_lang` recovery and PrestaShop duplicated `product`/`product_shop` shadow fields;
 - shared cross-import advisory locking for manufacturer/category/attribute/feature creation plus live-state revalidation before destructive feature/combination/specific-price/image operations;
-- `retry`, `doctor`, `status` and bounded `gc` operational commands;
-- shop-scoped Back Office configuration and live run/queue status;
+- authoritative combination cleanup that preserves a remaining manual target-shop default instead of leaving stale `cache_default_attribute` state;
+- `retry`, `doctor`, `status` and bounded `gc` operational commands with live, source-scoped queue/orphan/error observability;
+- shop-scoped Back Office configuration and live source-consistent run/queue status;
 - static contracts, changed-feed domain isolation coverage, real MariaDB schema lifecycle coverage and a Docker PrestaShop 9.1.5 runtime gate.
 
 The real PrestaShop gate covers module install and command registration, Matterhorn CREATE, manufacturer/category/features, Size combinations, EAN and stock, description persistence, image-manifest enqueue, selective changed-feed UPDATE hashes, REMOVE dry-run, out-of-feed deactivate/stock-zero, multishop isolation/product association recovery, and retention/destructive-uninstall behavior.
