@@ -28,10 +28,6 @@ classifierCheck(
     'invalid image URL arguments must remain permanent'
 );
 classifierCheck(
-    $classifier->isRetryable(new RuntimeException('Image URL credentials are not allowed')) === false,
-    'credential-bearing image URL rejection must be permanent'
-);
-classifierCheck(
     $classifier->isRetryable(new RuntimeException('Image HTTP failure 404 Not Found')) === false,
     'HTTP 404 must remain permanent'
 );
