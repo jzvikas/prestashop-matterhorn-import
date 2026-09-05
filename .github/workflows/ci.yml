@@ -80,6 +80,7 @@ jobs:
           php tests/image-placement-mariadb-check.php
           php tests/image-authoritative-manifest-mariadb-check.php
           php tests/image-out-of-feed-fence-mariadb-check.php
+          php tests/feature-semantic-collision-mariadb-check.php
 
   prestashop-runtime:
     needs: php84-static
