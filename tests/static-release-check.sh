@@ -12,6 +12,7 @@ php tests/matterhorn-update-fixture-check.php
 php tests/matterhorn-policy-contract-check.php
 php tests/attribute-resolution-contract-check.php
 php tests/schema-installer-contract-check.php
+php tests/uninstall-retention-retry-safety-check.php
 php tests/product-persistence-contract-check.php
 bash tests/product-shop-partial-language-recovery-check.sh
 php tests/feature-sync-contract-check.php
