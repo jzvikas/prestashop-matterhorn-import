@@ -36,6 +36,17 @@ bootstrap_action() {
   '
 }
 
+# Symfony compiles module services in a fresh PHP process where matterhornimport.php
+# has not necessarily registered the fallback autoloader yet. A production module
+# package therefore needs its Composer PSR-4 runtime, even though this module has no
+# third-party PHP packages. Build that exact production autoload before copying the
+# module into the PrestaShop container.
+(
+  cd "$ROOT"
+  composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+)
+[[ -f "$ROOT/vendor/autoload.php" ]] || { echo 'Composer production autoload was not generated' >&2; exit 2; }
+
 docker network create "$NETWORK" >/dev/null
 docker run -d --name "$DB_CONTAINER" --network "$NETWORK" \
   -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=prestashop \
