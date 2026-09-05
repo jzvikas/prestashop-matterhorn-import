@@ -159,6 +159,24 @@ final class Diagnostics
             $failed=(int)($row['failed']??0); $expired=(int)($row['expired']??0);
             $checks[]=$this->check($domain . '-queue',$failed>0||$expired>0?'warning':'ok',sprintf('total=%d pending=%d processing=%d failed=%d expired=%d',(int)($row['total']??0),(int)($row['pending']??0),(int)($row['processing']??0),$failed,$expired));
         }
+
+        // A successful new-product worker finalization stores id_product together with status=done
+        // in the same transaction as the exact mapping. Superseded jobs deliberately keep id_product
+        // NULL, so exclude those and surface only durable ownership drift as an integrity warning.
+        $doneOwnershipDrift = (int)$db->getValue(
+            "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . "li_matterhornim_99dfbf_new_product_queue` q " .
+            "LEFT JOIN `" . _DB_PREFIX_ . "li_matterhornim_99dfbf_mapping` m " .
+            "ON m.id_shop=q.id_shop AND m.source=q.source AND m.source_key=q.source_key " .
+            "WHERE q.id_shop=" . $shopId . " AND q.source='" . $sourceSql . "' AND q.status='done' " .
+            "AND q.id_product IS NOT NULL AND (m.id_product IS NULL OR m.id_product<>q.id_product)",
+            false
+        );
+        $checks[] = $this->check(
+            'new-product-done-ownership',
+            $doneOwnershipDrift > 0 ? 'warning' : 'ok',
+            'done_product_without_exact_mapping=' . $doneOwnershipDrift
+        );
+
         $orphanRow = $db->getRow(
             'SELECT COUNT(*) total,SUM(available_at IS NULL OR available_at<=NOW()) due FROM `' . _DB_PREFIX_ .
             'li_matterhornim_99dfbf_image_orphan` WHERE id_shop=' . $shopId . " AND source='" . $sourceSql . "'",
