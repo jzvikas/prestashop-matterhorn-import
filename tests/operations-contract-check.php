@@ -8,6 +8,8 @@ $files = [
     'src/Command/DoctorCommand.php',
     'src/Command/StatusCommand.php',
     'src/Repository/ErrorRepository.php',
+    'src/Repository/ImageQueueRepository.php',
+    'src/Repository/NewProductQueueRepository.php',
     'src/Command/GcCommand.php',
     'src/Util/Diagnostics.php',
     'src/Gc/GcService.php',
@@ -20,11 +22,17 @@ $retry = file_get_contents($root . '/src/Command/RetryCommand.php');
 $doctor = file_get_contents($root . '/src/Util/Diagnostics.php');
 $status = file_get_contents($root . '/src/Command/StatusCommand.php');
 $errors = file_get_contents($root . '/src/Repository/ErrorRepository.php');
+$imageQueue = file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
+$newProductQueue = file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
 $gc = file_get_contents($root . '/src/Gc/GcService.php');
 $services = file_get_contents($root . '/config/services.yml');
 $checks = [
     [$retry, "parent::__construct('matterhornimport:retry')", 'retry command'],
     [$retry, "['image','new-product','all']", 'explicit retry domains'],
+    [$imageQueue, "WHERE status='failed' AND id_queue IN (", 'image retry reset must recheck failed status'],
+    [$imageQueue, 'return (int) $db->Affected_Rows();', 'image retry reset must report rows actually reopened'],
+    [$newProductQueue, "WHERE status='failed' AND id_queue IN (", 'new-product retry reset must recheck failed status'],
+    [$newProductQueue, 'return (int) $db->Affected_Rows();', 'new-product retry reset must report rows actually reopened'],
     [$doctor, "version_compare($psVersion, '9.1.0', '>=')", 'PrestaShop 9.1 lower bound'],
     [$doctor, "version_compare($psVersion, '9.2.0', '<')", 'PrestaShop 9.1 upper bound'],
     [$doctor, 'assertTransactionalCore()', 'doctor database safety'],
