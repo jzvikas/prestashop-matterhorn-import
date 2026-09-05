@@ -80,6 +80,23 @@ check(count($badEan->extra['supplier_warnings'] ?? []) === 1 && str_contains((st
 check($badEan->payloadHash() !== $blankEan->payloadHash(), 'warning metadata must remain observable in payload hash');
 check($badEan->domainHashes() === $blankEan->domainHashes(), 'warning-only malformed EAN normalization must not dirty catalog domains');
 
+$nonHttpImageRow = $rows[0];
+$nonHttpImageRow['images'][] = 'ftp://supplier.invalid/image.jpg';
+$nonHttpImageRow['images'][] = 'ftp://supplier.invalid/image.jpg';
+$nonHttpImage = $mapper->map($nonHttpImageRow);
+check($nonHttpImage->images === $product->images, 'non-HTTP supplier image must be skipped without changing desired valid manifest');
+check(count($nonHttpImage->extra['supplier_warnings'] ?? []) === 1 && str_contains((string) $nonHttpImage->extra['supplier_warnings'][0], 'non-HTTP URL was skipped'), 'non-HTTP supplier image must be observable once even when duplicated');
+check($nonHttpImage->payloadHash() !== $product->payloadHash(), 'invalid-image warning must remain observable in payload hash');
+check($nonHttpImage->domainHashes() === $product->domainHashes(), 'skipped invalid image URL must not dirty catalog domains');
+
+$oversizedImageRow = $rows[0];
+$oversizedImageRow['images'][] = 'https://supplier.invalid/' . str_repeat('a', 16384);
+$oversizedImage = $mapper->map($oversizedImageRow);
+check($oversizedImage->images === $product->images, 'oversized supplier image URL must be skipped without changing desired valid manifest');
+check(count($oversizedImage->extra['supplier_warnings'] ?? []) === 1 && str_contains((string) $oversizedImage->extra['supplier_warnings'][0], 'exceeds 16384 bytes'), 'oversized supplier image URL must be observable');
+check($oversizedImage->payloadHash() !== $product->payloadHash(), 'oversized-image warning must remain observable in payload hash');
+check($oversizedImage->domainHashes() === $product->domainHashes(), 'skipped oversized image URL must not dirty catalog domains');
+
 $zeroStockRow = $rows[0];
 $zeroStockRow['options'][0]['stock'] = '0';
 $zeroStock = $mapper->map($zeroStockRow);
