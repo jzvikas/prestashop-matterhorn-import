@@ -48,7 +48,8 @@ persistenceCheck(str_contains($specificPrice, 'product_attribute_shop'), 'specif
 persistenceCheck(str_contains($specificPrice, 'deleteOwnedIfUnchanged'), 'owned specific-price deletion must use optimistic live-row fence');
 persistenceCheck(str_contains($specificPrice, "'`id_specific_price`=' . \$id") && str_contains($specificPrice, "'`id_product_attribute`='"), 'specific-price delete fence must include identity and combination scope');
 persistenceCheck(str_contains($specificPrice, "\"`price`='\"") && str_contains($specificPrice, "\"`reduction`='\""), 'specific-price delete fence must include mutable price/reduction values');
-persistenceCheck(str_contains($specificPrice, '$db->Affected_Rows() > 1'), 'specific-price optimistic delete must reject impossible multi-row deletion');
+persistenceCheck(str_contains($specificPrice, '$affected > 1'), 'specific-price optimistic delete must reject impossible multi-row deletion');
+persistenceCheck(str_contains($specificPrice, '$affected === 0 && $this->fetchLive($id, $productId, $shopId) !== null'), 'specific-price optimistic delete must fail closed when the live row changed concurrently');
 persistenceCheck(str_contains($specificPrice, 'getRow(') && str_contains($specificPrice, "false\n        );"), 'specific-price live row fetch must bypass Db query cache');
 persistenceCheck(str_contains($specificPrice, 'SELECT id_specific_price FROM `%sspecific_price`'), 'specific-price semantic lookup must project only identifiers');
 persistenceCheck(str_contains($specificPrice, 'AND id_product_attribute=%d AND id_currency=%d AND id_country=%d AND id_group=%d'), 'specific-price semantic identity must be pushed into SQL');
