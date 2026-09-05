@@ -116,6 +116,36 @@ $duplicateSemantic = $rows[0]; $duplicateSemantic['options'][1]['name'] = 'XS';
 try { $mapper->map($duplicateSemantic); check(false, 'duplicate semantic size must fail'); }
 catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'Duplicate semantic size'), 'duplicate semantic size error clarity'); }
 
+$longProductId = $rows[0];
+$longProductId['id'] = str_repeat('9', 62);
+try { $mapper->map($longProductId); check(false, 'product reference over 64 bytes must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'reference exceeds PrestaShop 64-byte limit'), 'product reference bound error clarity'); }
+
+$longOptionReference = $rows[0];
+$longOptionReference['options'][0]['id'] = str_repeat('O', 65);
+try { $mapper->map($longOptionReference); check(false, 'combination reference over 64 bytes must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'option reference exceeds PrestaShop 64-byte limit'), 'combination reference bound error clarity'); }
+
+$longManufacturer = $rows[0];
+$longManufacturer['brand'] = str_repeat('M', 65);
+try { $mapper->map($longManufacturer); check(false, 'manufacturer over 64 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'manufacturer name exceeds PrestaShop 64-character limit'), 'manufacturer bound error clarity'); }
+
+$longCategoryName = $rows[0];
+$longCategoryName['category']['name'] = str_repeat('C', 129);
+try { $mapper->map($longCategoryName); check(false, 'category name over 128 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'category name exceeds PrestaShop 128-character limit'), 'category-name bound error clarity'); }
+
+$longCategoryPath = $rows[0];
+$longCategoryPath['category_path'] = '/' . str_repeat('P', 129);
+try { $mapper->map($longCategoryPath); check(false, 'category path segment over 128 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'category path segment exceeds PrestaShop 128-character limit'), 'category-path bound error clarity'); }
+
+$longCategoryId = $rows[0];
+$longCategoryId['category']['id'] = str_repeat('K', 180);
+try { $mapper->map($longCategoryId); check(false, 'generated category supplier key over 191 characters must fail in READ'); }
+catch (InvalidArgumentException $e) { check(str_contains($e->getMessage(), 'category supplier key exceeds module 191-character limit'), 'category-key bound error clarity'); }
+
 $simple = $rows[0]; $simple['options'] = [];
 $simpleMapped = $mapper->map($simple);
 check($simpleMapped->quantity === 0 && !isset($simpleMapped->extra['combinations']), 'simple product has zero stock and no invented combinations');
