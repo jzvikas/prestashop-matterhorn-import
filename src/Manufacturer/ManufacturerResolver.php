@@ -20,9 +20,13 @@ final class ManufacturerResolver
         $this->shopContext->activate($shopId);
         $db = \Db::getInstance();
         $lock = 'lpimp:mfr:' . substr(hash('sha256', mb_strtolower($name, 'UTF-8')), 0, 32);
-        if ((int) $db->getValue("SELECT GET_LOCK('" . pSQL($lock) . "', 10)") !== 1) { throw new \RuntimeException('Cannot acquire manufacturer resolver lock.'); }
+        if ((int) $db->getValue("SELECT GET_LOCK('" . pSQL($lock) . "', 10)", false) !== 1) { throw new \RuntimeException('Cannot acquire manufacturer resolver lock.'); }
         try {
-            $id = (int) $db->getValue('SELECT id_manufacturer FROM `' . _DB_PREFIX_ . 'manufacturer` ' . "WHERE LOWER(name)=LOWER('" . pSQL($name) . "') ORDER BY id_manufacturer ASC");
+            $id = (int) $db->getValue(
+                'SELECT id_manufacturer FROM `' . _DB_PREFIX_ . 'manufacturer` ' .
+                "WHERE LOWER(name)=LOWER('" . pSQL($name) . "') ORDER BY id_manufacturer ASC",
+                false
+            );
             if ($id <= 0) {
                 if (!$autoCreate) { return 0; }
                 $manufacturer = new \Manufacturer();
@@ -32,12 +36,15 @@ final class ManufacturerResolver
                 $id = (int) $manufacturer->id;
             }
             $db->execute('INSERT IGNORE INTO `' . _DB_PREFIX_ . 'manufacturer_shop` (id_manufacturer,id_shop) VALUES (' . $id . ',' . $shopId . ')');
-            if (!(bool) $db->getValue('SELECT 1 FROM `' . _DB_PREFIX_ . 'manufacturer_shop` WHERE id_manufacturer=' . $id . ' AND id_shop=' . $shopId)) {
+            if (!(bool) $db->getValue(
+                'SELECT 1 FROM `' . _DB_PREFIX_ . 'manufacturer_shop` WHERE id_manufacturer=' . $id . ' AND id_shop=' . $shopId,
+                false
+            )) {
                 throw new \RuntimeException('Cannot associate manufacturer #' . $id . ' to shop #' . $shopId);
             }
             return $this->cache[$key] = $id;
         } finally {
-            $db->getValue("SELECT RELEASE_LOCK('" . pSQL($lock) . "')");
+            $db->getValue("SELECT RELEASE_LOCK('" . pSQL($lock) . "')", false);
         }
     }
 }
