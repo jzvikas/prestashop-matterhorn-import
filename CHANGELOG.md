@@ -4,6 +4,12 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 
 ## Unreleased
 
+- Rejected duplicate known singleton Matterhorn product/option XML fields instead of silently applying last-value-wins semantics, while preserving repeated `image_url`, multiple `<option>` records and unknown extension fields.
+- Hardened the fallback DOM HTML sanitizer so descendants are sanitized before disallowed wrappers are unwrapped, preventing nested unsafe elements/attributes from bypassing traversal while preserving allowed formatting.
+- Accepted syntactically valid signed integer STOCK values with leading zeros by canonicalizing them before integer validation, while preserving negative-stock observability, malformed-stock rejection and the PrestaShop INT32 maximum.
+- Fenced specific-price ownership state writes to exact product/semantic/rule identities with monotonic run generations and exact applied-hash deletion checks, failing closed on ownership conflicts or concurrent replacement/removal instead of broad state upserts.
+- Failed closed when slug-derived supplier feature/value keys collide with a different persisted supplier label/value, with preflight validation, advisory-lock-protected fresh rechecks and real MariaDB regression coverage across shop/source scopes.
+- Excluded credential-bearing HTTP(S) supplier image URLs from the READ desired manifest with deterministic supplier warnings while retaining the downloader's credential rejection as defense in depth.
 - Failed closed on malformed Matterhorn XML by requiring `<products>` as the document root and every consumed `<product>` record to be a direct child of that root, with regression coverage for valid, wrong-root and nested-product feeds.
 - Rejected Matterhorn product names beyond the PrestaShop 128-character boundary instead of silently truncating supplier data, and added fail-closed required-field coverage for product id/name/price plus option id/size/stock.
 - Added isolated Matterhorn domain-hash regression coverage for price, combination stock, images, core text/manufacturer, Color/Type features, categories, combination structure and supplier-only `creation_date` / `avaible_in` metadata changes.
