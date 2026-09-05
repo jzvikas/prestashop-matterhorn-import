@@ -47,6 +47,20 @@ final class ImageQueueRepository
         return (int) $db->Affected_Rows() > 0 || $this->ownsActiveLease($id, $token);
     }
 
+    /** @return array<string,mixed> */
+    public function lockOwned(int $id, string $token): array
+    {
+        if ($id <= 0 || $token === '') { throw new \InvalidArgumentException('Image queue lock requires id/token'); }
+        $row = \Db::getInstance()->getRow(sprintf(
+            "SELECT * FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW() FOR UPDATE",
+            _DB_PREFIX_, self::TABLE, $id, pSQL($token)
+        ));
+        if (!is_array($row) || $row === []) {
+            throw new \RuntimeException('Matterhorn image queue ownership lost before locked persistence');
+        }
+        return $row;
+    }
+
     public function done(int $id, string $token): void
     {
         $db = \Db::getInstance();
@@ -124,7 +138,20 @@ final class ImageQueueRepository
 
     private function insertValues(array $values): void
     {
-        $sql = sprintf("INSERT INTO `%s%s` (`id_run`,`id_shop`,`source`,`source_key`,`id_product`,`url`,`url_hash`,`position`,`is_cover`,`status`,`available_at`,`created_at`,`updated_at`) VALUES %s ON DUPLICATE KEY UPDATE id_run=IF(status='done',VALUES(id_run),id_run),source=IF(status='done',VALUES(source),source),source_key=IF(status='done',VALUES(source_key),source_key),url=IF(status='done',VALUES(url),url),position=IF(status='done',VALUES(position),position),is_cover=IF(status='done',VALUES(is_cover),is_cover),attempts=IF(status='done',0,attempts),available_at=IF(status='done',NULL,available_at),last_error=IF(status='done',NULL,last_error),updated_at=IF(status='done',VALUES(updated_at),updated_at),status=IF(status='done','pending',status)", _DB_PREFIX_, self::TABLE, implode(',', $values));
+        // The unique row represents the latest desired placement for this shop/product/URL.
+        // A newer run may supersede metadata even while an older worker owns the lease. The
+        // worker locks/reloads this row before state persistence, so it commits the newest
+        // run/position/cover atomically with queue completion.
+        $sql = sprintf(
+            "INSERT INTO `%s%s` (`id_run`,`id_shop`,`source`,`source_key`,`id_product`,`url`,`url_hash`,`position`,`is_cover`,`status`,`available_at`,`created_at`,`updated_at`) VALUES %s " .
+            "ON DUPLICATE KEY UPDATE " .
+            "id_run=VALUES(id_run),source=VALUES(source),source_key=VALUES(source_key),url=VALUES(url),position=VALUES(position),is_cover=VALUES(is_cover)," .
+            "attempts=IF(status='processing',attempts,0),available_at=IF(status='processing',available_at,NULL)," .
+            "locked_by=IF(status='processing',locked_by,NULL),locked_until=IF(status='processing',locked_until,NULL)," .
+            "last_error=IF(status='processing',last_error,NULL),updated_at=VALUES(updated_at)," .
+            "status=IF(status='processing','processing','pending')",
+            _DB_PREFIX_, self::TABLE, implode(',', $values)
+        );
         if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Matterhorn image queue batch insert failed'); }
     }
 }
