@@ -9,6 +9,38 @@ function domainAssert(bool $condition, string $message): void
     if (!$condition) { throw new RuntimeException($message); }
 }
 
+function matterhornFailureDiagnostics(): string
+{
+    try {
+        $db = Db::getInstance();
+        $prefix = _DB_PREFIX_ . 'li_matterhornim_99dfbf_';
+        $run = $db->getRow(
+            "SELECT id_run,status,read_status,import_status,update_status,remove_status,read_done,read_failed,import_done,import_failed,update_done,update_failed,remove_done,remove_failed FROM `{$prefix}run` WHERE id_shop=1 AND source='matterhorn' ORDER BY id_run DESC LIMIT 1",
+            false
+        );
+        if (!is_array($run)) { return 'No Matterhorn run diagnostics available.'; }
+        $runId = (int) ($run['id_run'] ?? 0);
+        $errors = $runId > 0 ? ($db->executeS(
+            "SELECT stage,source_key,message,created_at FROM `{$prefix}error` WHERE id_run={$runId} ORDER BY id_error DESC LIMIT 20",
+            true,
+            false
+        ) ?: []) : [];
+        $lines = ['Persisted Matterhorn diagnostics: ' . json_encode($run, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)];
+        foreach (array_reverse($errors) as $error) {
+            $lines[] = sprintf(
+                '[%s] stage=%s source_key=%s %s',
+                (string) ($error['created_at'] ?? '-'),
+                (string) ($error['stage'] ?? '-'),
+                (string) (($error['source_key'] ?? '') ?: '-'),
+                (string) ($error['message'] ?? '')
+            );
+        }
+        return implode("\n", $lines);
+    } catch (Throwable $e) {
+        return 'Could not read persisted Matterhorn diagnostics: ' . get_class($e) . ': ' . $e->getMessage();
+    }
+}
+
 function runMatterhornConsole(array $arguments): string
 {
     $parts = ['APP_ENV=prod', 'APP_DEBUG=0', 'php', '-d', 'memory_limit=512M', 'bin/console'];
@@ -18,7 +50,9 @@ function runMatterhornConsole(array $arguments): string
     $code = 0;
     exec($command, $lines, $code);
     $output = implode("\n", $lines);
-    if ($code !== 0) { throw new RuntimeException('Console command failed (' . $code . '): ' . $command . "\n" . $output); }
+    if ($code !== 0) {
+        throw new RuntimeException('Console command failed (' . $code . '): ' . $command . "\n" . $output . "\n" . matterhornFailureDiagnostics());
+    }
     return $output;
 }
 
