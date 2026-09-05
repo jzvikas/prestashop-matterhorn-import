@@ -101,6 +101,26 @@ foreach ($checks as [$haystack, $needle, $label]) {
     }
 }
 
+$renewStart = strpos($queue, 'public function renew(int $id, string $token): bool');
+$lockOwnedStart = strpos($queue, 'public function lockOwned(int $id, string $token): array');
+if ($renewStart === false || $lockOwnedStart === false || $renewStart >= $lockOwnedStart) {
+    fwrite(STDERR, "FAIL: new-product lease renewal method boundaries missing\n");
+    exit(1);
+}
+$renewBody = substr($queue, $renewStart, $lockOwnedStart - $renewStart);
+if (!str_contains($renewBody, "WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()")) {
+    fwrite(STDERR, "FAIL: new-product heartbeat must renew every still-active row owned by the claim token\n");
+    exit(1);
+}
+if (str_contains($renewBody, 'WHERE id_queue=%d')) {
+    fwrite(STDERR, "FAIL: new-product heartbeat must not renew only the current queue row\n");
+    exit(1);
+}
+if (!str_contains($renewBody, 'return $this->ownsActiveLease($id, $token);')) {
+    fwrite(STDERR, "FAIL: new-product batch heartbeat must still verify current-row lease ownership\n");
+    exit(1);
+}
+
 $lockPos = strpos($worker, '$lockedJob = $this->queue->lockOwned($idQueue, $token)');
 $payloadPos = strpos($worker, 'ProductData::fromJson(');
 $updatePos = strpos($worker, '$this->writer->update(');
