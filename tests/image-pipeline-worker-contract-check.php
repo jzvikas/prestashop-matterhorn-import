@@ -58,9 +58,9 @@ $checks = [
     [$reconciler, 'imageReconcileCheckpoint($runId, $sourceKey)', 'checkpoint after successful product reconciliation'],
     [$reconciler, '$this->budget->shouldStop()', 'bounded reconciliation stop checks'],
     [$reconciler, '$this->budget->markItem()', 'bounded reconciliation progress accounting'],
-    [$reconciler, "imageReconcileFinish($runId, $paused ? 'paused' : 'completed')", 'reconciliation completion state'],
-    [$reconciler, "imageReconcileFinish($runId, 'failed')", 'reconciliation failure state'],
-    [$reconciler, "$this->errors->add($runId, 'image', $currentSourceKey, $e)", 'source-scoped reconciliation error logging'],
+    [$reconciler, "imageReconcileFinish(\$runId, \$paused ? 'paused' : 'completed')", 'reconciliation completion state'],
+    [$reconciler, "imageReconcileFinish(\$runId, 'failed')", 'reconciliation failure state'],
+    [$reconciler, "\$this->errors->add(\$runId, 'image', \$currentSourceKey, \$e)", 'source-scoped reconciliation error logging'],
     [$reconciler, 'statesForProduct', 'module-owned image-state reconciliation'],
     [$reconciler, "last_seen_run_id'] ?? 0) <= 0", 'reconciliation must accept live unchanged state from an earlier run'],
     [$runs, 'function imageReconcileStart', 'run repository reconciliation start state'],
@@ -86,7 +86,7 @@ $checks = [
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!is_string($haystack) || !str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
 }
-if (str_contains((string) $reconciler, "last_seen_run_id'] !== $runId")) {
+if (str_contains((string) $reconciler, "last_seen_run_id'] !== \$runId")) {
     fwrite(STDERR, "FAIL: unchanged image states must not require current-run freshness\n");
     exit(1);
 }
