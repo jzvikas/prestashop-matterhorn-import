@@ -406,7 +406,7 @@ final class CombinationSynchronizer
         if ($ids === []) { return; }
         $idList = implode(',', $ids);
         $externalDefault = (int) $db->getValue(sprintf(
-            'SELECT pa.id_product_attribute FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product=%d AND pas.default_on=1 AND pa.id_product_attribute NOT IN (%s) ORDER BY pa.id_product_attribute LIMIT 1',
+            'SELECT pa.id_product_attribute FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product=%d AND pas.default_on=1 AND pa.id_product_attribute NOT IN (%s) ORDER BY pa.id_product_attribute',
             _DB_PREFIX_, _DB_PREFIX_, $shopId, $productId, $idList
         ), false);
         if ($externalDefault > 0) { throw new \RuntimeException('Refusing to override default combination owned outside Matterhorn: ' . $externalDefault); }
