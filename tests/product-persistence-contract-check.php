@@ -36,6 +36,13 @@ persistenceCheck(!str_contains($category, 'lp_import_category_mapping'), 'generi
 persistenceCheck(str_contains($categorySync, 'assertExclusiveGlobalOwnership($productId, $shopId)'), 'category_product mutation must fail closed for shared products');
 persistenceCheck(str_contains($specificPrice, 'combinationBelongsToShopProduct'), 'specific prices must validate target-shop combination association');
 persistenceCheck(str_contains($specificPrice, 'product_attribute_shop'), 'specific-price combination validation must be shop-scoped');
+persistenceCheck(str_contains($specificPrice, 'deleteOwnedIfUnchanged'), 'owned specific-price deletion must use optimistic live-row fence');
+persistenceCheck(str_contains($specificPrice, "'`id_specific_price`=' . \$id") && str_contains($specificPrice, "'`id_product_attribute`='"), 'specific-price delete fence must include identity and combination scope');
+persistenceCheck(str_contains($specificPrice, "\"`price`='\"") && str_contains($specificPrice, "\"`reduction`='\""), 'specific-price delete fence must include mutable price/reduction values');
+persistenceCheck(str_contains($specificPrice, '$db->Affected_Rows() > 1'), 'specific-price optimistic delete must reject impossible multi-row deletion');
+persistenceCheck(str_contains($specificPrice, 'getRow(') && str_contains($specificPrice, "false\n        );"), 'specific-price live row fetch must bypass Db query cache');
+persistenceCheck(str_contains($specificPrice, 'executeS(') && str_contains($specificPrice, "true,\n            false"), 'specific-price semantic-match scan must bypass Db query cache');
+persistenceCheck(str_contains($specificPrice, '), false);'), 'specific-price combination ownership read must bypass Db query cache');
 persistenceCheck(str_contains($outOfFeed, 'disable($productId, $shopId)'), 'out-of-feed must deactivate/zero stock through writer');
 
 echo "Product persistence contract checks: OK\n";
