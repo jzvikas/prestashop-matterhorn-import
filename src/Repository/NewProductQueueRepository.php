@@ -28,7 +28,7 @@ final class NewProductQueueRepository
         if (!\Db::getInstance()->execute(sprintf("UPDATE `%s%s` SET status='processing',locked_by='%s',locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),available_at=NULL,attempts=attempts+1,updated_at=NOW() WHERE ((status='pending' AND (available_at IS NULL OR available_at<=NOW())) OR (status='processing' AND locked_until<=NOW())) AND attempts<%d%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), self::LEASE_MINUTES, self::MAX_ATTEMPTS, $shopWhere, $limit))) {
             throw new \RuntimeException('Matterhorn new-product queue claim failed');
         }
-        return \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), $shopWhere, $limit)) ?: [];
+        return \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), $shopWhere, $limit), true, false) ?: [];
     }
 
     public function renew(int $id, string $token): bool
@@ -72,7 +72,7 @@ final class NewProductQueueRepository
         $limit = max(1, min(100000, $limit));
         $where = "status='failed'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
         $db = \Db::getInstance();
-        $rows = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . $limit) ?: [];
+        $rows = $db->executeS('SELECT id_queue FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE ' . $where . ' ORDER BY id_queue LIMIT ' . $limit, true, false) ?: [];
         if ($rows === []) { return 0; }
         $ids = implode(',', array_map(static fn(array $row): int => (int) $row['id_queue'], $rows));
         // The candidate list is only a bounded preload. Recheck failed status while updating so a
@@ -86,7 +86,7 @@ final class NewProductQueueRepository
     public function counts(?int $shopId = null): array
     {
         $where = $shopId === null ? '' : ' WHERE id_shop=' . (int) $shopId;
-        return \Db::getInstance()->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . self::TABLE . '`' . $where . ' GROUP BY status') ?: [];
+        return \Db::getInstance()->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . self::TABLE . '`' . $where . ' GROUP BY status', true, false) ?: [];
     }
 
     public function gc(int $days = 2): int
@@ -106,7 +106,7 @@ final class NewProductQueueRepository
 
     private function ownsActiveLease(int $id, string $token): bool
     {
-        return (bool) \Db::getInstance()->getValue(sprintf("SELECT 1 FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $id, pSQL($token)));
+        return (bool) \Db::getInstance()->getValue(sprintf("SELECT 1 FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $id, pSQL($token)), false);
     }
 
     private function claimToken(string $worker): string
