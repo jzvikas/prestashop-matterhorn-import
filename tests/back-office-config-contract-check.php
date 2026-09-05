@@ -20,7 +20,7 @@ $checks = [
     [$module, 'Select one concrete shop before configuring Matterhorn Import.', 'concrete-shop BO guard'],
     [$module, '$settings->save($shopId, $shopGroupId', 'shop-scoped BO settings persistence'],
     [$module, 'Current shop status', 'BO status panel'],
-    [$module, "$source = 'matterhorn';", 'BO operational source scope'],
+    [$module, "\$source = 'matterhorn';", 'BO operational source scope'],
     [$module, "AND source='\" . \$sourceSql . \"'", 'BO queue/orphan status must stay source scoped'],
     [$module, "GROUP BY status',\n                true,\n                false", 'BO mutable queue state must bypass Db query cache'],
     [$module, 'image_reconcile_status', 'BO image reconciliation status'],
