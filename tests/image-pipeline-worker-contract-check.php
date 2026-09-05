@@ -73,6 +73,17 @@ $checks = [
     [$processor, 'ImageType::getImagesTypes', 'thumbnail generation'],
     [$processor, 'count($shopRows) !== 1', 'multishop destructive-delete guard'],
     [$processor, 'syncProductPlacement', 'image placement reconciliation'],
+    [$processor, 'private function setTargetShopCover', 'shop cover changes must share one atomic helper'],
+    [$processor, 'INNER JOIN `%1$s` replacement', 'shop cover update must require the replacement association in the same statement'],
+    [$processor, 'SET current_cover.cover=CASE WHEN current_cover.id_image=%2$d THEN 1 ELSE NULL END', 'shop cover update must atomically clear old cover rows and set the replacement'],
+    [$processor, 'Target-shop product cover could not be verified after update', 'shop cover update must be freshly verified'],
+    [$processor, 'old_cover.cover=1', 'global cover shadow transfer must require the exact old global cover'],
+    [$processor, 'INNER JOIN `%4$s` old_target', 'global cover shadow transfer must require target-shop ownership'],
+    [$processor, 'LEFT JOIN `%4$s` old_other', 'global cover shadow transfer must inspect other-shop ownership in the same statement'],
+    [$processor, 'old_other.id_image IS NULL', 'global cover shadow transfer must be exclusive at write time'],
+    [$processor, 'INNER JOIN `%1$simage_shop` target', 'global image position update must require target-shop association in the same statement'],
+    [$processor, 'LEFT JOIN `%1$simage_shop` other', 'global image position update must inspect other-shop ownership in the same statement'],
+    [$processor, 'other.id_image IS NULL', 'global image position update must be exclusive at write time'],
     [$reconciler, 'DELETE target FROM', 'multishop image detach must use atomic delete'],
     [$reconciler, 'INNER JOIN `%s` other', 'multishop image detach must guard another shop in same statement'],
     [$reconciler, 'other.id_image=target.id_image AND other.id_shop<>target.id_shop', 'multishop detach other-shop predicate'],
@@ -125,6 +136,14 @@ $imageRow = strpos($processor, '$image = new \\Image();');
 $firstResize = strpos($processor, 'ImageManager::resize($download->path');
 if ($memoryGuard === false || $imageRow === false || $firstResize === false || $memoryGuard >= $imageRow || $imageRow >= $firstResize) {
     fwrite(STDERR, "FAIL: image memory guard must run before Image row creation and resize\n");
+    exit(1);
+}
+if (str_contains($processor, '$oldShopCount =') || str_contains($processor, '$shopCount =')) {
+    fwrite(STDERR, "FAIL: image global cover/position writes must not depend on stale shop-count prechecks\n");
+    exit(1);
+}
+if (str_contains($processor, 'UPDATE `%simage_shop` SET cover=NULL WHERE id_product=%d AND id_shop=%d AND cover=1')) {
+    fwrite(STDERR, "FAIL: target-shop cover must not use a separate clear-then-set sequence\n");
     exit(1);
 }
 if (!is_string($queue)) {
