@@ -4,7 +4,7 @@ Standalone high-throughput Matterhorn Wholesale supplier import module for **Pre
 
 ## Status
 
-Work in progress. The supplier adapter now has a streaming Matterhorn XML reader, semantic mapper, category path normalization, safe HTML handling and **pure READ-time Size descriptors**. READ no longer queries or mutates PrestaShop attributes. Numeric Size attribute IDs are resolved later by the generic skeleton persistence resolver, matching the current upstream architecture. Full skeleton orchestration/DB/image/new-product infrastructure is still being restored and must be green before PROD is declared.
+Work in progress. The supplier adapter has a streaming Matterhorn XML reader, semantic mapper, category path normalization, safe HTML handling and **pure READ-time Size descriptors**. READ no longer queries or mutates PrestaShop attributes. Numeric Size attribute IDs are resolved later by the generic skeleton persistence resolver. READ -> IMPORT -> UPDATE -> REMOVE orchestration and the canonical run/snapshot/mapping schema are restored. The image pipeline foundation now includes the persistent queue/state model, batched enqueue, renewable lease fencing, conditional HTTP revalidation and the skeleton-grade SSRF/DNS/MIME/byte/pixel download protections. Image attachment/reconciliation workers, global new-product/retry/GC/status/BO and real PrestaShop lifecycle coverage still remain before PROD can be declared.
 
 Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IMPORT_BUILD_PROMPT.md).
 
@@ -40,7 +40,7 @@ composer install --no-dev --prefer-dist --no-interaction --no-progress --optimiz
 bash tests/static-release-check.sh
 ```
 
-The current CI uses PHP 8.4 and verifies PHP syntax, Matterhorn parser/mapper behavior and domain-hash isolation.
+The current CI uses PHP 8.4 and verifies PHP syntax, supplier parser/mapper/domain-hash behavior, persistence/orchestration contracts and the secure image-pipeline foundation.
 
 ## Planned final CLI
 
