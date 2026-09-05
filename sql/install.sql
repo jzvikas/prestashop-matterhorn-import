@@ -64,11 +64,13 @@ CREATE TABLE IF NOT EXISTS `PREFIX_li_matterhornim_99dfbf_mapping` (
   `combination_stock_hash` CHAR(16) NOT NULL,
   `specific_price_hash` CHAR(16) NOT NULL,
   `image_hash` CHAR(16) NOT NULL,
+  `out_of_feed` TINYINT(1) NOT NULL DEFAULT 0,
   `last_seen_run_id` BIGINT UNSIGNED NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id_shop`,`source`,`source_key`),
   UNIQUE KEY `uq_shop_source_product` (`id_shop`,`source`,`id_product`),
   KEY `idx_seen` (`id_shop`,`source`,`last_seen_run_id`),
+  KEY `idx_feed_state` (`id_shop`,`source`,`out_of_feed`,`last_seen_run_id`),
   KEY `idx_product` (`id_product`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
