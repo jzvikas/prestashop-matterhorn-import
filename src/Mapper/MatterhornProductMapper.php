@@ -123,6 +123,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
                 'reference' => $optionId,
                 'quantity' => $stock,
                 'ean13' => $ean,
+                'matterhorn_available_in' => trim((string) ($option['available_in'] ?? '')),
             ];
         }
 
@@ -142,6 +143,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
                     'upc' => '',
                     'mpn' => '',
                     'default' => $index === 0,
+                    'matterhorn_available_in' => $item['matterhorn_available_in'],
                 ];
             }
             $extra['combinations_authoritative'] = true;
