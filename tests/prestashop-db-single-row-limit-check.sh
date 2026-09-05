@@ -14,6 +14,7 @@ paths.extend([
     root / 'tests' / 'prestashop-domain-runtime.php',
 ])
 
+violations = []
 for php_file in paths:
     if not php_file.is_file():
         continue
@@ -22,9 +23,15 @@ for php_file in paths:
         for match in re.finditer(rf'{method}\((.*?)\)\s*;?', text, re.IGNORECASE | re.DOTALL):
             if re.search(r'LIMIT\s+1\b', match.group(1), re.IGNORECASE):
                 rel = php_file.relative_to(root)
-                raise SystemExit(
-                    f'PrestaShop Db::{method}() appends LIMIT 1; remove manual LIMIT 1 from {rel}'
+                line = text.count('\n', 0, match.start()) + 1
+                violations.append(
+                    f'{rel}:{line}: PrestaShop Db::{method}() appends LIMIT 1; remove manual LIMIT 1'
                 )
+
+if violations:
+    for violation in violations:
+        print(violation, file=sys.stderr)
+    raise SystemExit(f'Found {len(violations)} redundant PrestaShop single-row LIMIT clause(s)')
 
 print('PRESTASHOP_SINGLE_ROW_LIMIT_CHECK_OK')
 PY
