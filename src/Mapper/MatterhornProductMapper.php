@@ -14,6 +14,8 @@ final class MatterhornProductMapper implements ProductMapperInterface
     private const MAX_PRESTASHOP_REFERENCE_BYTES = 64;
     private const MAX_MANUFACTURER_NAME_CHARS = 64;
     private const MAX_CATEGORY_NAME_CHARS = 128;
+    private const MAX_FEATURE_VALUE_CHARS = 255;
+    private const MAX_FEATURE_IDENTITY_CHARS = 160;
 
     public function __construct(
         private readonly SizeResolverInterface $sizes,
@@ -113,6 +115,12 @@ final class MatterhornProductMapper implements ProductMapperInterface
         foreach (['color' => 'Color', 'type' => 'Type'] as $rawKey => $displayName) {
             $value = trim((string) ($row[$rawKey] ?? ''));
             if ($value === '') { continue; }
+            if (mb_strlen($value, 'UTF-8') > self::MAX_FEATURE_VALUE_CHARS) {
+                throw new \InvalidArgumentException(
+                    'Matterhorn ' . $displayName . ' value exceeds PrestaShop ' .
+                    self::MAX_FEATURE_VALUE_CHARS . '-character limit for product ' . $sourceKey
+                );
+            }
             $features[] = [
                 'key' => 'matterhorn:' . $rawKey,
                 'value_key' => 'matterhorn:' . $rawKey . ':' . $this->identity($value),
@@ -206,8 +214,15 @@ final class MatterhornProductMapper implements ProductMapperInterface
 
     private function identity(string $value): string
     {
-        $value = mb_strtolower(trim($value), 'UTF-8');
-        $value = preg_replace('/[^\p{L}\p{N}]+/u', '-', $value) ?? $value;
-        return trim($value, '-');
+        $source = mb_strtolower(trim($value), 'UTF-8');
+        $identity = preg_replace('/[^\p{L}\p{N}]+/u', '-', $source) ?? $source;
+        $identity = trim($identity, '-');
+        if ($identity === '') {
+            return 'hash-' . substr(hash('sha256', $source), 0, 32);
+        }
+        if (mb_strlen($identity, 'UTF-8') > self::MAX_FEATURE_IDENTITY_CHARS) {
+            return mb_substr($identity, 0, 120, 'UTF-8') . '-' . substr(hash('sha256', $identity), 0, 32);
+        }
+        return $identity;
     }
 }
