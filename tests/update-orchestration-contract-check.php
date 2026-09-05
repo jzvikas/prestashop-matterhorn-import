@@ -7,7 +7,10 @@ $services = file_get_contents($root . '/config/services.yml');
 foreach ([$stage,$snapshot,$command,$services] as $file) { if ($file === false) { throw new RuntimeException('UPDATE orchestration file missing'); } }
 $checks = [
     [$stage,'READ and IMPORT must complete before UPDATE'], [$stage,'GranularProductWriterInterface'],
-    [$stage,"['core','price','stock','category']"], [$stage,'old_combination_stock_hash'],
+    [$stage,"foreach (['core','price','stock','attribute','feature','category','specific_price'] as \$domain)"],
+    [$stage,"return ['core','price','stock','attribute','feature','category','combination','specific_price']"],
+    [$stage,"['feature','combination','specific_price']"],
+    [$stage,'old_combination_stock_hash'],
     [$stage,'product_shop_exists'], [$stage,'ImageQueueRepository'], [$stage,'SAVEPOINT'],
     [$stage,'Payload-only changes are supplier/runtime metadata'],
     [$snapshot,'changedRows'], [$snapshot,'product_exists'], [$snapshot,'old_feature_hash'],
