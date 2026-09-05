@@ -8,4 +8,5 @@ php tests/matterhorn-parser-mapper-check.php
 php tests/attribute-resolution-contract-check.php
 php tests/schema-installer-contract-check.php
 php tests/product-persistence-contract-check.php
+php tests/feature-sync-contract-check.php
 echo "Static release checks: OK"
