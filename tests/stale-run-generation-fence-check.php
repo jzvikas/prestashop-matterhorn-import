@@ -119,4 +119,57 @@ if (substr_count($source['read'], $guard) !== 1
     exit(1);
 }
 
+if (!defined('_DB_PREFIX_')) {
+    define('_DB_PREFIX_', 'mh_test_');
+}
+if (!function_exists('pSQL')) {
+    function pSQL(string $value, bool $htmlOK = false): string
+    {
+        return str_replace("'", "\\'", $value);
+    }
+}
+if (!class_exists('Db', false)) {
+    final class Db
+    {
+        public static int $latestCompletedReadId = 0;
+        public static bool $uncached = false;
+        public static string $lastSql = '';
+        private static ?self $instance = null;
+
+        public static function getInstance(): self
+        {
+            return self::$instance ??= new self();
+        }
+
+        public function getValue(string $sql, bool $useCache = true): int
+        {
+            self::$lastSql = $sql;
+            self::$uncached = $useCache === false;
+            return self::$latestCompletedReadId;
+        }
+    }
+}
+
+require_once $root . '/src/Repository/RunRepository.php';
+$repository = new \Lp\MatterhornImport\Repository\RunRepository();
+\Db::$latestCompletedReadId = 20;
+$staleBlocked = false;
+try {
+    $repository->assertLatestCompletedReadGeneration(10, 1, 'matterhorn');
+} catch (\RuntimeException $e) {
+    $staleBlocked = str_contains($e->getMessage(), 'newer completed READ generation #20');
+}
+if (!$staleBlocked) {
+    fwrite(STDERR, "FAIL: executable generation fence allowed an older run\n");
+    exit(1);
+}
+if (!\Db::$uncached || !str_contains(\Db::$lastSql, "read_status='completed' ORDER BY id_run DESC")) {
+    fwrite(STDERR, "FAIL: executable generation fence must use the uncached latest completed READ lookup\n");
+    exit(1);
+}
+
+$repository->assertLatestCompletedReadGeneration(20, 1, 'matterhorn');
+\Db::$latestCompletedReadId = 0;
+$repository->assertLatestCompletedReadGeneration(10, 1, 'matterhorn');
+
 echo "Stale completed READ generation fence contract: OK\n";
