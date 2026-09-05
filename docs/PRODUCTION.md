@@ -24,7 +24,15 @@ php bin/console matterhornimport:doctor --shop=1
 php bin/console matterhornimport:status --shop=1
 ```
 
-Do not schedule production writes while `doctor` reports errors. `doctor` also validates the current module schema, Size mapping references and the source-scoped image reconciliation queue index.
+Do not schedule production writes while `doctor` reports errors. `doctor` also validates the current module schema, the exact exclusive product-ownership index, Size mapping references and the source-scoped image reconciliation queue index.
+
+### Upgrading retained data to 0.1.7
+
+Version `0.1.7` enforces one module source owner per PrestaShop product and shop with the exact unique key `uq_shop_product_owner (id_shop, id_product)`.
+
+The upgrade is deliberately fail-closed. If legacy retained mapping data contains two different source mappings that point to the same `id_shop` + `id_product`, the installer/upgrade does **not** guess which source owns that product and does not delete either mapping automatically. Resolve the conflicting legacy rows manually after identifying the correct owner, then rerun the module upgrade/repair and `matterhornimport:doctor --shop=<id>`.
+
+Do not bypass the conflict guard by manually adding the unique index before reviewing the mappings. A forced index creation can hide the ownership problem by requiring arbitrary row deletion. After a successful upgrade, `doctor` must report the exact unique ownership index before any catalog-mutating cron is enabled.
 
 ## 2. Normal import cycle
 
@@ -44,7 +52,7 @@ A bounded invocation can return `paused`. Resume the same run ID rather than sta
 php bin/console matterhornimport:run --shop=1 --run=123 --json
 ```
 
-The shop/source advisory lock prevents two catalog mutation stages from running concurrently.
+The shop/source advisory lock prevents two catalog mutation stages from running concurrently. Catalog entity creation additionally uses shared `lpimp:*` advisory-lock namespaces for manufacturer, category, attribute and feature resolution so different supplier import modules cannot race while creating the same global PrestaShop entity.
 
 ### Stage-by-stage mode
 
@@ -81,7 +89,7 @@ Catalog stages only enqueue image work. Process it independently:
 php bin/console matterhornimport:images --shop=1
 ```
 
-The downloader blocks private/reserved destinations, validates DNS and the connected endpoint, follows no redirects, validates MIME/dimensions/byte limits, supports HTTP conditional revalidation and deduplicates content.
+The downloader blocks private/reserved destinations, validates DNS and the connected endpoint, follows no redirects, validates MIME/dimensions/byte limits, supports HTTP conditional revalidation and deduplicates content. Image URLs above 16 KiB are rejected before URL parsing, DNS resolution or network access.
 
 After a complete catalog run and after **all image jobs for that shop/source** have drained, reconcile the authoritative image manifest. For large shops, use a bounded invocation:
 
@@ -103,7 +111,7 @@ Reconciliation is blocked when:
 - the selected run still has unresolved image jobs;
 - any older/newer image job for the same shop/source is unresolved.
 
-An unchanged image manifest may legitimately reuse a live image state from an earlier run; current-run freshness is not required when the state still belongs to the same shop/product and the desired URL exists.
+An unchanged image manifest may legitimately reuse a live image state from an earlier run; current-run freshness is not required when the state still belongs to the same shop/product and the desired URL exists. HTTP `304 Not Modified` is accepted only when the corresponding live image state is still valid; a stale/missing-state race fails closed and is retried instead of silently accepting an unverifiable cached asset.
 
 ### Periodic same-URL content revalidation
 
@@ -145,6 +153,8 @@ Explicitly reset failed retryable jobs only after the underlying cause is unders
 ```bash
 php bin/console matterhornimport:retry --shop=1 --domain=all --json
 ```
+
+Retry reset updates are status-fenced at write time. A stale operator/worker candidate list therefore cannot clear a lease that another worker has acquired in the meantime.
 
 Run bounded metadata GC separately:
 
