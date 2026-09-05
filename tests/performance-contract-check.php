@@ -12,6 +12,8 @@ $attributeResolver = (string) file_get_contents($root . '/src/Combination/Combin
 $categoryAuto = (string) file_get_contents($root . '/src/Category/CategoryAutoMapper.php');
 $categorySync = (string) file_get_contents($root . '/src/Category/CategorySynchronizer.php');
 $featureMapping = (string) file_get_contents($root . '/src/Repository/FeatureMappingRepository.php');
+$imageState = (string) file_get_contents($root . '/src/Repository/ImageStateRepository.php');
+$revalidation = (string) file_get_contents($root . '/src/Image/ImageRevalidationScheduler.php');
 
 $fail = static function (string $message): never {
     fwrite(STDERR, "FAIL: {$message}\n");
@@ -32,11 +34,18 @@ $check(str_contains($read, 'WRITE_BATCH = 500'), 'READ bounded write batch missi
 $check(str_contains($snapshots, 'MAX_FETCH_PAYLOAD_BYTES = 8388608'), 'snapshot fetch payload bound missing');
 $check(str_contains($snapshots, "s.source_key>'"), 'source-key keyset pagination missing');
 $check(str_contains($snapshots, 'm.id_product>'), 'product-id keyset pagination missing');
+$check(str_contains($snapshots, 'function imageManifestRowsForSourceKeys'), 'bounded keyed image manifest lookup missing');
 
 $check(str_contains($installer, "'idx_shop_source_run' => '(`id_shop`,`source`,`id_run`)'"), 'latest-run index missing');
 $check(str_contains($installer, "'idx_feed_product' => '(`id_shop`,`source`,`out_of_feed`,`id_product`)'"), 'REMOVE keyset index missing');
+$check(str_contains($installer, "'idx_revalidate' => '(`id_shop`,`source`,`updated_at`,`source_key`)'"), 'image stale-revalidation index missing');
 $check(substr_count($installer, "'idx_shop_claim' => '(`id_shop`,`status`,`available_at`,`id_queue`)'" ) === 2, 'per-shop queue claim indexes missing');
 $check(str_contains($installer, 'INFORMATION_SCHEMA.STATISTICS'), 'performance index ensure must be reinstall-safe');
+$check(str_contains($imageState, 'function staleSourceKeys'), 'bounded stale image-state discovery missing');
+$check(str_contains($imageState, 'LIMIT %d'), 'stale image-state discovery must stay LIMIT bounded');
+$check(str_contains($imageState, 'updated_at<=DATE_SUB'), 'stale image-state discovery must be age bounded');
+$check(str_contains($revalidation, '$limit = max(1, min(5000, $limit))'), 'image revalidation product bound missing');
+$check(str_contains($revalidation, 'payload_window_deferred'), 'image revalidation payload-window deferral visibility missing');
 
 $check(str_contains($product, 'private ?string $jsonCache'), 'ProductData JSON serialization cache missing');
 $check(str_contains($product, 'private array $hashCache'), 'ProductData domain hash cache missing');
