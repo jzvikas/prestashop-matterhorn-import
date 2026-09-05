@@ -15,5 +15,5 @@ $checks = [
     [$services,'Lp\\MatterhornImport\\Command\\UpdateCommand'],
 ];
 foreach ($checks as [$haystack,$needle]) { if (!str_contains($haystack, $needle)) { throw new RuntimeException('UPDATE contract missing: ' . $needle); } }
-if (str_contains($stage, "old_payload_hash', 'payload_hash')) { throw new RuntimeException('UPDATE must not route metadata-only payload differences into core catalog writes'); }
+if (str_contains($stage, "'old_payload_hash', 'payload_hash'")) { throw new RuntimeException('UPDATE must not route metadata-only payload differences into core catalog writes'); }
 echo "UPDATE orchestration contract: OK\n";
