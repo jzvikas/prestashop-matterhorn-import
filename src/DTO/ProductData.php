@@ -6,6 +6,8 @@ final class ProductData
     private ?string $jsonCache = null;
     /** @var array<string,string> */
     private array $hashCache = [];
+    /** @var array{structure:string,stock:string}|null */
+    private ?array $combinationHashCache = null;
 
     public function __construct(
         public readonly string $sourceKey,
@@ -84,16 +86,12 @@ final class ProductData
 
     public function combinationHash(): string
     {
-        return $this->hashCache['combination'] ??= $this->hashValue([
-            'authoritative' => !empty($this->extra['combinations_authoritative']),
-            'attributes_auto_create' => !empty($this->extra['combination_attributes_auto_create']),
-            'rows' => $this->combinationProjection(false),
-        ]);
+        return $this->combinationHashes()['structure'];
     }
 
     public function combinationStockHash(): string
     {
-        return $this->hashCache['combination_stock'] ??= $this->hashValue($this->combinationProjection(true));
+        return $this->combinationHashes()['stock'];
     }
 
     public function specificPriceHash(): string
@@ -157,16 +155,35 @@ final class ProductData
         return $projected;
     }
 
-    private function combinationProjection(bool $stockOnly): array
+    /** @return array{structure:string,stock:string} */
+    private function combinationHashes(): array
     {
+        if ($this->combinationHashCache !== null) { return $this->combinationHashCache; }
+
         $rows = $this->extra['combinations'] ?? [];
-        if (!is_array($rows)) { return ['__invalid__' => get_debug_type($rows)]; }
-        $projected = [];
+        if (!is_array($rows)) {
+            $invalid = ['__invalid__' => get_debug_type($rows)];
+            return $this->combinationHashCache = [
+                'structure' => $this->hashValue([
+                    'authoritative' => !empty($this->extra['combinations_authoritative']),
+                    'attributes_auto_create' => !empty($this->extra['combination_attributes_auto_create']),
+                    'rows' => $invalid,
+                ]),
+                'stock' => $this->hashValue($invalid),
+            ];
+        }
+
+        $structure = [];
+        $stock = [];
         foreach (array_values($rows) as $index => $row) {
-            if (!is_array($row)) { $projected[] = ['invalid' => $index, 'type' => get_debug_type($row)]; continue; }
+            if (!is_array($row)) {
+                $invalid = ['invalid' => $index, 'type' => get_debug_type($row)];
+                $structure[] = $invalid;
+                $stock[] = $invalid;
+                continue;
+            }
             $semantic = implode('|', $this->combinationAttributeTokens($row['attribute_ids'] ?? $row['attributes'] ?? []));
-            if ($stockOnly) { $projected[] = ['semantic' => $semantic, 'quantity' => (int) ($row['quantity'] ?? 0)]; continue; }
-            $projected[] = [
+            $structure[] = [
                 'semantic' => $semantic,
                 'reference' => (string) ($row['reference'] ?? ''),
                 'price_impact' => (float) ($row['price_impact'] ?? 0.0),
@@ -178,9 +195,27 @@ final class ProductData
                 'mpn' => (string) ($row['mpn'] ?? ''),
                 'default' => !empty($row['default']),
             ];
+            $stock[] = [
+                'semantic' => $semantic,
+                'quantity' => (int) ($row['quantity'] ?? 0),
+            ];
         }
-        usort($projected, static fn(array $a, array $b): int => strcmp((string) ($a['semantic'] ?? ''), (string) ($b['semantic'] ?? '')));
-        return $projected;
+
+        $sort = static fn(array $a, array $b): int => strcmp(
+            (string) ($a['semantic'] ?? ''),
+            (string) ($b['semantic'] ?? '')
+        );
+        usort($structure, $sort);
+        usort($stock, $sort);
+
+        return $this->combinationHashCache = [
+            'structure' => $this->hashValue([
+                'authoritative' => !empty($this->extra['combinations_authoritative']),
+                'attributes_auto_create' => !empty($this->extra['combination_attributes_auto_create']),
+                'rows' => $structure,
+            ]),
+            'stock' => $this->hashValue($stock),
+        ];
     }
 
     private function combinationAttributeTokens(mixed $attributes): array
