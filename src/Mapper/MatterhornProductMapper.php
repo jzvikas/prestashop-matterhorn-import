@@ -15,6 +15,7 @@ final class MatterhornProductMapper implements ProductMapperInterface
     private const MAX_PRESTASHOP_STOCK = 2147483647;
     private const PRESTASHOP_PRICE_PATTERN = '/^[0-9]{1,10}(?:\.[0-9]{1,9})?$/D';
     private const PRESTASHOP_CATALOG_TEXT_PATTERN = '/^[^<>{}]*$/u';
+    private const MAX_PRODUCT_NAME_CHARS = 128;
     private const MAX_MANUFACTURER_NAME_CHARS = 64;
     private const MAX_CATEGORY_NAME_CHARS = 128;
     private const MAX_FEATURE_VALUE_CHARS = 255;
@@ -43,7 +44,12 @@ final class MatterhornProductMapper implements ProductMapperInterface
         $name = trim((string) ($row['name'] ?? ''));
         if ($name === '') { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' is missing name'); }
         $this->assertCatalogText($name, 'product name', $sourceKey);
-        if (mb_strlen($name, 'UTF-8') > 128) { $name = mb_substr($name, 0, 128, 'UTF-8'); }
+        if (mb_strlen($name, 'UTF-8') > self::MAX_PRODUCT_NAME_CHARS) {
+            throw new \InvalidArgumentException(
+                'Matterhorn product name exceeds PrestaShop ' . self::MAX_PRODUCT_NAME_CHARS .
+                '-character limit for product ' . $sourceKey
+            );
+        }
 
         $priceRaw = trim((string) ($row['price'] ?? ''));
         if ($priceRaw === '' || !is_numeric($priceRaw)) { throw new \InvalidArgumentException('Matterhorn product ' . $sourceKey . ' has invalid price'); }
