@@ -7,6 +7,9 @@ use Lp\MatterhornImport\Repository\AttributeMappingRepository;
 
 final class CombinationAttributeResolver
 {
+    /** @var array<string,bool> */
+    private array $availabilityCache = [];
+
     public function __construct(private AttributeMappingRepository $mapping, private AttributeResolver $resolver) {}
 
     public function resolve(ProductData $product, int $shopId, string $source): ProductData
@@ -58,6 +61,7 @@ final class CombinationAttributeResolver
                         $shopId, $source, $groupKey, $groupName, $valueKey, $valueName,
                         $resolved['id_attribute_group'], $resolved['id_attribute']
                     );
+                    $this->availabilityCache[$this->availabilityKey($shopId, (int) $resolved['id_attribute'])] = true;
                 }
                 $attributeIds[] = (int) $resolved['id_attribute'];
             }
@@ -78,12 +82,21 @@ final class CombinationAttributeResolver
     private function attributeAvailableInShop(int $attributeId, int $shopId): bool
     {
         if ($attributeId <= 0 || $shopId <= 0) { return false; }
-        return (bool) \Db::getInstance()->getValue(sprintf(
+        $key = $this->availabilityKey($shopId, $attributeId);
+        if (array_key_exists($key, $this->availabilityCache)) {
+            return $this->availabilityCache[$key];
+        }
+        return $this->availabilityCache[$key] = (bool) \Db::getInstance()->getValue(sprintf(
             "SELECT 1 FROM `%sattribute` a " .
             "INNER JOIN `%sattribute_shop` ash ON ash.id_attribute=a.id_attribute AND ash.id_shop=%d " .
             "INNER JOIN `%sattribute_group_shop` ags ON ags.id_attribute_group=a.id_attribute_group AND ags.id_shop=%d " .
             "WHERE a.id_attribute=%d",
             _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $shopId, $attributeId
         ));
+    }
+
+    private function availabilityKey(int $shopId, int $attributeId): string
+    {
+        return $shopId . ':' . $attributeId;
     }
 }
