@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_image_orphan`;
 DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_image_queue`;
 DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_image_state`;
 DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_error`;
