@@ -24,6 +24,8 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Fenced supplier attribute group/value mapping persistence with a fresh joined identity check before process-cache seeding so concurrent overwrite/loss cannot publish an unverified Size resolution.
 - Fenced feature synchronization with fresh target-shop exclusivity checks, pre-mutation state revalidation and exact-value optimistic deletes so concurrent Back Office changes fail closed instead of being overwritten.
 - Hardened combination synchronization with fresh ownership/default reads, exact target-product checks and atomic multishop detach guarded by another live shop association.
+- Fenced combination adoption and destructive cleanup to the fresh `shop/source/source_key/product/semantic/id_product_attribute` owner identity, failing closed on foreign/stale mappings.
+- Preserved unmapped/manual duplicate combinations during supplier cleanup and removed broad combination-mapping delete APIs; authoritative mapping removal now uses exact affected-row fencing.
 - Revalidated exclusive combination ownership immediately before global ObjectModel deletion and fail closed on shared or ambiguous association topology.
 - Preserved a live manual default combination when authoritative Matterhorn cleanup removes all module-owned survivors by resynchronizing `product_shop.cache_default_attribute` from the remaining target-shop `default_on` row.
 - Avoided duplicate combination structure/stock projection work during READ by deriving both hashes in one traversal and caching only the two final hash strings.
@@ -39,7 +41,7 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Removed the UPDATE fallback that routed payload-only metadata changes into unnecessary product core writes.
 - Canonicalized supplier warning ordering so semantically identical option reordering does not churn snapshot payload hashes.
 - Preserved Matterhorn `avaible_in` and `creation_date` as supplier metadata without assigning stock/delivery/date-add semantics or dirtying catalog domain hashes.
-- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, item-transaction recovery, exact REMOVE ownership, partial language recovery, live/source-scoped observability, single-pass combination hashing, bounded specific-price lookup, shared resolver locks, category path concurrency, category assignment durability, attribute mapping write verification, feature concurrent changes, atomic combination/image detach, specific-price optimistic deletion, source-owner image revalidation fencing, image URL bounds, stale-304 handling and ownership schema safety.
+- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, item-transaction recovery, exact REMOVE ownership, partial language recovery, live/source-scoped observability, single-pass combination hashing, bounded specific-price lookup, shared resolver locks, category path concurrency, category assignment durability, attribute mapping write verification, feature concurrent changes, exact combination owner cleanup/manual-duplicate preservation, atomic combination/image detach, specific-price optimistic deletion, source-owner image revalidation fencing, image URL bounds, stale-304 handling and ownership schema safety.
 - Made the GitHub Actions release workflow manually dispatchable when push-trigger execution is unavailable.
 
 ## 0.1.6
@@ -47,7 +49,7 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Added bounded `matterhornimport:images:revalidate` scheduling for supplier image-content changes behind unchanged URLs.
 - Reuses the secure persistent image worker and HTTP `ETag` / `Last-Modified` conditional requests instead of downloading every image on every import.
 - Added `idx_revalidate (id_shop, source, updated_at, source_key)` for stale image-state discovery.
-- Bounded stale discovery by product limit, a hard 50,000-row DB scan cap and the existing 8 MiB snapshot payload window.
+- Bounded stale discovery by product count and the existing snapshot payload window. If `payload_window_deferred` is greater than zero, simply run the scheduler again later. Already scheduled products are excluded while their image jobs remain unresolved, and successfully revalidated states get a fresh `updated_at`, so repeated invocations naturally advance through a large catalog.
 - Added latest completed/reconciled-run fencing, out-of-feed exclusion, unresolved-job fencing and missing-manifest fail-closed checks.
 - Added `doctor`, static, MariaDB and PrestaShop runtime coverage for the new index/command surface.
 - Hardened PrestaShop multishop duplicated `product` / `product_shop` price/active shadow consistency.
