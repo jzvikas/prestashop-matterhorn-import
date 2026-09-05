@@ -51,6 +51,10 @@ final class MatterhornProductMapper implements ProductMapperInterface
         $sourceLanguageId = (int) $policy['source_language_id'];
 
         $extra = ['description' => $this->html->sanitize((string) ($row['description'] ?? ''))];
+        $creationDate = trim((string) ($row['creation_date'] ?? ''));
+        if ($creationDate !== '') {
+            $extra['supplier_metadata'] = ['creation_date' => $creationDate];
+        }
         if ($sourceLanguageId > 0) { $extra['source_language_id'] = $sourceLanguageId; }
         $brand = trim((string) ($row['brand'] ?? ''));
         if ($brand !== '') { $extra['manufacturer'] = ['name' => $brand, 'auto_create' => true]; }
