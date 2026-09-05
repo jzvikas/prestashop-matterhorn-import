@@ -51,6 +51,8 @@ final class NewProductWorker
             'deferred' => 0,
             'lost' => 0,
             'generation_requeued' => 0,
+            'generation_adopted' => 0,
+            'stale_superseded' => 0,
             'existing_updated' => 0,
             'recovered' => 0,
             'hook_commit_recoveries' => 0,
@@ -101,7 +103,48 @@ final class NewProductWorker
                 $this->transactionGuard->arm($db);
 
                 try {
-                    $product = ProductData::fromJson((string) $job['payload']);
+                    // Lock/reload the queue row before parsing or mutating the catalog. Enqueue may
+                    // advance id_run/payload while a lease is processing; FOR UPDATE freezes the exact
+                    // generation used below until queue finalization commits.
+                    $lockedJob = $this->queue->lockOwned($idQueue, $token);
+                    if ((int) ($lockedJob['id_shop'] ?? 0) !== $jobShop || !hash_equals($source, (string) ($lockedJob['source'] ?? ''))) {
+                        throw new \RuntimeException('New-product queue scope changed before locked persistence');
+                    }
+                    $lockedRunId = (int) ($lockedJob['id_run'] ?? 0);
+                    if ($lockedRunId <= 0 || $lockedRunId < $expectedRunId) {
+                        throw new \RuntimeException('New-product queue generation moved backwards before locked persistence');
+                    }
+                    if ($lockedRunId > $expectedRunId) {
+                        $expectedRunId = $lockedRunId;
+                        $stats['generation_adopted']++;
+                    }
+
+                    $run = $this->runs->assertContext($expectedRunId, $jobShop, $source);
+                    if ((string) ($run['read_status'] ?? '') !== 'completed') {
+                        throw new \RuntimeException('New-product worker requires a completed READ generation');
+                    }
+
+                    $latestCompletedReadId = $this->runs->latestCompletedReadId($jobShop, $source);
+                    $stageAdvanced = (string) ($run['import_status'] ?? 'pending') === 'completed'
+                        || (string) ($run['update_status'] ?? 'pending') !== 'pending'
+                        || (string) ($run['remove_status'] ?? 'pending') !== 'pending';
+                    if ($latestCompletedReadId > $expectedRunId || $stageAdvanced) {
+                        $reason = $latestCompletedReadId > $expectedRunId
+                            ? 'newer completed READ generation exists: ' . $latestCompletedReadId
+                            : 'run already advanced beyond the new-product worker lane';
+                        $this->queue->supersede($idQueue, $token, $expectedRunId, $reason);
+                        if (!$db->execute('COMMIT')) {
+                            throw new \RuntimeException('Could not commit stale new-product supersede');
+                        }
+                        $this->transactionGuard->disarm();
+                        $stats['stale_superseded']++;
+                        continue;
+                    }
+
+                    $product = ProductData::fromJson((string) ($lockedJob['payload'] ?? ''));
+                    if (!hash_equals($product->sourceKey, (string) ($lockedJob['source_key'] ?? ''))) {
+                        throw new \RuntimeException('New-product locked payload/source-key mismatch');
+                    }
                     $idProduct = $this->mapping->findProductId($jobShop, $source, $product->sourceKey);
                     $existing = $idProduct > 0;
 
@@ -109,9 +152,8 @@ final class NewProductWorker
                         $this->writer->update($idProduct, $product, $jobShop);
                         $stats['existing_updated']++;
                     } else {
-                        if ((int) ($job['attempts'] ?? 0) > 1) {
-                            $run = $this->runs->get($expectedRunId);
-                            $runStartedAt = is_array($run) ? (string) ($run['started_at'] ?? '') : '';
+                        if ((int) ($lockedJob['attempts'] ?? 0) > 1) {
+                            $runStartedAt = (string) ($run['started_at'] ?? '');
                             if ($runStartedAt === '') {
                                 throw new \RuntimeException('New-product recovery cannot resolve source run start time');
                             }
