@@ -72,7 +72,7 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
                 $product->id_manufacturer = $this->manufacturers->resolve($manufacturerName, $shopId, $autoCreate);
             }
 
-            $sourceLangId = $this->sourceLanguageId($shopId);
+            $sourceLangId = $this->sourceLanguageId($shopId, $data);
             $name = (string) ($data->name[$sourceLangId] ?? $data->name['default'] ?? $data->reference);
             $product->name[$sourceLangId] = $name;
             $product->link_rewrite[$sourceLangId] = \Tools::str2url($name);
@@ -84,19 +84,31 @@ final class MatterhornProductWriter implements GranularProductWriterInterface
         if (!$product->update()) { throw new \RuntimeException('Matterhorn product update failed: ' . $productId); }
     }
 
-    private function sourceLanguageId(int $shopId): int
+    private function sourceLanguageId(int $shopId, ProductData $data): int
     {
         $shop = \Context::getContext()->shop ?? null;
         $groupId = $shop instanceof \Shop ? (int) $shop->id_shop_group : 0;
+        $snapshotLanguageId = (int) ($data->extra['source_language_id'] ?? 0);
+        if ($snapshotLanguageId > 0 && $this->languageBelongsToShop($snapshotLanguageId, $shopId)) {
+            return $snapshotLanguageId;
+        }
         $configured = (int) \Configuration::get('MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', null, $groupId > 0 ? $groupId : null, $shopId);
-        if ($configured > 0) {
-            foreach (\Language::getLanguages(false, $shopId) as $language) {
-                if ((int) ($language['id_lang'] ?? 0) === $configured) { return $configured; }
-            }
+        if ($configured > 0 && $this->languageBelongsToShop($configured, $shopId)) {
+            return $configured;
         }
         $fallback = (int) \Configuration::get('PS_LANG_DEFAULT', null, $groupId > 0 ? $groupId : null, $shopId);
         if ($fallback <= 0) { $fallback = (int) \Configuration::get('PS_LANG_DEFAULT'); }
-        if ($fallback <= 0) { throw new \RuntimeException('Cannot resolve Matterhorn source language for shop #' . $shopId); }
+        if ($fallback <= 0 || !$this->languageBelongsToShop($fallback, $shopId)) {
+            throw new \RuntimeException('Cannot resolve Matterhorn source language for shop #' . $shopId);
+        }
         return $fallback;
+    }
+
+    private function languageBelongsToShop(int $languageId, int $shopId): bool
+    {
+        foreach (\Language::getLanguages(false, $shopId) as $language) {
+            if ((int) ($language['id_lang'] ?? 0) === $languageId) { return true; }
+        }
+        return false;
     }
 }
