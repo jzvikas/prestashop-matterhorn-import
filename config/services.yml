@@ -30,6 +30,8 @@ services:
     tags: ['console.command']
   Lp\MatterhornImport\Command\ImagesReconcileCommand:
     tags: ['console.command']
+  Lp\MatterhornImport\Command\ImagesRevalidateCommand:
+    tags: ['console.command']
   Lp\MatterhornImport\Command\NewProductsEnqueueCommand:
     tags: ['console.command']
   Lp\MatterhornImport\Command\NewProductsCommand:
