@@ -29,7 +29,8 @@ final class RunRepository
     public function get(int $runId): ?array
     {
         $row = \Db::getInstance()->getRow(
-            'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . (int) $runId
+            'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . (int) $runId,
+            false
         );
         return is_array($row) ? $row : null;
     }
@@ -174,7 +175,8 @@ final class RunRepository
         $row = \Db::getInstance()->getRow(
             'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run<' . (int) $runId .
             ' AND id_shop=' . (int) $shopId . " AND source='" . pSQL($source) .
-            "' AND status='completed' ORDER BY id_run DESC"
+            "' AND status='completed' ORDER BY id_run DESC",
+            false
         );
         return is_array($row) ? $row : null;
     }
@@ -183,7 +185,8 @@ final class RunRepository
     {
         $row = \Db::getInstance()->getRow(
             'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_shop=' . (int) $shopId .
-            " AND source='" . pSQL($source) . "' ORDER BY id_run DESC"
+            " AND source='" . pSQL($source) . "' ORDER BY id_run DESC",
+            false
         );
         return is_array($row) ? $row : null;
     }
