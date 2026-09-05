@@ -16,7 +16,7 @@ final class DatabaseSafety
         'li_matterhornim_99dfbf_feature_value_mapping','li_matterhornim_99dfbf_feature_state',
         'li_matterhornim_99dfbf_combination_mapping','li_matterhornim_99dfbf_specific_price_state',
         'li_matterhornim_99dfbf_new_product_queue','li_matterhornim_99dfbf_error',
-        'li_matterhornim_99dfbf_image_queue','li_matterhornim_99dfbf_image_state',
+        'li_matterhornim_99dfbf_image_queue','li_matterhornim_99dfbf_image_state','li_matterhornim_99dfbf_image_orphan',
         'li_matterhornim_99dfbf_attribute_group_mapping','li_matterhornim_99dfbf_attribute_value_mapping',
     ];
     private bool $checked = false;
