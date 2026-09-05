@@ -6,8 +6,20 @@ final class Installer
     private const RETAIN_DATA_KEY = 'MATTERHORNIMPORT_RETAIN_DATA_ON_UNINSTALL';
     private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';
     private const CONFIG_KEYS = [
-        'MATTERHORNIMPORT_SOURCE_FILE', 'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', 'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE',
-        'MATTERHORNIMPORT_FEATURE_AUTO_CREATE', 'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', 'MATTERHORNIMPORT_MAX_REMOVE_PERCENT',
+        'MATTERHORNIMPORT_SOURCE_FILE',
+        'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID',
+        'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE',
+        'MATTERHORNIMPORT_FEATURE_AUTO_CREATE',
+        'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME',
+        'MATTERHORNIMPORT_MAX_REMOVE_PERCENT',
+        'MATTERHORNIMPORT_BATCH_SIZE',
+        'MATTERHORNIMPORT_MAX_ITEMS',
+        'MATTERHORNIMPORT_TIME_LIMIT',
+        'MATTERHORNIMPORT_IMAGE_WORKER_LIMIT',
+        'MATTERHORNIMPORT_IMAGE_WORKER_RUNTIME',
+        'MATTERHORNIMPORT_NEW_PRODUCT_WORKER_LIMIT',
+        'MATTERHORNIMPORT_NEW_PRODUCT_WORKER_RUNTIME',
+        'MATTERHORNIMPORT_RETRY_LIMIT',
         self::RETAIN_DATA_KEY,
     ];
     private const INSTALL_SQL = ['install.sql', 'attribute-mapping.sql'];
@@ -91,9 +103,7 @@ final class Installer
     {
         foreach (self::UNINSTALL_SQL as $file) {
             foreach ($this->statements($file) as $sql) {
-                if (!\Db::getInstance()->execute($sql)) {
-                    return false;
-                }
+                if (!\Db::getInstance()->execute($sql)) { return false; }
             }
         }
         return true;
@@ -102,17 +112,11 @@ final class Installer
     private function statements(string $file): array
     {
         $path = dirname(__DIR__) . '/sql/' . $file;
-        if (!is_file($path) || !is_readable($path)) {
-            throw new \RuntimeException('Matterhorn SQL file is missing or unreadable: ' . $path);
-        }
+        if (!is_file($path) || !is_readable($path)) { throw new \RuntimeException('Matterhorn SQL file is missing or unreadable: ' . $path); }
         $contents = file_get_contents($path);
-        if ($contents === false) {
-            throw new \RuntimeException('Cannot read Matterhorn SQL file: ' . $path);
-        }
+        if ($contents === false) { throw new \RuntimeException('Cannot read Matterhorn SQL file: ' . $path); }
         $statements = preg_split('/;\s*(?:\r?\n|$)/', str_replace('PREFIX_', _DB_PREFIX_, $contents));
-        if (!is_array($statements)) {
-            throw new \RuntimeException('Cannot parse Matterhorn SQL file: ' . $path);
-        }
+        if (!is_array($statements)) { throw new \RuntimeException('Cannot parse Matterhorn SQL file: ' . $path); }
         return array_values(array_filter(array_map('trim', $statements), static fn(string $statement): bool => $statement !== ''));
     }
 }
