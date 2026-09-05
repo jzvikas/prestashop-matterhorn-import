@@ -50,7 +50,9 @@ bootstrap_action() {
     $action = (string) getenv("MH_ACTION");
     $ok = $action === "install" ? $module->install() : ($action === "uninstall" ? $module->uninstall() : false);
     if (!$ok) { throw new RuntimeException("Module action failed: " . $action); }
-    $kernel->shutdown();
+    // Module install/uninstall may invalidate the compiled prod container. Do not
+    // explicitly shut down that stale kernel: this short-lived process exits now,
+    // while the next command boots a fresh kernel/cache generation.
   '
 }
 
@@ -94,6 +96,12 @@ docker run -d --name "$PS_CONTAINER" --network "$NETWORK" \
 stage prestashop_ready
 ready=0
 for attempt in $(seq 1 120); do
+  running="$(docker inspect -f '{{.State.Running}}' "$PS_CONTAINER" 2>/dev/null || true)"
+  if [[ "$running" != "true" ]]; then
+    echo 'PrestaShop container exited during automatic installation' >&2
+    docker logs "$PS_CONTAINER" >&2 || true
+    exit 3
+  fi
   if docker exec "$PS_CONTAINER" sh -lc 'test -f app/config/parameters.php' >/dev/null 2>&1 \
     && docker exec "$PS_CONTAINER" php -r '$socket=@fsockopen("127.0.0.1",80,$errno,$errstr,1); if (is_resource($socket)) { fclose($socket); exit(0); } exit(1);' >/dev/null 2>&1; then
     count="$(docker exec "$DB_CONTAINER" mariadb -N -uroot -proot prestashop -e "SELECT COUNT(*) FROM ps_shop WHERE id_shop=1" 2>/dev/null || printf 0)"
@@ -102,6 +110,8 @@ for attempt in $(seq 1 120); do
   sleep 2
 done
 [[ "$ready" -eq 1 ]] || { echo 'PrestaShop did not become ready' >&2; exit 3; }
+running="$(docker inspect -f '{{.State.Running}}' "$PS_CONTAINER" 2>/dev/null || true)"
+[[ "$running" == "true" ]] || { echo 'PrestaShop container stopped after readiness detection' >&2; docker logs "$PS_CONTAINER" >&2 || true; exit 3; }
 
 stage module_copy
 docker exec "$PS_CONTAINER" rm -rf /var/www/html/modules/matterhornimport
