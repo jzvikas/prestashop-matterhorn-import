@@ -61,17 +61,27 @@ check($product->priceHash() !== $priceChanged->priceHash(), 'price change change
 check($product->coreHash() === $priceChanged->coreHash(), 'price change leaves core hash unchanged');
 check($product->combinationHash() === $priceChanged->combinationHash(), 'price change leaves combinations unchanged');
 
+$blankEanRow = $rows[0];
+$blankEanRow['options'][0]['ean'] = '';
+$blankEan = $mapper->map($blankEanRow);
 $badEanRow = $rows[0];
 $badEanRow['options'][0]['ean'] = 'BAD-EAN';
 $badEan = $mapper->map($badEanRow);
 check(($badEan->extra['combinations'][0]['ean13'] ?? 'x') === '', 'malformed optional EAN is blank, not fatal');
 check(count($badEan->extra['supplier_warnings'] ?? []) === 1 && str_contains((string) $badEan->extra['supplier_warnings'][0], 'invalid optional EAN13'), 'malformed optional EAN must be observable');
+check($badEan->payloadHash() !== $blankEan->payloadHash(), 'warning metadata must remain observable in payload hash');
+check($badEan->domainHashes() === $blankEan->domainHashes(), 'warning-only malformed EAN normalization must not dirty catalog domains');
 
+$zeroStockRow = $rows[0];
+$zeroStockRow['options'][0]['stock'] = '0';
+$zeroStock = $mapper->map($zeroStockRow);
 $negativeStockRow = $rows[0];
 $negativeStockRow['options'][0]['stock'] = '-4';
 $negativeStock = $mapper->map($negativeStockRow);
 check(($negativeStock->extra['combinations'][0]['quantity'] ?? -1) === 0, 'negative stock must normalize to zero');
 check(count($negativeStock->extra['supplier_warnings'] ?? []) === 1 && str_contains((string) $negativeStock->extra['supplier_warnings'][0], 'negative stock'), 'negative stock normalization must be observable');
+check($negativeStock->payloadHash() !== $zeroStock->payloadHash(), 'negative-stock warning must remain observable in payload hash');
+check($negativeStock->domainHashes() === $zeroStock->domainHashes(), 'warning-only negative stock normalization must not dirty catalog domains');
 
 $duplicateId = $rows[0]; $duplicateId['options'][1]['id'] = $duplicateId['options'][0]['id'];
 try { $mapper->map($duplicateId); check(false, 'duplicate option id must fail'); }
