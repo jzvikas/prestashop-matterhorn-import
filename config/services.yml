@@ -27,3 +27,5 @@ services:
 
   Lp\MatterhornImport\Command\ReadCommand:
     tags: ['console.command']
+  Lp\MatterhornImport\Command\ImportCommand:
+    tags: ['console.command']

@@ -11,4 +11,5 @@ php tests/product-persistence-contract-check.php
 php tests/feature-sync-contract-check.php
 php tests/combination-sync-contract-check.php
 php tests/read-orchestration-contract-check.php
+php tests/import-orchestration-contract-check.php
 echo "Static release checks: OK"
