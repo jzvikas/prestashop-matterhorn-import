@@ -56,6 +56,16 @@ final class ImageQueueRepository
         if ((int) $db->Affected_Rows() !== 1) { throw new \RuntimeException('Matterhorn image queue ownership lost or lease expired before completion'); }
     }
 
+    public function supersede(int $id, string $token, string $reason): bool
+    {
+        $db = \Db::getInstance();
+        $message = 'superseded: ' . mb_substr($reason, 0, 3980);
+        if (!$db->execute(sprintf("UPDATE `%s%s` SET status='done',locked_by=NULL,locked_until=NULL,available_at=NULL,last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, pSQL($message, true), $id, pSQL($token)))) {
+            throw new \RuntimeException('Matterhorn image queue supersede update failed');
+        }
+        return (int) $db->Affected_Rows() === 1;
+    }
+
     public function fail(int $id, string $token, string $error, bool $retryable = true): bool
     {
         $retryFlag = $retryable ? 1 : 0;
