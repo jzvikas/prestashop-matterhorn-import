@@ -24,7 +24,7 @@ php bin/console matterhornimport:doctor --shop=1
 php bin/console matterhornimport:status --shop=1
 ```
 
-Do not schedule production writes while `doctor` reports errors. `doctor` also validates the current module schema, the exact exclusive product-ownership index, Size mapping references and the source-scoped image reconciliation queue index. Live status/doctor queue, orphan and error counters are read without the PrestaShop query cache and are restricted to the Matterhorn source for the selected shop.
+Do not schedule production writes while `doctor` reports errors. `doctor` also validates the current module schema, the exact exclusive product-ownership index, Size mapping references and the source-scoped image reconciliation queue index. Live status/doctor queue, orphan and error counters are read without the PrestaShop query cache and are restricted to the Matterhorn source for the selected shop. `doctor` also warns about completed new-product queue rows whose persisted `id_product` no longer matches the exact shop/source/source-key mapping; those rows are treated as integrity drift rather than silently reopened with an old payload.
 
 ### Upgrading retained data to 0.1.7
 
@@ -77,13 +77,23 @@ Always preview REMOVE after supplier/feed anomalies. The configured maximum REMO
 For large catalogs, new product creation can be pre-drained through the persistent queue after READ:
 
 ```bash
-php bin/console matterhornimport:new-products:enqueue --shop=1 --run=123
+php bin/console matterhornimport:new-products:enqueue \
+  --shop=1 \
+  --run=123 \
+  --batch=500 \
+  --max-items=50000 \
+  --time-limit=30
+
 php bin/console matterhornimport:new-products --shop=1
 ```
 
+The enqueue command is queue-aware: it keyset-scans only snapshot rows that still lack a mapping and either have no queue row or belong to an older run. Each candidate preload window is capped at 8 MiB of snapshot payload, execution is bounded by `--max-items` and `--time-limit`, and persistent multi-row INSERTs are capped at 500 rows and 7 MiB of already SQL-escaped `VALUES` text. These limits keep reruns bounded on very large catalogs and reserve packet headroom instead of relying only on row count.
+
 This lane uses the same shop/source lock as IMPORT, so it must not mutate the same shop concurrently with `run`/`import`/`update`/`remove`. After the queue has been drained, still run the normal IMPORT stage for the same run. IMPORT will skip products already mapped by the worker, create any remaining rows, and mark the IMPORT stage complete before UPDATE is allowed.
 
-The queue is restart-safe: leases are fenced, expired leases can be reclaimed, interrupted creates are recovered, retryable database failures use backoff, and a newer run can hand a newer payload to an already-processing source key without losing that generation. If an older generation creates the product first, the requeued newer generation updates that same mapped product rather than creating a duplicate.
+The queue is restart-safe: leases are fenced, expired leases can be reclaimed, interrupted creates are recovered, retryable database failures use backoff, and a newer run can hand a newer payload to an already-processing source key without losing that generation. One claim token may own a bounded batch; every heartbeat extends all still-active sibling leases for that token while still verifying ownership of the current row, so a slow earlier product cannot let untouched siblings expire and burn attempts before they are processed.
+
+If an older generation creates the product first, the requeued newer generation updates that same mapped product rather than creating a duplicate. A same-run queue row marked `done` while the exact mapping is missing is not automatically reopened with its old payload; `doctor` reports that integrity drift and the normal IMPORT stage remains the authoritative recovery path for the unmapped snapshot row.
 
 After any hook-triggered external commit the worker recreates its item transaction before module durability writes. Mapping persistence, image enqueue and queue-generation finalization are then committed together; the claimed generation is finalized **before** the SQL `COMMIT`, closing the crash gap where catalog/mapping state could previously become durable while the queue row remained processing.
 
@@ -95,7 +105,11 @@ Catalog stages only enqueue image work. Process it independently:
 php bin/console matterhornimport:images --shop=1
 ```
 
-The downloader blocks private/reserved destinations, validates DNS and the connected endpoint, follows no redirects, validates MIME/dimensions/byte limits, supports HTTP conditional revalidation and deduplicates content. Image URLs above 16 KiB are rejected before URL parsing, DNS resolution or network access.
+Matterhorn READ treats image URLs as optional supplier data. Empty/duplicate values are ignored; non-HTTP(S) URLs and URLs above 16 KiB are skipped with deterministic supplier warnings instead of failing an otherwise valid product. Those warnings remain visible in persisted READ observability and snapshot payloads but do not dirty catalog domain hashes.
+
+The persistent image queue keeps its own fail-closed admission guard even after supplier normalization: URLs above 16 KiB are rejected before persistence, and escaped multi-row queue INSERTs are bounded to at most 500 rows and 7 MiB of `VALUES` text. A claim token may own multiple images; renewing the current image heartbeats every still-active sibling lease for that token while excluding already-expired rows, preventing slow downloads/attachments from consuming retries for later untouched jobs.
+
+The downloader blocks private/reserved destinations, validates DNS and the connected endpoint, follows no redirects, validates MIME/dimensions/byte limits, supports HTTP conditional revalidation and deduplicates content. Image URLs above 16 KiB are rejected before URL parsing, DNS resolution or network access as a final worker-side defense as well.
 
 After a complete catalog run and after **all image jobs for that shop/source** have drained, reconcile the authoritative image manifest. For large shops, use a bounded invocation:
 
@@ -210,7 +224,7 @@ php tests/database-lifecycle-check.php   # against MariaDB 10.11+
 bash tests/prestashop-runtime-check.sh   # Docker; PrestaShop 9.1.5 / PHP 8.4
 ```
 
-GitHub Actions contains equivalent static, MariaDB lifecycle and real PrestaShop lifecycle jobs. Do not disable a failing gate or mark the module release-green until all current gates execute successfully.
+GitHub Actions contains equivalent static, MariaDB lifecycle and real PrestaShop lifecycle jobs. Do not disable a failing gate or mark the module release-green until all current gates execute successfully on the exact release commit.
 
 ## 8. Uninstall retention
 
