@@ -5,11 +5,18 @@ use Lp\MatterhornImport\Category\CategorySynchronizer;
 use Lp\MatterhornImport\Contract\GranularProductWriterInterface;
 use Lp\MatterhornImport\DTO\ProductData;
 use Lp\MatterhornImport\Manufacturer\ManufacturerResolver;
+use Lp\MatterhornImport\Util\ItemTransactionGuard;
 use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class PrestaProductWriter implements GranularProductWriterInterface
 {
-    public function __construct(private ShopContextManager $shopContext, private CategorySynchronizer $categories, private ManufacturerResolver $manufacturers, private ProductShopAssociationManager $associations) {}
+    public function __construct(
+        private ShopContextManager $shopContext,
+        private CategorySynchronizer $categories,
+        private ManufacturerResolver $manufacturers,
+        private ProductShopAssociationManager $associations,
+        private ItemTransactionGuard $transactionGuard
+    ) {}
 
     public function create(ProductData $data, int $shopId): int
     {
@@ -19,9 +26,14 @@ final class PrestaProductWriter implements GranularProductWriterInterface
         $p->price = $data->price;
         $p->id_shop_list = [$shopId];
         if (!$p->add()) { throw new \RuntimeException('PrestaShop product create failed for ' . $data->sourceKey); }
+        $this->transactionGuard->restoreAfterExternalCommit();
+
         $this->associations->ensure((int) $p->id, $shopId);
         \StockAvailable::setQuantity((int) $p->id, 0, $data->quantity, $shopId);
+        $this->transactionGuard->restoreAfterExternalCommit();
+
         $this->categories->sync((int) $p->id, $data, $shopId);
+        $this->transactionGuard->restoreAfterExternalCommit();
         return (int) $p->id;
     }
 
@@ -37,20 +49,23 @@ final class PrestaProductWriter implements GranularProductWriterInterface
         $price = in_array('price', $domains, true);
         $needsProduct = $core || $price;
         if ($needsProduct) {
-            if ($core) {
-                $this->associations->assertExclusiveGlobalOwnership($productId, $shopId);
-            }
+            if ($core) { $this->associations->assertExclusiveGlobalOwnership($productId, $shopId); }
             $p = new \Product($productId, false, null, $shopId);
             if (!\Validate::isLoadedObject($p)) { throw new \RuntimeException('Product not found: ' . $productId); }
             if ($core) { $this->applyCore($p, $data, $shopId); }
             if ($price) { $p->price = $data->price; }
             if (!$p->update()) { throw new \RuntimeException('PrestaShop product update failed: ' . $productId); }
-            if ($price && !$core) {
-                $this->associations->restoreDefaultShopShadows($productId, $shopId, ['price']);
-            }
+            $this->transactionGuard->restoreAfterExternalCommit();
+            if ($price && !$core) { $this->associations->restoreDefaultShopShadows($productId, $shopId, ['price']); }
         }
-        if (in_array('stock', $domains, true)) { \StockAvailable::setQuantity($productId, 0, $data->quantity, $shopId); }
-        if (in_array('category', $domains, true)) { $this->categories->sync($productId, $data, $shopId); }
+        if (in_array('stock', $domains, true)) {
+            \StockAvailable::setQuantity($productId, 0, $data->quantity, $shopId);
+            $this->transactionGuard->restoreAfterExternalCommit();
+        }
+        if (in_array('category', $domains, true)) {
+            $this->categories->sync($productId, $data, $shopId);
+            $this->transactionGuard->restoreAfterExternalCommit();
+        }
         foreach (['attribute' => 'attributes', 'feature' => 'features'] as $domain => $extraKey) {
             if (in_array($domain, $domains, true) && !empty($data->extra[$extraKey])) {
                 throw new \RuntimeException('Default PrestaProductWriter cannot persist ' . $domain . ' changes; use domain synchronizer');
@@ -66,13 +81,16 @@ final class PrestaProductWriter implements GranularProductWriterInterface
         if (!\Validate::isLoadedObject($p)) { return; }
         $p->active = false;
         if (!$p->update()) { throw new \RuntimeException('Cannot disable product ' . $productId); }
+        $this->transactionGuard->restoreAfterExternalCommit();
         $this->associations->restoreDefaultShopShadows($productId, $shopId, ['active']);
 
         \StockAvailable::setQuantity($productId, 0, 0, $shopId);
+        $this->transactionGuard->restoreAfterExternalCommit();
         foreach (\Product::getProductAttributesIds($productId) as $attributeRow) {
             $attributeId = (int) ($attributeRow['id_product_attribute'] ?? 0);
             if ($attributeId > 0) {
                 \StockAvailable::setQuantity($productId, $attributeId, 0, $shopId);
+                $this->transactionGuard->restoreAfterExternalCommit();
             }
         }
     }
@@ -89,7 +107,9 @@ final class PrestaProductWriter implements GranularProductWriterInterface
             $manufacturerName = is_string($manufacturer) ? $manufacturer : '';
             $autoCreate = true;
         }
-        if ($manufacturerName !== '' || array_key_exists('manufacturer', $data->extra)) { $p->id_manufacturer = $this->manufacturers->resolve($manufacturerName, $shopId, $autoCreate); }
+        if ($manufacturerName !== '' || array_key_exists('manufacturer', $data->extra)) {
+            $p->id_manufacturer = $this->manufacturers->resolve($manufacturerName, $shopId, $autoCreate);
+        }
         foreach (\Language::getLanguages(false, $shopId) as $lang) {
             $id = (int) $lang['id_lang'];
             $name = $data->name[$id] ?? $data->name['default'] ?? $data->reference;
