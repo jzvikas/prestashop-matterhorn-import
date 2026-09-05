@@ -410,8 +410,15 @@ final class CombinationSynchronizer
             _DB_PREFIX_, _DB_PREFIX_, $shopId, $productId, $idList
         ), false);
         if ($externalDefault > 0) { throw new \RuntimeException('Refusing to override default combination owned outside Matterhorn: ' . $externalDefault); }
-        if (!$db->update('product_attribute_shop', ['default_on' => null], 'id_shop=' . $shopId . ' AND id_product_attribute IN (' . $idList . ')')) {
-            throw new \RuntimeException('Could not clear target-shop default combination');
+        if (!$db->update(
+            'product_attribute_shop',
+            ['default_on' => null],
+            'id_shop=' . $shopId . ' AND id_product_attribute IN (' . $idList . ')',
+            0,
+            true,
+            false
+        )) {
+            throw new \RuntimeException('Could not clear target-shop default combination: ' . $db->getMsgError());
         }
         if (!$db->execute(sprintf(
             "UPDATE `%sproduct_attribute_shop` pas " .
