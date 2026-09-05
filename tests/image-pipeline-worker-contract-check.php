@@ -55,13 +55,17 @@ $checks = [
     [$queue, "WHERE status='failed' AND source='", 'image retry update must recheck source at write time'],
     [$queue, 'function lockOwned', 'queue must expose row-level lease lock'],
     [$queue, 'FOR UPDATE', 'queue desired metadata must be fenced by row lock'],
-    [$queue, 'source=IF(VALUES(id_run)>=id_run,VALUES(source),source)', 'older image generation must not replace source ownership metadata'],
-    [$queue, 'source_key=IF(VALUES(id_run)>=id_run,VALUES(source_key),source_key)', 'older image generation must not replace source key metadata'],
-    [$queue, 'position=IF(VALUES(id_run)>=id_run,VALUES(position),position)', 'older image generation must not replace desired position'],
-    [$queue, 'is_cover=IF(VALUES(id_run)>=id_run,VALUES(is_cover),is_cover)', 'older image generation must not replace desired cover state'],
-    [$queue, "status=IF(VALUES(id_run)>=id_run,IF(status='processing','processing','pending'),status)", 'newer image generation must preserve an active lease and requeue non-processing work'],
+    [$queue, '$accept = "(VALUES(id_run)>id_run OR (VALUES(id_run)=id_run AND VALUES(source)=source AND VALUES(source_key)=source_key))"', 'same-generation image handoff must not change owner identity'],
+    [$queue, '$sameOwner = "(VALUES(source)=source AND VALUES(source_key)=source_key)"', 'image queue lease preservation must use exact source owner identity'],
+    [$queue, "locked_by=IF(%s,IF(status='processing' AND %s,locked_by,NULL),locked_by)", 'foreign owner handoff must revoke active worker token'],
+    [$queue, "locked_until=IF(%s,IF(status='processing' AND %s,locked_until,NULL),locked_until)", 'foreign owner handoff must revoke active worker lease'],
+    [$queue, "status=IF(%s,IF(status='processing' AND %s,'processing','pending'),status)", 'only same-owner newer image generation may preserve processing status'],
+    [$queue, 'position=IF(%s,VALUES(position),position)', 'older image generation must not replace desired position'],
+    [$queue, 'is_cover=IF(%s,VALUES(is_cover),is_cover)', 'older image generation must not replace desired cover state'],
+    [$queue, 'source=IF(%s,VALUES(source),source)', 'accepted image handoff updates source only after lease fencing'],
+    [$queue, 'source_key=IF(%s,VALUES(source_key),source_key)', 'accepted image handoff updates source key only after lease fencing'],
     [$queue, 'id_run=GREATEST(id_run,VALUES(id_run))', 'image desired generation must be monotonic'],
-    [$queue, 'Keep id_run assignment last', 'generation fence must document MySQL/MariaDB assignment ordering'],
+    [$queue, 'a newer owner handoff revokes the old worker', 'owner handoff lease revocation must be documented'],
     [$queue, 'function unresolvedForSource', 'reconciliation must fence the entire shop/source queue'],
     [$processor, 'associateTo([$shopId], $productId)', 'shop image association'],
     [$processor, 'ImageType::getImagesTypes', 'thumbnail generation'],
@@ -114,10 +118,11 @@ if (!is_string($queue)) {
     fwrite(STDERR, "FAIL: image queue source unavailable\n");
     exit(1);
 }
-$positionFence = strpos($queue, 'position=IF(VALUES(id_run)>=id_run');
+$leaseFence = strpos($queue, "locked_by=IF(%s,IF(status='processing' AND %s,locked_by,NULL),locked_by)");
+$sourceAssignment = strpos($queue, 'source=IF(%s,VALUES(source),source)');
 $runAssignment = strpos($queue, 'id_run=GREATEST(id_run,VALUES(id_run))');
-if ($positionFence === false || $runAssignment === false || $positionFence >= $runAssignment) {
-    fwrite(STDERR, "FAIL: image generation predicates must evaluate before monotonic id_run assignment\n");
+if ($leaseFence === false || $sourceAssignment === false || $runAssignment === false || $leaseFence >= $sourceAssignment || $sourceAssignment >= $runAssignment) {
+    fwrite(STDERR, "FAIL: image owner/generation lease predicates must evaluate before source and id_run assignment\n");
     exit(1);
 }
 if (str_contains($queue, 'id_run=VALUES(id_run),source=VALUES(source)')) {
