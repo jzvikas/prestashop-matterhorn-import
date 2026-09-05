@@ -61,10 +61,10 @@ imageCredentialCheck(
     'Matterhorn READ mapper must reject image URL credentials before queue admission'
 );
 
-$classifierCode = (string) file_get_contents(dirname(__DIR__) . '/src/Image/ImageFailureClassifier.php');
+$downloaderCode = (string) file_get_contents(dirname(__DIR__) . '/src/Image/SafeImageDownloader.php');
 imageCredentialCheck(
-    str_contains($classifierCode, 'image url credentials are not allowed'),
-    'worker-side credential rejection must remain a permanent image failure'
+    str_contains($downloaderCode, "throw new \\InvalidArgumentException('Credentials in image URLs are not allowed')"),
+    'secure image downloader must retain credential rejection as defense in depth'
 );
 
 echo "Matterhorn image credential admission: OK\n";
