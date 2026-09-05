@@ -10,15 +10,23 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Added an idempotent retained-data/upgrade migration that fails closed when a legacy database already contains cross-source ownership conflicts instead of choosing an owner automatically.
 - Removed ownership-sensitive `ON DUPLICATE KEY UPDATE` behavior from mapping persistence; exact owners update in place while foreign product-owner collisions now fail explicitly.
 - Added runtime database safety validation for the exact unique ownership index and MariaDB regression coverage for duplicate-source ownership rejection and legacy conflict detection.
-- Fenced image and new-product retry resets with `status='failed'` at UPDATE time so a stale retry candidate list cannot clear a worker lease acquired concurrently.
-- Bypassed PrestaShop `Db` query caching for advisory locks, transaction-state decisions, mutable run/snapshot state, worker lease/queue reads, catalog resolver decisions and Back Office live status reads.
+- Added a shared item-transaction recovery guard across IMPORT, UPDATE, REMOVE, the global new-product worker and nested Product/Category/Manufacturer/Feature/Combination ObjectModel paths so third-party hook commits recreate the caller-owned transaction before module durability writes.
+- Changed REMOVE to one transaction per product, re-locking exact mapping ownership after an external PrestaShop commit and fencing the final `out_of_feed` write to the same `id_product` with an exact affected-row check.
+- Moved new-product queue generation finalization inside the same transaction as mapping/image durability so a crash cannot commit catalog state while leaving the claimed generation unfinalized.
+- Recovered every missing active target-shop `product_lang` row independently instead of treating one surviving language row as a complete shop association.
+- Fenced image and new-product retry resets with `status='failed'` at UPDATE time so a stale retry candidate list cannot clear a worker lease acquired concurrently, and bounded repository retry batches to 100,000 rows.
+- Bypassed PrestaShop `Db` query caching for advisory locks, transaction-state decisions, mutable run/snapshot state, worker lease/queue reads, catalog resolver decisions, error counters, doctor state and Back Office live status reads.
+- Kept CLI status, doctor queue/orphan health and Back Office operational counters source-scoped so another source cannot contaminate Matterhorn shop status.
 - Serialized manufacturer, category, attribute and feature creation with shared `lpimp:*` advisory-lock namespaces so concurrent supplier modules recheck the same global PrestaShop catalog namespace before creating rows.
 - Reused shared features when adding a missing global feature value instead of creating a duplicate same-name feature in the target shop.
 - Avoided sticky negative attribute-availability caching so a concurrently associated Size attribute can become visible during the same long-running worker process.
 - Fenced feature synchronization with fresh target-shop exclusivity checks, pre-mutation state revalidation and exact-value optimistic deletes so concurrent Back Office changes fail closed instead of being overwritten.
 - Hardened combination synchronization with fresh ownership/default reads, exact target-product checks and atomic multishop detach guarded by another live shop association.
 - Revalidated exclusive combination ownership immediately before global ObjectModel deletion and fail closed on shared or ambiguous association topology.
+- Preserved a live manual default combination when authoritative Matterhorn cleanup removes all module-owned survivors by resynchronizing `product_shop.cache_default_attribute` from the remaining target-shop `default_on` row.
+- Avoided duplicate combination structure/stock projection work during READ by deriving both hashes in one traversal and caching only the two final hash strings.
 - Fenced authoritative specific-price deletion to the exact live rule that was inspected, preserving a concurrent manual edit while relinquishing module ownership.
+- Bounded specific-price semantic adoption lookup to the exact SQL identity and at most two IDs instead of materializing every product specific-price row.
 - Made multishop image detach atomic with one guarded `DELETE ... INNER JOIN` statement instead of a racy pre-delete shop-count check.
 - Revalidated live image ownership immediately before destructive cleanup and made image-state GC recheck current references at delete time.
 - Corrected image-orphan retry backoff to MySQL/MariaDB left-to-right assignment semantics and bounded orphan GC pages independently of the caller chunk size.
@@ -28,7 +36,7 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Removed the UPDATE fallback that routed payload-only metadata changes into unnecessary product core writes.
 - Canonicalized supplier warning ordering so semantically identical option reordering does not churn snapshot payload hashes.
 - Preserved Matterhorn `avaible_in` and `creation_date` as supplier metadata without assigning stock/delivery/date-add semantics or dirtying catalog domain hashes.
-- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, live DB cache bypass, shared resolver locks, category path concurrency, feature concurrent changes, atomic combination/image detach, specific-price optimistic deletion, image URL bounds, stale-304 handling and ownership schema safety.
+- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, item-transaction recovery, exact REMOVE ownership, partial language recovery, live/source-scoped observability, single-pass combination hashing, bounded specific-price lookup, shared resolver locks, category path concurrency, feature concurrent changes, atomic combination/image detach, specific-price optimistic deletion, image URL bounds, stale-304 handling and ownership schema safety.
 - Made the GitHub Actions release workflow manually dispatchable when push-trigger execution is unavailable.
 
 ## 0.1.6
