@@ -13,7 +13,7 @@ final class ImageStateRepository
         $row = \Db::getInstance()->getRow(sprintf(
             "SELECT s.* FROM `%s%s` s INNER JOIN `%simage` i ON i.id_image=s.id_image AND i.id_product=s.id_product INNER JOIN `%simage_shop` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop WHERE s.id_shop=%d AND s.source='%s' AND s.source_key='%s' AND s.id_product=%d AND s.url_hash='%s' AND s.id_image>0",
             _DB_PREFIX_, self::TABLE, _DB_PREFIX_, _DB_PREFIX_, $shopId, pSQL($source), pSQL($sourceKey), $productId, pSQL($urlHash)
-        ));
+        ), false);
         return is_array($row) ? $row : null;
     }
 
@@ -23,7 +23,7 @@ final class ImageStateRepository
         $row = \Db::getInstance()->getRow(sprintf(
             "SELECT s.id_image,s.url_hash FROM `%s%s` s INNER JOIN `%simage` i ON i.id_image=s.id_image AND i.id_product=s.id_product INNER JOIN `%simage_shop` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop WHERE s.id_shop=%d AND s.source='%s' AND s.id_product=%d AND s.content_hash='%s' AND s.id_image>0 ORDER BY s.updated_at DESC",
             _DB_PREFIX_, self::TABLE, _DB_PREFIX_, _DB_PREFIX_, $shopId, pSQL($source), $productId, pSQL($contentHash)
-        ));
+        ), false);
         return is_array($row) ? $row : null;
     }
 
@@ -33,7 +33,7 @@ final class ImageStateRepository
         return \Db::getInstance()->executeS(sprintf(
             "SELECT s.* FROM `%s%s` s INNER JOIN `%simage` i ON i.id_image=s.id_image AND i.id_product=s.id_product INNER JOIN `%simage_shop` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop WHERE s.id_shop=%d AND s.source='%s' AND s.source_key='%s' AND s.id_product=%d ORDER BY s.position,s.url_hash",
             _DB_PREFIX_, self::TABLE, _DB_PREFIX_, _DB_PREFIX_, $shopId, pSQL($source), pSQL($sourceKey), $productId
-        )) ?: [];
+        ), true, false) ?: [];
     }
 
     /** @return list<string> */
@@ -50,7 +50,7 @@ final class ImageStateRepository
             "AND NOT EXISTS (SELECT 1 FROM `%sli_matterhornim_99dfbf_image_queue` q WHERE q.id_shop=s.id_shop AND q.id_product=s.id_product AND q.status<>'done') " .
             "ORDER BY s.updated_at ASC,s.source_key ASC LIMIT %d",
             _DB_PREFIX_, self::TABLE, _DB_PREFIX_, $shopId, pSQL($source), $ageHours, _DB_PREFIX_, $scanLimit
-        )) ?: [];
+        ), true, false) ?: [];
         $keys = [];
         foreach ($rows as $row) {
             $key = trim((string) ($row['source_key'] ?? ''));
@@ -59,6 +59,15 @@ final class ImageStateRepository
             if (count($keys) >= $limit) { break; }
         }
         return array_values($keys);
+    }
+
+    public function hasImageReference(int $productId, int $idImage): bool
+    {
+        if ($productId <= 0 || $idImage <= 0) { return false; }
+        return (bool) \Db::getInstance()->getValue(sprintf(
+            'SELECT 1 FROM `%s%s` WHERE id_product=%d AND id_image=%d',
+            _DB_PREFIX_, self::TABLE, $productId, $idImage
+        ), false);
     }
 
     public function touchNotModified(array $queueRow, int $idImage): void
@@ -92,9 +101,9 @@ final class ImageStateRepository
         $otherRefs = (int) $db->getValue(sprintf(
             "SELECT COUNT(*) FROM `%s%s` WHERE id_product=%d AND id_image=%d AND NOT (id_shop=%d AND source='%s' AND source_key='%s' AND url_hash='%s')",
             _DB_PREFIX_, self::TABLE, $productId, $idImage, $shopId, pSQL($source), pSQL($sourceKey), pSQL($urlHash)
-        ));
+        ), false);
         if ($otherRefs !== 0) { return false; }
-        $shopRows = $db->executeS(sprintf('SELECT id_shop FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage)) ?: [];
+        $shopRows = $db->executeS(sprintf('SELECT id_shop FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage), true, false) ?: [];
         return count($shopRows) === 1 && (int) $shopRows[0]['id_shop'] === $shopId;
     }
 
@@ -103,7 +112,7 @@ final class ImageStateRepository
         return (bool) \Db::getInstance()->getValue(sprintf(
             "SELECT 1 FROM `%s%s` WHERE id_shop=%d AND id_product=%d AND id_image=%d AND NOT (source='%s' AND source_key='%s' AND url_hash='%s') LIMIT 1",
             _DB_PREFIX_, self::TABLE, $shopId, $productId, $idImage, pSQL($source), pSQL($sourceKey), pSQL($urlHash)
-        ));
+        ), false);
     }
 
     public function deleteState(int $shopId, string $source, string $sourceKey, int $productId, string $urlHash): void
@@ -116,11 +125,11 @@ final class ImageStateRepository
     {
         if ($shopId <= 0 || $productId <= 0 || $idImage <= 0) { return false; }
         $db = \Db::getInstance();
-        $stateRefs = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%s%s` WHERE id_product=%d AND id_image=%d', _DB_PREFIX_, self::TABLE, $productId, $idImage));
+        $stateRefs = (int) $db->getValue(sprintf('SELECT COUNT(*) FROM `%s%s` WHERE id_product=%d AND id_image=%d', _DB_PREFIX_, self::TABLE, $productId, $idImage), false);
         if ($stateRefs !== 0) { return false; }
-        $imageExists = (bool) $db->getValue(sprintf('SELECT 1 FROM `%simage` WHERE id_image=%d AND id_product=%d', _DB_PREFIX_, $idImage, $productId));
+        $imageExists = (bool) $db->getValue(sprintf('SELECT 1 FROM `%simage` WHERE id_image=%d AND id_product=%d', _DB_PREFIX_, $idImage, $productId), false);
         if (!$imageExists) { return false; }
-        $shopRows = $db->executeS(sprintf('SELECT id_shop FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage)) ?: [];
+        $shopRows = $db->executeS(sprintf('SELECT id_shop FROM `%simage_shop` WHERE id_image=%d', _DB_PREFIX_, $idImage), true, false) ?: [];
         return count($shopRows) === 1 && (int) $shopRows[0]['id_shop'] === $shopId;
     }
 
