@@ -24,6 +24,17 @@ combinationCheck(str_contains($sync, 'Refusing to override default combination o
 combinationCheck(str_contains($sync, 'pa.id_product_attribute NOT IN'), 'default healing must inspect non-Matterhorn target-shop combinations');
 combinationCheck(str_contains($sync, 'StockAvailable::setQuantity'), 'combination stock uses shop-aware PrestaShop stock API');
 
+combinationCheck(str_contains($sync, 'DELETE target FROM `%sproduct_attribute_shop` target'), 'shared combination detach must be atomic');
+combinationCheck(str_contains($sync, 'other.id_shop<>target.id_shop'), 'shared detach must prove another shop association still exists');
+combinationCheck(str_contains($sync, 'pa.id_product_attribute=target.id_product_attribute AND pa.id_product=%d'), 'shared detach must fence product ownership');
+combinationCheck(str_contains($sync, '$affected = (int) $db->Affected_Rows()'), 'shared detach must validate affected-row count');
+combinationCheck(str_contains($sync, '$this->deleteExclusiveCombination($productId, $id, $shopId)'), 'topology race must re-enter independently fenced exclusive delete');
+combinationCheck(str_contains($sync, 'target_shop_count'), 'exclusive delete must prove exact target-shop ownership');
+combinationCheck(str_contains($sync, 'shared or ambiguously associated combination'), 'exclusive delete must fail closed on shared/ambiguous topology');
+combinationCheck(substr_count($sync, '), false);') >= 4, 'live combination ownership/default reads must bypass Db query cache');
+combinationCheck(str_contains($sync, "executeS(sprintf(\n            \"SELECT pa.id_product_attribute") && str_contains($sync, '), true, false) ?: []'), 'semantic combination inventory must bypass Db query cache');
+combinationCheck(str_contains($sync, "'cart_product'"), 'shared detach must clean target-shop cart rows after successful detach');
+
 $product = new ProductData('206161', 'MH-206161', ['default' => 'Panties'], 14.9, 0, true, [], [
     'combinations' => [[
         'attribute_ids' => [12],
