@@ -32,6 +32,15 @@ featureCheck(str_contains($sync, "' AND id_feature_value=' . (int) \$valueId"), 
 featureCheck(str_contains($sync, '$db->Affected_Rows() !== 1'), 'feature delete must detect concurrent row replacement/removal');
 featureCheck(str_contains($sync, "executeS(\n            'SELECT id_feature,id_feature_value") && str_contains($sync, "true,\n            false"), 'feature live state reads must bypass Db query cache');
 featureCheck(str_contains($sync, 'target_shop_count'), 'feature mutation ownership proof must include target-shop membership');
+featureCheck(!str_contains($state, 'ON DUPLICATE KEY UPDATE'), 'feature ownership state save must not overwrite a semantic owner through broad upsert');
+featureCheck(str_contains($state, 'Feature ownership conflict:'), 'feature ownership state save must fail closed when the semantic owner points at another product');
+featureCheck(str_contains($state, 'last_seen_run_id<=') && str_contains($state, 'Refusing stale feature ownership state save'), 'feature ownership state writes must be monotonic by run generation');
+featureCheck(str_contains($state, 'private function exactOwner(') && str_contains($state, '), false);'), 'feature ownership verification must use fresh uncached reads');
+featureCheck(str_contains($state, 'id_product=%d AND id_feature=%d'), 'feature ownership persistence must fence the exact product and feature');
+featureCheck(str_contains($state, ". ' AND id_feature_value=' . \$valueId"), 'feature ownership delete must fence the exact previously owned value');
+featureCheck(str_contains($state, '$db->Affected_Rows() !== 1'), 'feature ownership delete must detect concurrent state replacement/removal');
+featureCheck(str_contains($sync, '$ownershipDelete[$featureId] = $ownedValue'), 'feature synchronizer must carry the observed owned value into exact state deletion');
+featureCheck(str_contains($sync, '$productId,') && str_contains($sync, '(int) $ownedValue'), 'feature synchronizer must pass exact product/value identity to ownership deletion');
 
 featureCheck(str_contains($resolver, 'LOCK_TIMEOUT_SECONDS = 10'), 'feature resolver must bound advisory-lock wait');
 featureCheck(str_contains($resolver, "'lpimp:feat:'"), 'feature resolver must share lock namespace across import modules');
