@@ -123,7 +123,7 @@ final class CombinationSynchronizer
             "WHERE pa.id_product=%d GROUP BY pa.id_product_attribute,pa.reference,pa.ean13,pa.upc,pa.mpn," .
             "pas.default_on,pas.price,pas.weight,pas.wholesale_price,pas.minimal_quantity",
             _DB_PREFIX_, _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $productId
-        )) ?: [];
+        ), true, false) ?: [];
         $out = [];
         foreach ($rows as $row) {
             $ids = array_values(array_filter(array_map('intval', explode(',', (string) $row['attribute_ids'])), static fn(int $id): bool => $id > 0));
@@ -255,28 +255,87 @@ final class CombinationSynchronizer
     {
         $count = $this->shopAssociationCount($id);
         if ($count <= 1) {
-            $combination = new \Combination($id, null, $shopId);
-            if (!\Validate::isLoadedObject($combination) || (int) $combination->id_product !== $productId) {
-                return;
-            }
-            if (!$combination->delete()) {
-                throw new \RuntimeException('Could not delete exclusive combination ' . $id);
-            }
+            $this->deleteExclusiveCombination($productId, $id, $shopId);
             return;
         }
 
         $db = \Db::getInstance();
-        if (!$db->delete('product_attribute_shop', 'id_product_attribute=' . $id . ' AND id_shop=' . $shopId)) {
+        $detached = $db->execute(sprintf(
+            "DELETE target FROM `%sproduct_attribute_shop` target " .
+            "INNER JOIN `%sproduct_attribute_shop` other " .
+            "ON other.id_product_attribute=target.id_product_attribute AND other.id_shop<>target.id_shop " .
+            "INNER JOIN `%sproduct_attribute` pa " .
+            "ON pa.id_product_attribute=target.id_product_attribute AND pa.id_product=%d " .
+            "WHERE target.id_product_attribute=%d AND target.id_shop=%d",
+            _DB_PREFIX_, _DB_PREFIX_, _DB_PREFIX_, $productId, $id, $shopId
+        ));
+        if (!$detached) {
             throw new \RuntimeException('Could not detach shared combination ' . $id . ' from shop ' . $shopId);
         }
+
+        $affected = (int) $db->Affected_Rows();
+        if ($affected === 0) {
+            if ($this->belongsToProductShop($productId, $id, $shopId)) {
+                $this->deleteExclusiveCombination($productId, $id, $shopId);
+            }
+            return;
+        }
+        if ($affected !== 1) {
+            throw new \RuntimeException('Unexpected shared combination detach count for ' . $id);
+        }
+
         if (!\StockAvailable::removeProductFromStockAvailable($productId, $id, $shopId)) {
             throw new \RuntimeException('Could not detach shared combination stock ' . $id . ' from shop ' . $shopId);
+        }
+        if (!$db->delete('cart_product', 'id_product_attribute=' . $id . ' AND id_shop=' . $shopId)) {
+            throw new \RuntimeException('Could not clean target-shop cart rows for combination ' . $id);
+        }
+    }
+
+    private function deleteExclusiveCombination(int $productId, int $id, int $shopId): void
+    {
+        $db = \Db::getInstance();
+        $row = $db->getRow(sprintf(
+            "SELECT pa.id_product,COUNT(pas.id_shop) AS shop_count," .
+            "SUM(CASE WHEN pas.id_shop=%d THEN 1 ELSE 0 END) AS target_shop_count " .
+            "FROM `%sproduct_attribute` pa " .
+            "LEFT JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute " .
+            "WHERE pa.id_product_attribute=%d GROUP BY pa.id_product",
+            $shopId, _DB_PREFIX_, _DB_PREFIX_, $id
+        ), false);
+        if (!is_array($row) || $row === []) {
+            return;
+        }
+        if ((int) ($row['id_product'] ?? 0) !== $productId) {
+            throw new \RuntimeException('Refusing to delete combination from another product: ' . $id);
+        }
+        $shopCount = (int) ($row['shop_count'] ?? 0);
+        $targetShopCount = (int) ($row['target_shop_count'] ?? 0);
+        if ($targetShopCount === 0) {
+            return;
+        }
+        if ($shopCount !== 1 || $targetShopCount !== 1) {
+            throw new \RuntimeException('Refusing global delete of shared or ambiguously associated combination ' . $id);
+        }
+
+        $combination = new \Combination($id, null, $shopId);
+        if (!\Validate::isLoadedObject($combination)) {
+            return;
+        }
+        if ((int) $combination->id_product !== $productId) {
+            throw new \RuntimeException('Refusing to delete combination from another product: ' . $id);
+        }
+        if (!$combination->delete()) {
+            throw new \RuntimeException('Could not delete exclusive combination ' . $id);
         }
     }
 
     private function shopAssociationCount(int $id): int
     {
-        return (int) \Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product_attribute_shop` WHERE id_product_attribute=' . $id);
+        return (int) \Db::getInstance()->getValue(
+            'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product_attribute_shop` WHERE id_product_attribute=' . $id,
+            false
+        );
     }
 
     private function belongsToProductShop(int $productId, int $id, int $shopId): bool
@@ -285,7 +344,7 @@ final class CombinationSynchronizer
             "SELECT 1 FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas " .
             "ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product=%d AND pa.id_product_attribute=%d",
             _DB_PREFIX_, _DB_PREFIX_, $shopId, $productId, $id
-        ));
+        ), false);
     }
 
     private function healDefault(int $productId, int $shopId, array $survivors, ?string $explicitDefault): void
@@ -311,7 +370,7 @@ final class CombinationSynchronizer
         $externalDefault = (int) $db->getValue(sprintf(
             'SELECT pa.id_product_attribute FROM `%sproduct_attribute` pa INNER JOIN `%sproduct_attribute_shop` pas ON pas.id_product_attribute=pa.id_product_attribute AND pas.id_shop=%d WHERE pa.id_product=%d AND pas.default_on=1 AND pa.id_product_attribute NOT IN (%s) ORDER BY pa.id_product_attribute LIMIT 1',
             _DB_PREFIX_, _DB_PREFIX_, $shopId, $productId, $idList
-        ));
+        ), false);
         if ($externalDefault > 0) {
             throw new \RuntimeException('Refusing to override default combination owned outside Matterhorn: ' . $externalDefault);
         }
