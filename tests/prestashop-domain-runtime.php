@@ -9,6 +9,34 @@ function domainAssert(bool $condition, string $message): void
     if (!$condition) { throw new RuntimeException($message); }
 }
 
+function runtimePersistedFailures(): string
+{
+    try {
+        $db = Db::getInstance();
+        $prefix = _DB_PREFIX_ . 'li_matterhornim_99dfbf_';
+        $runId = (int) $db->getValue("SELECT id_run FROM `{$prefix}run` WHERE id_shop=1 AND source='matterhorn' ORDER BY id_run DESC LIMIT 1", false);
+        if ($runId <= 0) { return ''; }
+        $rows = $db->executeS(
+            "SELECT stage,source_key,message FROM `{$prefix}error` WHERE id_run={$runId} ORDER BY id_error ASC LIMIT 20",
+            true,
+            false
+        ) ?: [];
+        if ($rows === []) { return ''; }
+        $lines = ["Persisted Matterhorn failures for run #{$runId}:"];
+        foreach ($rows as $row) {
+            $lines[] = sprintf(
+                '[%s] %s: %s',
+                (string) ($row['stage'] ?? '?'),
+                (string) (($row['source_key'] ?? '') ?: '-'),
+                (string) ($row['message'] ?? '')
+            );
+        }
+        return implode("\n", $lines);
+    } catch (Throwable $e) {
+        return 'Could not read persisted Matterhorn failures: ' . $e->getMessage();
+    }
+}
+
 function runMatterhornConsole(array $arguments): string
 {
     $parts = ['APP_ENV=prod', 'APP_DEBUG=0', 'php', '-d', 'memory_limit=512M', 'bin/console'];
@@ -18,7 +46,12 @@ function runMatterhornConsole(array $arguments): string
     $code = 0;
     exec($command, $lines, $code);
     $output = implode("\n", $lines);
-    if ($code !== 0) { throw new RuntimeException('Console command failed (' . $code . '): ' . $command . "\n" . $output); }
+    if ($code !== 0) {
+        $persisted = runtimePersistedFailures();
+        throw new RuntimeException(
+            'Console command failed (' . $code . '): ' . $command . "\n" . $output . ($persisted === '' ? '' : "\n" . $persisted)
+        );
+    }
     return $output;
 }
 
