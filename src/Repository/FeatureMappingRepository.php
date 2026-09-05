@@ -145,9 +145,9 @@ final class FeatureMappingRepository
         $row = $db->getRow(sprintf(
             "SELECT " .
             "(SELECT fm.supplier_name FROM `%sli_matterhornim_99dfbf_feature_mapping` fm " .
-            "WHERE fm.id_shop=%d AND fm.source='%s' AND fm.supplier_feature_key='%s' LIMIT 1) AS supplier_name," .
+            "WHERE fm.id_shop=%d AND fm.source='%s' AND fm.supplier_feature_key='%s') AS supplier_name," .
             "(SELECT fvm.supplier_value FROM `%sli_matterhornim_99dfbf_feature_value_mapping` fvm " .
-            "WHERE fvm.id_shop=%d AND fvm.source='%s' AND fvm.supplier_feature_key='%s' AND fvm.supplier_value_key='%s' LIMIT 1) AS supplier_value",
+            "WHERE fvm.id_shop=%d AND fvm.source='%s' AND fvm.supplier_feature_key='%s' AND fvm.supplier_value_key='%s') AS supplier_value",
             _DB_PREFIX_, $shopId, pSQL($source), pSQL($featureKey),
             _DB_PREFIX_, $shopId, pSQL($source), pSQL($featureKey), pSQL($valueKey)
         ), false);
