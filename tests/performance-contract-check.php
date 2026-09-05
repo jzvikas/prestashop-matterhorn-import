@@ -84,6 +84,7 @@ $check(str_contains($categorySync, 'leaf_shop') && str_contains($categorySync, '
 $check(str_contains($categorySync, '), true, false);'), 'category hierarchy live read must bypass Db query cache');
 $check(str_contains($categorySync, 'Mapped category is unavailable in target shop'), 'category hierarchy cache must fail closed on deleted/unassociated leaves');
 $check(str_contains($featureMapping, 'private array $pairCache'), 'feature mapping process cache missing');
-$check(str_contains($featureMapping, '$this->pairCache[$this->cacheKey'), 'feature auto-create must seed process cache');
+$check(str_contains($featureMapping, '$this->pairCache[$cacheKey]'), 'feature auto-create must seed process cache');
+$check(str_contains($featureMapping, 'private array $semanticIdentityCache'), 'feature semantic identity checks must retain bounded process cache');
 
 echo "High-volume performance contract: OK\n";

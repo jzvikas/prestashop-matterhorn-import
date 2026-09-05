@@ -22,7 +22,14 @@ featureCheck(str_contains($state, 'li_matterhornim_99dfbf_feature_state'), 'feat
 featureCheck(!str_contains($mapping . $state, $genericDbToken), 'generic skeleton DB token does not leak into feature runtime');
 featureCheck(str_contains($mapping, 'getRow(sprintf(') && str_contains($mapping, '), false);'), 'feature mapping live resolution must bypass Db query cache');
 featureCheck(str_contains($mapping, 'private array $pairCache'), 'feature mapping must retain bounded process cache');
-featureCheck(str_contains($mapping, '$this->pairCache[$this->cacheKey'), 'feature mapping save must seed the process cache with the committed resolution');
+featureCheck(str_contains($mapping, '$this->pairCache[$cacheKey]'), 'feature mapping save must seed the process cache with the committed resolution');
+featureCheck(str_contains($mapping, 'assertSemanticIdentity('), 'feature mapping must expose persistent semantic identity preflight');
+featureCheck(str_contains($sync, '->assertSemanticIdentity('), 'feature synchronization must preflight semantic identity before resolve/create');
+featureCheck(str_contains($mapping, 'Feature semantic identity collision'), 'feature semantic collisions must fail closed explicitly');
+featureCheck(str_contains($mapping, "'lpimp:featmap:'"), 'feature semantic writes must use a shared advisory-lock namespace');
+featureCheck(str_contains($mapping, 'assertSemanticIdentityFresh('), 'feature mapping save must re-read semantic identity under lock');
+featureCheck(str_contains($mapping, 'GET_LOCK') && str_contains($mapping, 'RELEASE_LOCK'), 'feature semantic mapping write must be serialized');
+featureCheck(str_contains($mapping, 'supplier_name') && str_contains($mapping, 'supplier_value'), 'feature semantic identity must compare persisted supplier labels');
 featureCheck(str_contains($sync, 'ownershipDelete') && str_contains($sync, 'ownedValue'), 'authoritative feature sync preserves manual overrides and relinquishes ownership');
 featureCheck(str_contains($sync, 'not exclusive to target shop'), 'non-exclusive product feature mutation fails closed');
 featureCheck(str_contains($sync, 'assertExclusiveTargetShop($productId, $shopId)'), 'feature mutations must revalidate target-shop exclusivity');

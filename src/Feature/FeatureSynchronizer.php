@@ -28,6 +28,18 @@ final class FeatureSynchronizer
         $desired = [];
 
         foreach ($rows as $row) {
+            // The supplier value key is deterministic but slug-derived. Fail before
+            // resolving/creating catalog rows if the same persistent semantic key has
+            // ever represented a different supplier label/value.
+            $this->mapping->assertSemanticIdentity(
+                $shopId,
+                $source,
+                $row['key'],
+                $row['name'],
+                $row['value_key'],
+                $row['value']
+            );
+
             $resolved = $this->mapping->resolvePair($shopId, $source, $row['key'], $row['value_key']);
             if ($resolved === null) {
                 if (!$autoCreate) {
