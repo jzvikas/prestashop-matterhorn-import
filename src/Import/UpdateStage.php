@@ -1,40 +1,191 @@
 <?php
 namespace Lp\MatterhornImport\Import;
 
-use Lp\MatterhornImport\Combination\CombinationAttributeResolver; use Lp\MatterhornImport\Combination\CombinationSynchronizer;
-use Lp\MatterhornImport\Contract\GranularProductWriterInterface; use Lp\MatterhornImport\Contract\ProductWriterInterface; use Lp\MatterhornImport\DTO\ProductData;
-use Lp\MatterhornImport\Feature\FeatureSynchronizer; use Lp\MatterhornImport\Repository\ErrorRepository; use Lp\MatterhornImport\Repository\ImageQueueRepository;
-use Lp\MatterhornImport\Repository\MappingRepository; use Lp\MatterhornImport\Repository\RunRepository; use Lp\MatterhornImport\Repository\SnapshotRepository;
-use Lp\MatterhornImport\Util\DatabaseSafety; use Lp\MatterhornImport\Util\ExecutionBudget; use Lp\MatterhornImport\Util\RunFailureRecorder; use Lp\MatterhornImport\Util\TransientDatabaseFailure;
+use Lp\MatterhornImport\Combination\CombinationAttributeResolver;
+use Lp\MatterhornImport\Combination\CombinationSynchronizer;
+use Lp\MatterhornImport\Contract\GranularProductWriterInterface;
+use Lp\MatterhornImport\Contract\ProductWriterInterface;
+use Lp\MatterhornImport\DTO\ProductData;
+use Lp\MatterhornImport\Feature\FeatureSynchronizer;
+use Lp\MatterhornImport\Repository\ErrorRepository;
+use Lp\MatterhornImport\Repository\ImageQueueRepository;
+use Lp\MatterhornImport\Repository\MappingRepository;
+use Lp\MatterhornImport\Repository\RunRepository;
+use Lp\MatterhornImport\Repository\SnapshotRepository;
+use Lp\MatterhornImport\SpecificPrice\SpecificPriceSynchronizer;
+use Lp\MatterhornImport\Util\DatabaseSafety;
+use Lp\MatterhornImport\Util\ExecutionBudget;
+use Lp\MatterhornImport\Util\RunFailureRecorder;
+use Lp\MatterhornImport\Util\TransientDatabaseFailure;
 
 final class UpdateStage
 {
-    private const SAVEPOINT='matterhorn_update_item';
-    public function __construct(private ProductWriterInterface $writer,private FeatureSynchronizer $features,private CombinationAttributeResolver $combinationAttributes,private CombinationSynchronizer $combinations,private RunRepository $runs,private SnapshotRepository $snapshots,private MappingRepository $mapping,private ImageQueueRepository $images,private ErrorRepository $errors,private DatabaseSafety $safety,private RunFailureRecorder $failureRecorder,private ExecutionBudget $budget){}
-    public function run(int $runId,int $shopId,string $source,int $batch=500,int $maxItems=0,int $timeLimitSeconds=0):bool
+    private const SAVEPOINT = 'matterhorn_update_item';
+
+    public function __construct(
+        private ProductWriterInterface $writer,
+        private FeatureSynchronizer $features,
+        private CombinationAttributeResolver $combinationAttributes,
+        private CombinationSynchronizer $combinations,
+        private SpecificPriceSynchronizer $specificPrices,
+        private RunRepository $runs,
+        private SnapshotRepository $snapshots,
+        private MappingRepository $mapping,
+        private ImageQueueRepository $images,
+        private ErrorRepository $errors,
+        private DatabaseSafety $safety,
+        private RunFailureRecorder $failureRecorder,
+        private ExecutionBudget $budget
+    ) {}
+
+    public function run(int $runId, int $shopId, string $source, int $batch = 500, int $maxItems = 0, int $timeLimitSeconds = 0): bool
     {
-        $this->safety->assertTransactionalCore();$run=$this->runs->assertContext($runId,$shopId,$source);$this->assertRunnable($run);$this->budget->start($maxItems,$timeLimitSeconds);
-        try{$this->runs->resume($runId);$this->runs->resetStageFailureCounter($runId,'update');$this->runs->stage($runId,'update','running');$cursor=0;$failures=0;$paused=false;$batch=max(1,min(2000,$batch));
-            while(!$this->budget->shouldStop()&&($rows=$this->snapshots->changedRows($runId,$shopId,$source,$cursor,$batch))!==[]){$db=\Db::getInstance();if(!$db->execute('START TRANSACTION')){throw new \RuntimeException('Could not start UPDATE batch transaction');}$done=0;$batchFailures=0;
-                try{foreach($rows as $row){if($this->budget->shouldStop()){$paused=true;break;}$mappedId=(int)$row['id_product'];$cursor=$mappedId;$this->beginItemSavepoint($db);$product=null;
-                        try{$product=ProductData::fromJson((string)$row['payload']);$productId=$mappedId;$recreated=false;$associationRecovered=false;
-                            if((int)($row['product_exists']??1)!==1){$productId=$this->writer->create($product,$shopId);if($productId<=0){throw new \RuntimeException('Mapped orphan recreation returned invalid product ID for '.$product->sourceKey);}$recreated=true;}
-                            $domains=$recreated?$this->fullDomains():$this->changedDomains($row);if(!$recreated&&(int)($row['product_shop_exists']??1)!==1){$this->writer->update($productId,$product,$shopId);$associationRecovered=true;$domains=$this->fullDomains();}
-                            $imagesSame=!$recreated&&!$associationRecovered&&$this->sameHash($row,'old_image_hash','image_hash');$featureChanged=in_array('feature',$domains,true);$combinationChanged=in_array('combination',$domains,true);$writerDomains=array_values(array_intersect($domains,['core','price','stock','category']));
-                            if(!$recreated&&!$associationRecovered&&$writerDomains!==[]){if($this->writer instanceof GranularProductWriterInterface){$this->writer->updateDomains($productId,$product,$shopId,$writerDomains);}else{$this->writer->update($productId,$product,$shopId);}}
-                            if($featureChanged){$this->features->sync($runId,$shopId,$source,$productId,$product);}if($combinationChanged){$resolved=$this->combinationAttributes->resolve($product,$shopId,$source);$this->combinations->sync($runId,$shopId,$source,$productId,$resolved);}
-                            $this->restoreItemSavepointAfterExternalCommit($db);if(!$imagesSame){$this->images->enqueue($runId,$shopId,$source,$product->sourceKey,$productId,$product->images);}$this->mapping->save($shopId,$source,$runId,$productId,$product);if(!$db->execute('RELEASE SAVEPOINT '.self::SAVEPOINT)){throw new \RuntimeException('Could not release UPDATE item savepoint');}$done++;$this->budget->markItem();
-                        }catch(\Throwable $itemError){if(TransientDatabaseFailure::isRetryable($itemError)){throw $itemError;}$this->rollbackItemSavepoint($db,$itemError);$batchFailures++;$this->budget->markItem();$this->errors->add($runId,'update',$product?->sourceKey??(string)($row['source_key']??''),$itemError);}}
-                    if($done>0){$this->runs->increment($runId,'update_done',$done);}if($batchFailures>0){$this->runs->increment($runId,'update_failed',$batchFailures);}if(!$db->execute('COMMIT')){throw new \RuntimeException('Could not commit UPDATE batch');}}
-                catch(\Throwable $batchError){$db->execute('ROLLBACK');throw $batchError;}$failures+=$batchFailures;if($paused||$this->budget->shouldStop()){$paused=true;break;}}
-            if($failures>0){throw new \RuntimeException('UPDATE completed with '.$failures.' failed item(s); retry required');}if($paused||$this->budget->shouldStop()){$this->runs->stage($runId,'update','paused');$this->runs->finish($runId,'paused');return false;}$this->runs->stage($runId,'update','completed');return true;
-        }catch(\Throwable $e){$this->failureRecorder->record($runId,'update',$e);throw $e;}}
-    private function beginItemSavepoint(\Db $db):void{if(!$this->transactionIsActive($db)&&!$db->execute('START TRANSACTION')){throw new \RuntimeException('Could not restore UPDATE transaction');}if(!$db->execute('SAVEPOINT '.self::SAVEPOINT)){throw new \RuntimeException('Could not create UPDATE item savepoint: '.$db->getMsgError());}}
-    private function restoreItemSavepointAfterExternalCommit(\Db $db):void{if($this->transactionIsActive($db)){return;}if(!$db->execute('START TRANSACTION')||!$db->execute('SAVEPOINT '.self::SAVEPOINT)){throw new \RuntimeException('Could not restore UPDATE transaction after PrestaShop commit');}}
-    private function rollbackItemSavepoint(\Db $db,\Throwable $cause):void{if(!$this->transactionIsActive($db)){return;}if(!$db->execute('ROLLBACK TO SAVEPOINT '.self::SAVEPOINT)){$db->execute('ROLLBACK');throw new \RuntimeException('Could not roll back UPDATE item savepoint',0,$cause);}if(!$db->execute('RELEASE SAVEPOINT '.self::SAVEPOINT)){throw new \RuntimeException('Could not release UPDATE savepoint after rollback',0,$cause);}}
-    private function transactionIsActive(\Db $db):bool{$value=$db->getValue('SELECT @@session.in_transaction');if($value===false){throw new \RuntimeException('Could not inspect UPDATE transaction state: '.$db->getMsgError());}return(int)$value===1;}
-    private function changedDomains(array $row):array{if((int)($row['old_out_of_feed']??0)===1){return $this->fullDomains();}$domains=[];foreach(['core','price','stock','feature','category']as$domain){if(!$this->sameHash($row,'old_'.$domain.'_hash',$domain.'_hash')){$domains[]=$domain;}}if(!$this->sameHash($row,'old_combination_hash','combination_hash')||!$this->sameHash($row,'old_combination_stock_hash','combination_stock_hash')){$domains[]='combination';}if($domains===[]&&!$this->sameHash($row,'old_payload_hash','payload_hash')){$domains[]='core';}return$domains;}
-    private function fullDomains():array{return['core','price','stock','feature','category','combination'];}
-    private function sameHash(array$row,string$oldKey,string$newKey):bool{return hash_equals((string)($row[$oldKey]??''),(string)($row[$newKey]??''));}
-    private function assertRunnable(array$run):void{if((string)$run['read_status']!=='completed'||(string)$run['import_status']!=='completed'){throw new \RuntimeException('READ and IMPORT must complete before UPDATE');}if((string)$run['update_status']==='completed'){throw new \RuntimeException('UPDATE is already completed for this run');}if((string)$run['remove_status']!=='pending'){throw new \RuntimeException('UPDATE retry blocked because REMOVE already started');}}
+        $this->safety->assertTransactionalCore();
+        $run = $this->runs->assertContext($runId, $shopId, $source);
+        $this->assertRunnable($run);
+        $this->budget->start($maxItems, $timeLimitSeconds);
+        try {
+            $this->runs->resume($runId);
+            $this->runs->resetStageFailureCounter($runId, 'update');
+            $this->runs->stage($runId, 'update', 'running');
+            $cursor = 0;
+            $failures = 0;
+            $paused = false;
+            $batch = max(1, min(2000, $batch));
+
+            while (!$this->budget->shouldStop() && ($rows = $this->snapshots->changedRows($runId, $shopId, $source, $cursor, $batch)) !== []) {
+                $db = \Db::getInstance();
+                if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start UPDATE batch transaction'); }
+                $done = 0;
+                $batchFailures = 0;
+                try {
+                    foreach ($rows as $row) {
+                        if ($this->budget->shouldStop()) { $paused = true; break; }
+                        $mappedId = (int) $row['id_product'];
+                        $cursor = $mappedId;
+                        $this->beginItemSavepoint($db);
+                        $product = null;
+                        try {
+                            $product = ProductData::fromJson((string) $row['payload']);
+                            $productId = $mappedId;
+                            $recreated = false;
+                            $associationRecovered = false;
+                            if ((int) ($row['product_exists'] ?? 1) !== 1) {
+                                $productId = $this->writer->create($product, $shopId);
+                                if ($productId <= 0) { throw new \RuntimeException('Mapped orphan recreation returned invalid product ID for ' . $product->sourceKey); }
+                                $recreated = true;
+                            }
+
+                            $domains = $recreated ? $this->fullDomains() : $this->changedDomains($row);
+                            if (!$recreated && (int) ($row['product_shop_exists'] ?? 1) !== 1) {
+                                $this->writer->update($productId, $product, $shopId);
+                                $associationRecovered = true;
+                                $domains = $this->fullDomains();
+                            }
+
+                            $imagesSame = !$recreated && !$associationRecovered && $this->sameHash($row, 'old_image_hash', 'image_hash');
+                            $featureChanged = in_array('feature', $domains, true);
+                            $combinationChanged = in_array('combination', $domains, true);
+                            $specificPriceChanged = in_array('specific_price', $domains, true);
+                            $writerDomains = array_values(array_filter($domains, static fn(string $domain): bool => !in_array($domain, ['feature','combination','specific_price'], true)));
+
+                            if (!$recreated && !$associationRecovered && $writerDomains !== []) {
+                                if ($this->writer instanceof GranularProductWriterInterface) { $this->writer->updateDomains($productId, $product, $shopId, $writerDomains); }
+                                else { $this->writer->update($productId, $product, $shopId); }
+                            }
+                            if ($featureChanged) { $this->features->sync($runId, $shopId, $source, $productId, $product); }
+                            if ($combinationChanged) {
+                                $resolved = $this->combinationAttributes->resolve($product, $shopId, $source);
+                                $this->combinations->sync($runId, $shopId, $source, $productId, $resolved);
+                            }
+                            if ($specificPriceChanged) { $this->specificPrices->sync($runId, $shopId, $source, $productId, $product); }
+
+                            $this->restoreItemSavepointAfterExternalCommit($db);
+                            if (!$imagesSame) { $this->images->enqueue($runId, $shopId, $source, $product->sourceKey, $productId, $product->images); }
+                            $this->mapping->save($shopId, $source, $runId, $productId, $product);
+                            if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not release UPDATE item savepoint'); }
+                            $done++;
+                            $this->budget->markItem();
+                        } catch (\Throwable $itemError) {
+                            if (TransientDatabaseFailure::isRetryable($itemError)) { throw $itemError; }
+                            $this->rollbackItemSavepoint($db, $itemError);
+                            $batchFailures++;
+                            $this->budget->markItem();
+                            $this->errors->add($runId, 'update', $product?->sourceKey ?? (string) ($row['source_key'] ?? ''), $itemError);
+                        }
+                    }
+                    if ($done > 0) { $this->runs->increment($runId, 'update_done', $done); }
+                    if ($batchFailures > 0) { $this->runs->increment($runId, 'update_failed', $batchFailures); }
+                    if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit UPDATE batch'); }
+                } catch (\Throwable $batchError) {
+                    $db->execute('ROLLBACK');
+                    throw $batchError;
+                }
+                $failures += $batchFailures;
+                if ($paused || $this->budget->shouldStop()) { $paused = true; break; }
+            }
+            if ($failures > 0) { throw new \RuntimeException('UPDATE completed with ' . $failures . ' failed item(s); retry required'); }
+            if ($paused || $this->budget->shouldStop()) {
+                $this->runs->stage($runId, 'update', 'paused');
+                $this->runs->finish($runId, 'paused');
+                return false;
+            }
+            $this->runs->stage($runId, 'update', 'completed');
+            return true;
+        } catch (\Throwable $e) {
+            $this->failureRecorder->record($runId, 'update', $e);
+            throw $e;
+        }
+    }
+
+    private function beginItemSavepoint(\Db $db): void
+    {
+        if (!$this->transactionIsActive($db) && !$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not restore UPDATE transaction'); }
+        if (!$db->execute('SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not create UPDATE item savepoint: ' . $db->getMsgError()); }
+    }
+
+    private function restoreItemSavepointAfterExternalCommit(\Db $db): void
+    {
+        if ($this->transactionIsActive($db)) { return; }
+        if (!$db->execute('START TRANSACTION') || !$db->execute('SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not restore UPDATE transaction after PrestaShop commit'); }
+    }
+
+    private function rollbackItemSavepoint(\Db $db, \Throwable $cause): void
+    {
+        if (!$this->transactionIsActive($db)) { return; }
+        if (!$db->execute('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT)) {
+            $db->execute('ROLLBACK');
+            throw new \RuntimeException('Could not roll back UPDATE item savepoint', 0, $cause);
+        }
+        if (!$db->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not release UPDATE savepoint after rollback', 0, $cause); }
+    }
+
+    private function transactionIsActive(\Db $db): bool
+    {
+        $value = $db->getValue('SELECT @@session.in_transaction');
+        if ($value === false) { throw new \RuntimeException('Could not inspect UPDATE transaction state: ' . $db->getMsgError()); }
+        return (int) $value === 1;
+    }
+
+    private function changedDomains(array $row): array
+    {
+        if ((int) ($row['old_out_of_feed'] ?? 0) === 1) { return $this->fullDomains(); }
+        $domains = [];
+        foreach (['core','price','stock','attribute','feature','category','specific_price'] as $domain) {
+            if (!$this->sameHash($row, 'old_' . $domain . '_hash', $domain . '_hash')) { $domains[] = $domain; }
+        }
+        if (!$this->sameHash($row, 'old_combination_hash', 'combination_hash') || !$this->sameHash($row, 'old_combination_stock_hash', 'combination_stock_hash')) { $domains[] = 'combination'; }
+        if ($domains === [] && !$this->sameHash($row, 'old_payload_hash', 'payload_hash')) { $domains[] = 'core'; }
+        return $domains;
+    }
+
+    private function fullDomains(): array { return ['core','price','stock','attribute','feature','category','combination','specific_price']; }
+    private function sameHash(array $row, string $oldKey, string $newKey): bool { return hash_equals((string) ($row[$oldKey] ?? ''), (string) ($row[$newKey] ?? '')); }
+
+    private function assertRunnable(array $run): void
+    {
+        if ((string) $run['read_status'] !== 'completed' || (string) $run['import_status'] !== 'completed') { throw new \RuntimeException('READ and IMPORT must complete before UPDATE'); }
+        if ((string) $run['update_status'] === 'completed') { throw new \RuntimeException('UPDATE is already completed for this run'); }
+        if ((string) $run['remove_status'] !== 'pending') { throw new \RuntimeException('UPDATE retry blocked because REMOVE already started'); }
+    }
 }
