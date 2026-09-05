@@ -3,6 +3,13 @@ namespace Lp\MatterhornImport\DTO;
 
 final class ProductData
 {
+    private const MAX_IMAGES = 1000;
+    private const MAX_CATEGORIES = 256;
+    private const MAX_FEATURES = 1024;
+    private const MAX_COMBINATIONS = 5000;
+    private const MAX_COMBINATION_ATTRIBUTES = 64;
+    private const MAX_SPECIFIC_PRICES = 5000;
+
     private ?string $jsonCache = null;
     /** @var array<string,string> */
     private array $hashCache = [];
@@ -18,7 +25,9 @@ final class ProductData
         public readonly bool $active = true,
         public readonly array $images = [],
         public readonly array $extra = [],
-    ) {}
+    ) {
+        $this->assertOperationalBounds();
+    }
 
     public function payload(): array
     {
@@ -135,6 +144,45 @@ final class ProductData
             (int) $v['quantity'], (bool) $v['active'], (array) ($v['images'] ?? []), (array) ($v['extra'] ?? []));
         $product->jsonCache = $json;
         return $product;
+    }
+
+    private function assertOperationalBounds(): void
+    {
+        if (count($this->images) > self::MAX_IMAGES) {
+            throw new \InvalidArgumentException(
+                'Product image count exceeds operational limit of ' . self::MAX_IMAGES
+            );
+        }
+
+        $this->assertDomainListLimit('categories', self::MAX_CATEGORIES);
+        $this->assertDomainListLimit('features', self::MAX_FEATURES);
+        $this->assertDomainListLimit('combinations', self::MAX_COMBINATIONS);
+        $this->assertDomainListLimit('specific_prices', self::MAX_SPECIFIC_PRICES);
+
+        $combinations = $this->extra['combinations'] ?? [];
+        if (!is_array($combinations)) { return; }
+        foreach (array_values($combinations) as $index => $row) {
+            if (!is_array($row)) { continue; }
+            $attributes = $row['attribute_ids'] ?? $row['attributes'] ?? [];
+            if (is_array($attributes) && count($attributes) > self::MAX_COMBINATION_ATTRIBUTES) {
+                throw new \InvalidArgumentException(
+                    'Combination #' . ($index + 1) . ' attribute count exceeds operational limit of ' .
+                    self::MAX_COMBINATION_ATTRIBUTES
+                );
+            }
+        }
+    }
+
+    private function assertDomainListLimit(string $key, int $limit): void
+    {
+        if (!array_key_exists($key, $this->extra)) { return; }
+        $rows = $this->extra[$key];
+        if (!is_array($rows)) { return; }
+        if (count($rows) > $limit) {
+            throw new \InvalidArgumentException(
+                'Product ' . $key . ' count exceeds operational limit of ' . $limit
+            );
+        }
     }
 
     private function featureProjection(): array
