@@ -27,14 +27,14 @@ final class SnapshotRepository
     }
 
     public function purgeRun(int $runId): int { return (int) \Db::getInstance()->delete(self::TABLE, 'id_run=' . (int) $runId); }
-    public function countRun(int $runId): int { return (int) \Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . (int) $runId); }
+    public function countRun(int $runId): int { return (int) \Db::getInstance()->getValue('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . (int) $runId, false); }
 
     public function newRows(int $runId, int $shopId, string $source, string $after = '', int $limit = 500): array
     {
         $limit=max(1,min(2000,$limit)); $cursor=$after===''?'':" AND s.source_key>'".pSQL($after)."'";
         $join=sprintf(" FROM `%s%s` s LEFT JOIN `%s%s` m ON m.id_shop=%d AND m.source='%s' AND m.source_key=s.source_key WHERE s.id_run=%d AND m.id_product IS NULL%s",_DB_PREFIX_,self::TABLE,_DB_PREFIX_,self::MAPPING_TABLE,$shopId,pSQL($source),$runId,$cursor);
         $window=$this->payloadWindow('SELECT s.source_key,OCTET_LENGTH(s.payload) payload_bytes'.$join.' ORDER BY s.source_key LIMIT '.$limit,'source_key');
-        if($window===null){return [];} return \Db::getInstance()->executeS('SELECT s.*'.$join." AND s.source_key<='".pSQL((string)$window['last'])."' ORDER BY s.source_key LIMIT ".(int)$window['count'])?:[];
+        if($window===null){return [];} return \Db::getInstance()->executeS('SELECT s.*'.$join." AND s.source_key<='".pSQL((string)$window['last'])."' ORDER BY s.source_key LIMIT ".(int)$window['count'], true, false)?:[];
     }
 
     public function changedRows(int $runId,int $shopId,string $source,int $afterProductId=0,int $limit=500):array
@@ -43,17 +43,17 @@ final class SnapshotRepository
         $where=sprintf(" FROM `%s%s` s INNER JOIN `%s%s` m ON m.id_shop=%d AND m.source='%s' AND m.source_key=s.source_key LEFT JOIN `%sproduct` p ON p.id_product=m.id_product LEFT JOIN `%sproduct_shop` ps ON ps.id_product=m.id_product AND ps.id_shop=%d WHERE s.id_run=%d AND m.id_product>%d AND (m.out_of_feed=1 OR p.id_product IS NULL OR ps.id_product IS NULL OR s.payload_hash<>m.payload_hash OR s.core_hash<>m.core_hash OR s.price_hash<>m.price_hash OR s.stock_hash<>m.stock_hash OR s.attribute_hash<>m.attribute_hash OR s.feature_hash<>m.feature_hash OR s.category_hash<>m.category_hash OR s.combination_hash<>m.combination_hash OR s.combination_stock_hash<>m.combination_stock_hash OR s.specific_price_hash<>m.specific_price_hash OR s.image_hash<>m.image_hash)",_DB_PREFIX_,self::TABLE,_DB_PREFIX_,self::MAPPING_TABLE,$shopId,pSQL($source),_DB_PREFIX_,_DB_PREFIX_,$shopId,$runId,$afterProductId);
         $window=$this->payloadWindow('SELECT m.id_product,OCTET_LENGTH(s.payload) payload_bytes'.$where.' ORDER BY m.id_product LIMIT '.$limit,'id_product'); if($window===null){return [];}
         $sql="SELECT s.*,m.id_product,m.out_of_feed AS old_out_of_feed,CASE WHEN p.id_product IS NULL THEN 0 ELSE 1 END AS product_exists,CASE WHEN ps.id_product IS NULL THEN 0 ELSE 1 END AS product_shop_exists,m.payload_hash old_payload_hash,m.core_hash old_core_hash,m.price_hash old_price_hash,m.stock_hash old_stock_hash,m.attribute_hash old_attribute_hash,m.feature_hash old_feature_hash,m.category_hash old_category_hash,m.combination_hash old_combination_hash,m.combination_stock_hash old_combination_stock_hash,m.specific_price_hash old_specific_price_hash,m.image_hash old_image_hash".$where.' AND m.id_product<='.(int)$window['last'].' ORDER BY m.id_product LIMIT '.(int)$window['count'];
-        return \Db::getInstance()->executeS($sql)?:[];
+        return \Db::getInstance()->executeS($sql, true, false)?:[];
     }
 
     public function removedRows(int $runId,int $shopId,string $source,int $afterProductId=0,int $limit=500):array
     {
-        $limit=max(1,min(2000,$limit)); return \Db::getInstance()->executeS(sprintf("SELECT m.* FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND m.id_product>%d AND s.source_key IS NULL ORDER BY m.id_product LIMIT %d",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source),$afterProductId,$limit))?:[];
+        $limit=max(1,min(2000,$limit)); return \Db::getInstance()->executeS(sprintf("SELECT m.* FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND m.id_product>%d AND s.source_key IS NULL ORDER BY m.id_product LIMIT %d",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source),$afterProductId,$limit), true, false)?:[];
     }
 
     public function countRemoved(int $runId,int $shopId,string $source):int
     {
-        return (int)\Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND s.source_key IS NULL",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source)));
+        return (int)\Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND s.source_key IS NULL",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source)), false);
     }
 
     public function imageManifestRows(int $runId, int $shopId, string $source, string $after = '', int $limit = 500): array
@@ -63,7 +63,7 @@ final class SnapshotRepository
         $where = sprintf(" FROM `%s%s` s INNER JOIN `%s%s` m ON m.id_shop=%d AND m.source='%s' AND m.source_key=s.source_key WHERE s.id_run=%d%s", _DB_PREFIX_, self::TABLE, _DB_PREFIX_, self::MAPPING_TABLE, $shopId, pSQL($source), $runId, $cursor);
         $window = $this->payloadWindow('SELECT s.source_key,OCTET_LENGTH(s.payload) payload_bytes' . $where . ' ORDER BY s.source_key LIMIT ' . $limit, 'source_key');
         if ($window === null) { return []; }
-        return \Db::getInstance()->executeS('SELECT s.source_key,s.payload,m.id_product' . $where . " AND s.source_key<='" . pSQL((string) $window['last']) . "' ORDER BY s.source_key LIMIT " . (int) $window['count']) ?: [];
+        return \Db::getInstance()->executeS('SELECT s.source_key,s.payload,m.id_product' . $where . " AND s.source_key<='" . pSQL((string) $window['last']) . "' ORDER BY s.source_key LIMIT " . (int) $window['count'], true, false) ?: [];
     }
 
     /** @param list<string> $sourceKeys @return list<array<string,mixed>> */
@@ -84,13 +84,15 @@ final class SnapshotRepository
         $window = $this->payloadWindow('SELECT s.source_key,OCTET_LENGTH(s.payload) payload_bytes' . $where . ' ORDER BY s.source_key LIMIT ' . $limit, 'source_key');
         if ($window === null) { return []; }
         return \Db::getInstance()->executeS(
-            'SELECT s.source_key,s.payload,m.id_product' . $where . " AND s.source_key<='" . pSQL((string) $window['last']) . "' ORDER BY s.source_key LIMIT " . (int) $window['count']
+            'SELECT s.source_key,s.payload,m.id_product' . $where . " AND s.source_key<='" . pSQL((string) $window['last']) . "' ORDER BY s.source_key LIMIT " . (int) $window['count'],
+            true,
+            false
         ) ?: [];
     }
 
     private function payloadWindow(string $sql,string $cursorField):?array
     {
-        $rows=\Db::getInstance()->executeS($sql)?:[]; if($rows===[]){return null;} $bytes=0;$count=0;$last=null;
+        $rows=\Db::getInstance()->executeS($sql, true, false)?:[]; if($rows===[]){return null;} $bytes=0;$count=0;$last=null;
         foreach($rows as $row){$rowBytes=max(0,(int)($row['payload_bytes']??0));if($count>0&&$bytes+$rowBytes>self::MAX_FETCH_PAYLOAD_BYTES){break;}$bytes+=$rowBytes;$count++;$last=$row[$cursorField];if($bytes>=self::MAX_FETCH_PAYLOAD_BYTES){break;}}
         return $count>0&&$last!==null?['last'=>$last,'count'=>$count]:null;
     }
