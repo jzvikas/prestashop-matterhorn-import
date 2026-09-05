@@ -42,7 +42,7 @@ final class CategoryMappingRepository
             $rows = \Db::getInstance()->executeS(sprintf(
                 "SELECT supplier_key,id_category,active FROM `%sli_matterhornim_99dfbf_category_mapping` WHERE id_shop=%d AND supplier_key IN (%s)",
                 _DB_PREFIX_, $shopId, implode(',', $quoted)
-            )) ?: [];
+            ), true, false) ?: [];
             foreach ($chunk as $key) { $this->cache[$shopId][$key] = null; }
             foreach ($rows as $row) {
                 $key = (string) ($row['supplier_key'] ?? '');
