@@ -40,7 +40,8 @@ persistenceCheck(str_contains($associations, "getValue(\n            'SELECT id_
 persistenceCheck(str_contains($associations, 'getRow(') && str_contains($associations, "product_shop` WHERE id_product=") && str_contains($associations, "false\n        );"), 'global product shadow source read must bypass Db query cache');
 
 persistenceCheck(str_contains($category, 'li_matterhornim_99dfbf_category_mapping'), 'category runtime must use generated module mapping table');
-persistenceCheck(!str_contains($category, 'lp_import_category_mapping'), 'generic category table token must not leak into standalone module');
+$legacyCategoryToken = 'lp_' . 'import_category_mapping';
+persistenceCheck(!str_contains($category, $legacyCategoryToken), 'generic category table token must not leak into standalone module');
 persistenceCheck(str_contains($categorySync, 'assertExclusiveGlobalOwnership($productId, $shopId)'), 'category_product mutation must fail closed for shared products');
 persistenceCheck(str_contains($specificPrice, 'combinationBelongsToShopProduct'), 'specific prices must validate target-shop combination association');
 persistenceCheck(str_contains($specificPrice, 'product_attribute_shop'), 'specific-price combination validation must be shop-scoped');
