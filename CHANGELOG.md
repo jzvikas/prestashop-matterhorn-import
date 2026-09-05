@@ -4,6 +4,9 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 
 ## Unreleased
 
+- Failed closed on malformed Matterhorn XML by requiring `<products>` as the document root and every consumed `<product>` record to be a direct child of that root, with regression coverage for valid, wrong-root and nested-product feeds.
+- Rejected Matterhorn product names beyond the PrestaShop 128-character boundary instead of silently truncating supplier data, and added fail-closed required-field coverage for product id/name/price plus option id/size/stock.
+- Added isolated Matterhorn domain-hash regression coverage for price, combination stock, images, core text/manufacturer, Color/Type features, categories, combination structure and supplier-only `creation_date` / `avaible_in` metadata changes.
 - Fenced image processing to the exact active `(shop, source, source_key, id_product)` mapping before download and before state persistence; retained unresolved rows whose mapping is already `out_of_feed=1` are superseded and no longer block authoritative reconciliation, with static and MariaDB regression coverage.
 - Optimized GitHub Actions release validation with read-only permissions, concurrency cancellation, explicit timeouts, cheap-static-first gating, parallel MariaDB/PrestaShop lifecycle jobs, checkout v5 and parallel Docker image pre-pull without weakening the full PR/main test suite.
 
