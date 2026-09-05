@@ -68,14 +68,19 @@ final class CategoryMappingRepository
 
     public function assign(int $shopId, string $supplierKey, int $categoryId, bool $active = true): void
     {
-        if ($shopId <= 0 || trim($supplierKey) === '' || $categoryId <= 0) {
+        $supplierKey = trim($supplierKey);
+        if ($shopId <= 0 || $supplierKey === '' || $categoryId <= 0) {
             throw new \InvalidArgumentException('Category assignment requires shop, supplier key and category');
         }
         if (!\Db::getInstance()->update(
             'li_matterhornim_99dfbf_category_mapping',
             ['id_category' => $categoryId, 'active' => $active ? 1 : 0, 'updated_at' => date('Y-m-d H:i:s')],
-            sprintf("id_shop=%d AND supplier_key='%s'", $shopId, pSQL(trim($supplierKey)))
+            sprintf("id_shop=%d AND supplier_key='%s'", $shopId, pSQL($supplierKey))
         )) { throw new \RuntimeException('Category mapping assignment failed'); }
-        unset($this->cache[$shopId][trim($supplierKey)]);
+        $this->cache[$shopId][$supplierKey] = [
+            'supplier_key' => $supplierKey,
+            'id_category' => $categoryId,
+            'active' => $active ? 1 : 0,
+        ];
     }
 }
