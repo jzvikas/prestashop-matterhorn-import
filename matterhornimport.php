@@ -8,6 +8,8 @@ if (is_file(__DIR__ . '/vendor/autoload.php')) {
     require_once __DIR__ . '/vendor/autoload.php';
 }
 
+use Lp\MatterhornImport\Installer;
+
 class MatterhornImport extends Module
 {
     public function __construct()
@@ -26,7 +28,12 @@ class MatterhornImport extends Module
 
     public function install(): bool
     {
-        return parent::install();
+        return parent::install() && (new Installer())->install();
+    }
+
+    public function uninstall(): bool
+    {
+        return (new Installer())->uninstall() && parent::uninstall();
     }
 
     public function getContent(): string
@@ -60,9 +67,7 @@ class MatterhornImport extends Module
 
         $source = (string) \Configuration::get('MATTERHORNIMPORT_SOURCE_FILE', null, $shopGroupId, $shopId);
         $sizeGroup = (string) \Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', null, $shopGroupId, $shopId);
-        if ($sizeGroup === '') {
-            $sizeGroup = 'Size';
-        }
+        if ($sizeGroup === '') { $sizeGroup = 'Size'; }
 
         $output .= '<div class="panel"><h3>' . $this->trans('Matterhorn Wholesale Import', [], 'Modules.Matterhornimport.Admin') . '</h3>';
         $output .= '<form method="post">';

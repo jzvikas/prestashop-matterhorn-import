@@ -11,5 +11,6 @@ done < <(find . -path './vendor' -prune -o -name '*.php' -print0)
 
 php tests/matterhorn-parser-mapper-check.php
 php tests/attribute-resolution-contract-check.php
+php tests/schema-installer-contract-check.php
 
 echo "Static release checks: OK"

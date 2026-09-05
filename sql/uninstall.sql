@@ -1,0 +1,13 @@
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_image_queue`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_image_state`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_error`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_new_product_queue`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_specific_price_state`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_combination_mapping`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_feature_state`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_feature_value_mapping`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_feature_mapping`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_category_mapping`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_mapping`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_snapshot`;
+DROP TABLE IF EXISTS `PREFIX_li_matterhornim_99dfbf_run`;
