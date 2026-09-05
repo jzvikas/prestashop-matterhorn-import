@@ -89,4 +89,24 @@ final class CombinationMappingRepository
             throw new \RuntimeException('Combination mapping ownership changed before exact delete');
         }
     }
+
+    public function deleteSemantic(int $shopId, string $source, string $sourceKey, string $semanticKey): void
+    {
+        if (!\Db::getInstance()->delete(
+            'li_matterhornim_99dfbf_combination_mapping',
+            sprintf("id_shop=%d AND source='%s' AND source_key='%s' AND semantic_key='%s'", $shopId, pSQL($source), pSQL($sourceKey), pSQL($semanticKey))
+        )) {
+            throw new \RuntimeException('Combination mapping delete failed');
+        }
+    }
+
+    public function deleteByAttribute(int $shopId, int $productAttributeId): void
+    {
+        if (!\Db::getInstance()->delete(
+            'li_matterhornim_99dfbf_combination_mapping',
+            'id_shop=' . $shopId . ' AND id_product_attribute=' . $productAttributeId
+        )) {
+            throw new \RuntimeException('Combination mapping attribute cleanup failed');
+        }
+    }
 }
