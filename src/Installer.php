@@ -63,6 +63,9 @@ final class Installer
             if (!$this->upgradeMappingState()) {
                 throw new \RuntimeException('Could not initialize Matterhorn mapping state schema');
             }
+            if (!$this->ensureExclusiveProductOwnership()) {
+                throw new \RuntimeException('Could not initialize exclusive Matterhorn product ownership schema');
+            }
             if (!$this->ensureRunPolicySchema()) {
                 throw new \RuntimeException('Could not initialize Matterhorn run policy schema');
             }
@@ -85,7 +88,8 @@ final class Installer
                 }
             }
             return true;
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            error_log('[matterhornimport] install/repair failed: ' . $e->getMessage());
             if (!$schemaPreExisted) {
                 try { $this->uninstallSchemaOnly(); } catch (\Throwable) {}
             }
@@ -102,13 +106,13 @@ final class Installer
             $db = \Db::getInstance();
             $table = _DB_PREFIX_ . self::MAPPING_TABLE;
             $quotedTable = str_replace('`', '``', $table);
-            $column = $db->getRow("SHOW COLUMNS FROM `{$quotedTable}` LIKE 'out_of_feed'");
+            $column = $db->getRow("SHOW COLUMNS FROM `{$quotedTable}` LIKE 'out_of_feed'", false);
             if (!is_array($column)) {
                 if (!$db->execute("ALTER TABLE `{$quotedTable}` ADD COLUMN `out_of_feed` TINYINT(1) NOT NULL DEFAULT 0 AFTER `image_hash`")) {
                     throw new \RuntimeException('Could not add Matterhorn out_of_feed mapping state: ' . $db->getMsgError());
                 }
             }
-            $index = $db->getRow("SHOW INDEX FROM `{$quotedTable}` WHERE Key_name='idx_feed_state'");
+            $index = $db->getRow("SHOW INDEX FROM `{$quotedTable}` WHERE Key_name='idx_feed_state'", false);
             if (!is_array($index)) {
                 if (!$db->execute("ALTER TABLE `{$quotedTable}` ADD KEY `idx_feed_state` (`id_shop`,`source`,`out_of_feed`,`last_seen_run_id`)")) {
                     throw new \RuntimeException('Could not add Matterhorn feed-state index: ' . $db->getMsgError());
@@ -121,6 +125,63 @@ final class Installer
         }
     }
 
+    public function ensureExclusiveProductOwnership(): bool
+    {
+        try {
+            $db = \Db::getInstance();
+            $table = _DB_PREFIX_ . self::MAPPING_TABLE;
+            $newUnique = 'uq_shop_product_owner';
+            $ownerRows = $db->executeS(
+                "SELECT COLUMN_NAME,SEQ_IN_INDEX,NON_UNIQUE FROM INFORMATION_SCHEMA.STATISTICS " .
+                "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL($table) . "' " .
+                "AND INDEX_NAME='" . pSQL($newUnique) . "' ORDER BY SEQ_IN_INDEX",
+                true,
+                false
+            ) ?: [];
+            if ($ownerRows !== []) {
+                $columns = array_map(static fn(array $row): string => (string) ($row['COLUMN_NAME'] ?? ''), $ownerRows);
+                $unique = true;
+                foreach ($ownerRows as $row) { $unique = $unique && (int) ($row['NON_UNIQUE'] ?? 1) === 0; }
+                if ($columns !== ['id_shop', 'id_product'] || !$unique) {
+                    throw new \RuntimeException('Existing uq_shop_product_owner index has an unexpected definition');
+                }
+            } else {
+                // One PrestaShop product is owned by exactly one supplier source inside a shop.
+                // If legacy data violates that invariant, do not guess which source should win.
+                $conflicts = $db->executeS(
+                    'SELECT id_shop,id_product,COUNT(*) owners FROM `' . bqSQL($table) . '` ' .
+                    'GROUP BY id_shop,id_product HAVING COUNT(*)>1 ORDER BY id_shop,id_product LIMIT 1',
+                    true,
+                    false
+                ) ?: [];
+                if ($conflicts !== []) {
+                    throw new \RuntimeException('Legacy Matterhorn mapping contains cross-source product ownership conflicts');
+                }
+                if (!$db->execute(
+                    'ALTER TABLE `' . bqSQL($table) . '` ADD UNIQUE KEY `' . bqSQL($newUnique) . '` (`id_shop`,`id_product`)'
+                )) {
+                    throw new \RuntimeException('Could not add exclusive product ownership index: ' . $db->getMsgError());
+                }
+            }
+
+            $oldUnique = 'uq_shop_source_product';
+            $oldUniqueExists = (bool) $db->getValue(
+                "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
+                "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($oldUnique) . "' LIMIT 1",
+                false
+            );
+            if ($oldUniqueExists && !$db->execute(
+                'ALTER TABLE `' . bqSQL($table) . '` DROP INDEX `' . bqSQL($oldUnique) . '`'
+            )) {
+                throw new \RuntimeException('Could not remove legacy source-scoped product ownership index: ' . $db->getMsgError());
+            }
+            return true;
+        } catch (\Throwable $e) {
+            error_log('[matterhornimport] exclusive product ownership schema upgrade failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public function ensureRunPolicySchema(): bool
     {
         try {
@@ -128,7 +189,8 @@ final class Installer
             $table = _DB_PREFIX_ . self::RUN_TABLE;
             $exists = (bool) $db->getValue(
                 "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='source_policy_hash' LIMIT 1"
+                "AND TABLE_NAME='" . pSQL($table) . "' AND COLUMN_NAME='source_policy_hash' LIMIT 1",
+                false
             );
             if (!$exists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($table) . '` ADD COLUMN `source_policy_hash` CHAR(64) NULL AFTER `source_fingerprint`'
@@ -155,7 +217,8 @@ final class Installer
             foreach ($columns as $column => $definition) {
                 $exists = (bool) $db->getValue(
                     "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() " .
-                    "AND TABLE_NAME='" . pSQL($runTable) . "' AND COLUMN_NAME='" . pSQL($column) . "' LIMIT 1"
+                    "AND TABLE_NAME='" . pSQL($runTable) . "' AND COLUMN_NAME='" . pSQL($column) . "' LIMIT 1",
+                    false
                 );
                 if (!$exists && !$db->execute(
                     'ALTER TABLE `' . bqSQL($runTable) . '` ADD COLUMN `' . bqSQL($column) . '` ' . $definition
@@ -168,7 +231,8 @@ final class Installer
             $index = 'idx_shop_source_status';
             $indexExists = (bool) $db->getValue(
                 "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                "AND TABLE_NAME='" . pSQL($queueTable) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1"
+                "AND TABLE_NAME='" . pSQL($queueTable) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1",
+                false
             );
             if (!$indexExists && !$db->execute(
                 'ALTER TABLE `' . bqSQL($queueTable) . '` ADD KEY `' . $index . '` (`id_shop`,`source`,`status`,`id_queue`)'
@@ -209,7 +273,8 @@ final class Installer
                 foreach ($definitions as $index => $definition) {
                     $exists = (bool) $db->getValue(
                         "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA=DATABASE() " .
-                        "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1"
+                        "AND TABLE_NAME='" . pSQL($table) . "' AND INDEX_NAME='" . pSQL($index) . "' LIMIT 1",
+                        false
                     );
                     if (!$exists && !$db->execute(
                         'ALTER TABLE `' . bqSQL($table) . '` ADD KEY `' . bqSQL($index) . '` ' . $definition
@@ -250,7 +315,8 @@ final class Installer
     {
         $table = _DB_PREFIX_ . $suffix;
         return (bool) \Db::getInstance()->getValue(
-            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL($table) . "' LIMIT 1"
+            "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . pSQL($table) . "' LIMIT 1",
+            false
         );
     }
 
