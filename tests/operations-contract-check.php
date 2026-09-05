@@ -7,6 +7,7 @@ $files = [
     'src/Command/RetryCommand.php',
     'src/Command/DoctorCommand.php',
     'src/Command/StatusCommand.php',
+    'src/Repository/ErrorRepository.php',
     'src/Command/GcCommand.php',
     'src/Util/Diagnostics.php',
     'src/Gc/GcService.php',
@@ -18,6 +19,7 @@ foreach ($files as $file) {
 $retry = file_get_contents($root . '/src/Command/RetryCommand.php');
 $doctor = file_get_contents($root . '/src/Util/Diagnostics.php');
 $status = file_get_contents($root . '/src/Command/StatusCommand.php');
+$errors = file_get_contents($root . '/src/Repository/ErrorRepository.php');
 $gc = file_get_contents($root . '/src/Gc/GcService.php');
 $services = file_get_contents($root . '/config/services.yml');
 $checks = [
@@ -35,6 +37,12 @@ $checks = [
     [$doctor, 'locked_until<=NOW()', 'expired lease diagnostics'],
     [$status, "parent::__construct('matterhornimport:status')", 'status command'],
     [$status, "'new_products'=>$this->newProducts->counts", 'new-product status visibility'],
+    [$status, "'issues_total'", 'status total persisted issue visibility'],
+    [$status, "'errors_total'=>$runId > 0 ? $this->errors->countErrorsForRun", 'status true-error severity'],
+    [$status, "'warnings_total'=>$runId > 0 ? $this->errors->countWarningsForRun", 'status warning severity'],
+    [$errors, "private const WARNING_PREFIX = 'WARNING: '", 'warning persistence marker'],
+    [$errors, 'function countWarningsForRun', 'warning counter'],
+    [$errors, 'function countErrorsForRun', 'true error counter'],
     [$gc, 'maxRows', 'GC row budget'],
     [$gc, 'timeLimitSeconds', 'GC time budget'],
     [$gc, "status='done'", 'GC only completed queue jobs'],
