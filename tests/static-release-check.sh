@@ -17,6 +17,7 @@ php tests/feature-sync-contract-check.php
 php tests/combination-sync-contract-check.php
 bash tests/item-transaction-guard-check.sh
 bash tests/product-domain-fanout-bounds-check.sh
+bash tests/stage-counter-durability-check.sh
 php tests/read-orchestration-contract-check.php
 php tests/import-orchestration-contract-check.php
 php tests/update-orchestration-contract-check.php
