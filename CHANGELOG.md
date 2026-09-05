@@ -21,6 +21,7 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Reused shared features when adding a missing global feature value instead of creating a duplicate same-name feature in the target shop.
 - Avoided sticky negative attribute-availability caching so a concurrently associated Size attribute can become visible during the same long-running worker process.
 - Fenced category mapping assignment with a fresh post-write row check before process-cache seeding so a concurrent row loss/change cannot become a phantom successful mapping.
+- Fenced supplier attribute group/value mapping persistence with a fresh joined identity check before process-cache seeding so concurrent overwrite/loss cannot publish an unverified Size resolution.
 - Fenced feature synchronization with fresh target-shop exclusivity checks, pre-mutation state revalidation and exact-value optimistic deletes so concurrent Back Office changes fail closed instead of being overwritten.
 - Hardened combination synchronization with fresh ownership/default reads, exact target-product checks and atomic multishop detach guarded by another live shop association.
 - Revalidated exclusive combination ownership immediately before global ObjectModel deletion and fail closed on shared or ambiguous association topology.
@@ -38,7 +39,7 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Removed the UPDATE fallback that routed payload-only metadata changes into unnecessary product core writes.
 - Canonicalized supplier warning ordering so semantically identical option reordering does not churn snapshot payload hashes.
 - Preserved Matterhorn `avaible_in` and `creation_date` as supplier metadata without assigning stock/delivery/date-add semantics or dirtying catalog domain hashes.
-- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, item-transaction recovery, exact REMOVE ownership, partial language recovery, live/source-scoped observability, single-pass combination hashing, bounded specific-price lookup, shared resolver locks, category path concurrency, category assignment durability, feature concurrent changes, atomic combination/image detach, specific-price optimistic deletion, source-owner image revalidation fencing, image URL bounds, stale-304 handling and ownership schema safety.
+- Added regression coverage for warning/domain isolation, warning-order determinism, supplier metadata isolation, retry lease fencing, item-transaction recovery, exact REMOVE ownership, partial language recovery, live/source-scoped observability, single-pass combination hashing, bounded specific-price lookup, shared resolver locks, category path concurrency, category assignment durability, attribute mapping write verification, feature concurrent changes, atomic combination/image detach, specific-price optimistic deletion, source-owner image revalidation fencing, image URL bounds, stale-304 handling and ownership schema safety.
 - Made the GitHub Actions release workflow manually dispatchable when push-trigger execution is unavailable.
 
 ## 0.1.6
