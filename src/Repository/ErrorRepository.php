@@ -26,7 +26,19 @@ final class ErrorRepository
             ));
         }
         if (!$ok) {
-            error_log(sprintf('[matterhornimport] error persistence failed run=%d stage=%s source_key=%s message=%s', $runId, $stage, $sourceKey ?? '-', mb_substr($message, 0, 1000)));
+            $persistenceError = sprintf(
+                'Matterhorn error observability persistence failed for run=%d stage=%s source_key=%s',
+                $runId,
+                $stage,
+                $sourceKey ?? '-'
+            );
+            error_log(sprintf(
+                '[matterhornimport] %s message=%s db_error=%s',
+                $persistenceError,
+                mb_substr($message, 0, 1000),
+                mb_substr((string) \Db::getInstance()->getMsgError(), 0, 1000)
+            ));
+            throw new \RuntimeException($persistenceError);
         }
     }
 
