@@ -7,6 +7,7 @@ final class RemoteFeedMaterializer
     private const TRANSFER_TIMEOUT = 600;
     private const MAX_REDIRECTS = 5;
     private const MAX_BYTES = 8589934592; // 8 GiB hard safety ceiling
+    private const MAX_DOWNLOAD_ATTEMPTS = 2;
 
     public function __construct(private SourceLocation $locations)
     {
@@ -48,7 +49,45 @@ final class RemoteFeedMaterializer
 
     private function downloadLocked(string $url, string $target, string $metadataPath): string
     {
+        $lastIncomplete = null;
+
+        for ($attempt = 1; $attempt <= self::MAX_DOWNLOAD_ATTEMPTS; ++$attempt) {
+            try {
+                return $this->downloadAttempt(
+                    $url,
+                    $target,
+                    $metadataPath,
+                    $attempt === 1
+                );
+            } catch (\RuntimeException $e) {
+                if (!str_starts_with($e->getMessage(), 'Matterhorn source download is incomplete:')) {
+                    throw $e;
+                }
+                $lastIncomplete = $e;
+            }
+        }
+
+        throw new \RuntimeException(
+            'Matterhorn source download is incomplete after ' . self::MAX_DOWNLOAD_ATTEMPTS .
+            ' attempts: ' . ($lastIncomplete?->getMessage() ?? 'unknown validation failure'),
+            0,
+            $lastIncomplete
+        );
+    }
+
+    private function downloadAttempt(
+        string $url,
+        string $target,
+        string $metadataPath,
+        bool $allowConditional
+    ): string {
         $metadata = $this->readMetadata($metadataPath);
+        $sameSource = (string) ($metadata['url'] ?? '') === $url;
+
+        $cacheUsable = $sameSource
+            && is_file($target)
+            && is_readable($target);
+
         $temp = $target . '.tmp.' . bin2hex(random_bytes(8));
         $handle = @fopen($temp, 'xb');
         if ($handle === false) {
@@ -65,8 +104,7 @@ final class RemoteFeedMaterializer
         }
 
         $requestHeaders = ['Accept: application/xml,text/xml;q=0.9,*/*;q=0.1'];
-        $sameSource = (string) ($metadata['url'] ?? '') === $url;
-        if ($sameSource && is_file($target) && is_readable($target)) {
+        if ($allowConditional && $cacheUsable) {
             if (!empty($metadata['etag'])) {
                 $requestHeaders[] = 'If-None-Match: ' . $metadata['etag'];
             }
@@ -90,22 +128,36 @@ final class RemoteFeedMaterializer
             CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
             CURLOPT_HEADERFUNCTION => static function ($curlHandle, string $line) use (&$responseHeaders): int {
                 $length = strlen($line);
-                $line = trim($line);
-                if ($line === '' || !str_contains($line, ':')) {
+                $trimmed = trim($line);
+
+                // New HTTP response (redirect/final response): do not retain stale headers.
+                if (preg_match('#^HTTP/\S+\s+\d{3}\b#i', $trimmed) === 1) {
+                    $responseHeaders = [];
                     return $length;
                 }
-                [$name, $value] = array_map('trim', explode(':', $line, 2));
+
+                if ($trimmed === '' || !str_contains($trimmed, ':')) {
+                    return $length;
+                }
+
+                [$name, $value] = array_map('trim', explode(':', $trimmed, 2));
                 $responseHeaders[strtolower($name)] = $value;
+
                 return $length;
             },
             CURLOPT_WRITEFUNCTION => static function ($curlHandle, string $chunk) use ($handle, &$downloaded): int {
                 $length = strlen($chunk);
-                $downloaded += $length;
-                if ($downloaded > self::MAX_BYTES) {
+                if ($downloaded + $length > self::MAX_BYTES) {
                     return 0;
                 }
+
                 $written = fwrite($handle, $chunk);
-                return $written === false ? 0 : $written;
+                if ($written === false) {
+                    return 0;
+                }
+
+                $downloaded += $written;
+                return $written;
             },
         ];
 
@@ -117,20 +169,26 @@ final class RemoteFeedMaterializer
             if (!curl_setopt_array($curl, $options)) {
                 throw new \RuntimeException('Could not configure Matterhorn source download.');
             }
+
             $ok = curl_exec($curl);
             $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
             $error = curl_error($curl);
+
             fflush($handle);
             fclose($handle);
 
             if ($ok === false) {
-                throw new \RuntimeException('Matterhorn source download failed: ' . ($error !== '' ? $error : 'unknown cURL error'));
+                throw new \RuntimeException(
+                    'Matterhorn source download failed: ' . ($error !== '' ? $error : 'unknown cURL error')
+                );
             }
 
             if ($status === 304) {
                 @unlink($temp);
-                if (!$sameSource || !is_file($target) || !is_readable($target)) {
-                    throw new \RuntimeException('Matterhorn source returned an unusable 304 response.');
+                if (!$cacheUsable) {
+                    throw new \RuntimeException(
+                        'Matterhorn source download is incomplete: server returned 304 for an invalid local cache.'
+                    );
                 }
                 return $target;
             }
@@ -138,11 +196,33 @@ final class RemoteFeedMaterializer
             if ($status < 200 || $status >= 300) {
                 throw new \RuntimeException('Matterhorn source returned HTTP ' . $status . '.');
             }
-            if ($downloaded <= 0 || !is_file($temp) || filesize($temp) <= 0) {
-                throw new \RuntimeException('Matterhorn source download produced an empty file.');
+
+            clearstatcache(true, $temp);
+            $fileBytes = is_file($temp) ? (int) filesize($temp) : 0;
+            if ($downloaded <= 0 || $fileBytes <= 0) {
+                throw new \RuntimeException(
+                    'Matterhorn source download is incomplete: downloaded file is empty.'
+                );
             }
-            if ($downloaded > self::MAX_BYTES) {
+            if ($downloaded > self::MAX_BYTES || $fileBytes > self::MAX_BYTES) {
                 throw new \RuntimeException('Matterhorn source exceeds the 8 GiB safety limit.');
+            }
+            if ($fileBytes !== $downloaded) {
+                throw new \RuntimeException(
+                    'Matterhorn source download is incomplete: written byte count does not match downloaded byte count.'
+                );
+            }
+
+            $contentLength = trim((string) ($responseHeaders['content-length'] ?? ''));
+            if ($contentLength !== '' && ctype_digit($contentLength)) {
+                $expectedBytes = (int) $contentLength;
+                if ($expectedBytes > 0 && $expectedBytes !== $downloaded) {
+                    throw new \RuntimeException(sprintf(
+                        'Matterhorn source download is incomplete: HTTP Content-Length is %d bytes but %d bytes were received.',
+                        $expectedBytes,
+                        $downloaded
+                    ));
+                }
             }
 
             if (!@rename($temp, $target)) {
@@ -150,6 +230,7 @@ final class RemoteFeedMaterializer
             }
             @chmod($target, 0640);
 
+            clearstatcache(true, $target);
             $newMetadata = [
                 'url' => $url,
                 'etag' => (string) ($responseHeaders['etag'] ?? ''),
@@ -181,6 +262,7 @@ final class RemoteFeedMaterializer
         if (!is_string($raw) || $raw === '') {
             return [];
         }
+
         try {
             $decoded = json_decode($raw, true, 16, JSON_THROW_ON_ERROR);
             return is_array($decoded) ? $decoded : [];
@@ -192,12 +274,17 @@ final class RemoteFeedMaterializer
     /** @param array<string,mixed> $metadata */
     private function writeMetadata(string $path, array $metadata): void
     {
-        $json = json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+        $json = json_encode(
+            $metadata,
+            JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR
+        );
         $temp = $path . '.tmp.' . bin2hex(random_bytes(6));
+
         if (@file_put_contents($temp, $json, LOCK_EX) === false || !@rename($temp, $path)) {
             @unlink($temp);
             throw new \RuntimeException('Could not persist Matterhorn source cache metadata.');
         }
+
         @chmod($path, 0640);
     }
 }
