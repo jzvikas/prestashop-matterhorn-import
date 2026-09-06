@@ -68,7 +68,7 @@ final class CategoryController extends PrestaShopAdminController
         return $this->redirectToRoute('matterhorn_import_categories');
     }
 
-    #[AdminSecurity("is_granted('create', request.get('_legacy_controller'))")]
+    #[AdminSecurity("is_granted('update', request.get('_legacy_controller'))")]
     public function autoCreate(
         Request $request,
         CategoryMappingManager $manager
@@ -132,13 +132,17 @@ final class CategoryController extends PrestaShopAdminController
     private function shopContext(): array
     {
         if (\Shop::getContext() !== \Shop::CONTEXT_SHOP) {
-            throw new \RuntimeException('Select one concrete shop before managing Matterhorn category mappings.');
+            throw $this->createAccessDeniedException(
+                'Select one concrete shop before managing Matterhorn category mappings.'
+            );
         }
         $context = \Context::getContext();
         $shopId = (int) ($context->shop->id ?? 0);
         $langId = (int) ($context->language->id ?? 0);
         if ($shopId <= 0 || $langId <= 0) {
-            throw new \RuntimeException('Could not resolve active shop/language for Matterhorn category mapping.');
+            throw $this->createAccessDeniedException(
+                'Could not resolve active shop/language for Matterhorn category mapping.'
+            );
         }
         return [$shopId, $langId];
     }
@@ -146,7 +150,7 @@ final class CategoryController extends PrestaShopAdminController
     private function assertPostToken(Request $request, string $tokenId): void
     {
         if (!$request->isMethod('POST') || !$this->isCsrfTokenValid($tokenId, (string) $request->request->get('_token'))) {
-            throw new \RuntimeException('Invalid security token.');
+            throw $this->createAccessDeniedException('Invalid category mapping security token.');
         }
     }
 
