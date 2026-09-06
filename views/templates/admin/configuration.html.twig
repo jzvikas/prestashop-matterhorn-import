@@ -1,0 +1,119 @@
+{% extends '@PrestaShop/Admin/layout.html.twig' %}
+
+{% block content %}
+  <div class="row">
+    <div class="col-xl-8">
+      {{ form_start(configurationForm) }}
+
+      <div class="card mb-3">
+        <h3 class="card-header">
+          <i class="material-icons">settings</i>
+          {{ 'Matterhorn Wholesale Import settings'|trans({}, 'Modules.Matterhornimport.Admin') }}
+        </h3>
+        <div class="card-body">
+          {{ form_row(configurationForm.source_location) }}
+          {{ form_row(configurationForm.source_language_id) }}
+          {{ form_row(configurationForm.category_auto_create) }}
+          {{ form_row(configurationForm.feature_auto_create) }}
+          {{ form_row(configurationForm.size_attribute_group) }}
+          {{ form_row(configurationForm.max_remove_percent) }}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <h3 class="card-header">
+          <i class="material-icons">speed</i>
+          {{ 'Operational limits'|trans({}, 'Modules.Matterhornimport.Admin') }}
+        </h3>
+        <div class="card-body">
+          {{ form_row(configurationForm.MATTERHORNIMPORT_BATCH_SIZE) }}
+          {{ form_row(configurationForm.MATTERHORNIMPORT_MAX_ITEMS) }}
+          {{ form_row(configurationForm.MATTERHORNIMPORT_TIME_LIMIT) }}
+          {{ form_row(configurationForm.MATTERHORNIMPORT_IMAGE_WORKER_LIMIT) }}
+          {{ form_row(configurationForm.MATTERHORNIMPORT_IMAGE_WORKER_RUNTIME) }}
+          {{ form_row(configurationForm.MATTERHORNIMPORT_NEW_PRODUCT_WORKER_LIMIT) }}
+          {{ form_row(configurationForm.MATTERHORNIMPORT_NEW_PRODUCT_WORKER_RUNTIME) }}
+          {{ form_row(configurationForm.MATTERHORNIMPORT_RETRY_LIMIT) }}
+        </div>
+        <div class="card-footer d-flex justify-content-end">
+          <button type="submit" class="btn btn-primary">
+            <i class="material-icons">save</i>
+            {{ 'Save'|trans({}, 'Admin.Actions') }}
+          </button>
+        </div>
+      </div>
+
+      {{ form_end(configurationForm) }}
+    </div>
+
+    <div class="col-xl-4">
+      <div class="card mb-3">
+        <h3 class="card-header">
+          <i class="material-icons">monitor_heart</i>
+          {{ 'Current shop status'|trans({}, 'Modules.Matterhornimport.Admin') }}
+        </h3>
+        <div class="card-body">
+          {% if matterhornStatus.run %}
+            <p class="mb-2">
+              <strong>#{{ matterhornStatus.run.id_run }} — {{ matterhornStatus.run.status }}</strong>
+            </p>
+            <table class="table table-sm mb-3">
+              <tbody>
+                <tr><th>READ</th><td>{{ matterhornStatus.run.read_status }}</td></tr>
+                <tr><th>IMPORT</th><td>{{ matterhornStatus.run.import_status }}</td></tr>
+                <tr><th>UPDATE</th><td>{{ matterhornStatus.run.update_status }}</td></tr>
+                <tr><th>REMOVE</th><td>{{ matterhornStatus.run.remove_status }}</td></tr>
+                <tr><th>IMAGES</th><td>{{ matterhornStatus.run.image_reconcile_status }}</td></tr>
+              </tbody>
+            </table>
+          {% else %}
+            <p class="text-muted">{{ 'No import run yet.'|trans({}, 'Modules.Matterhornimport.Admin') }}</p>
+          {% endif %}
+
+          <h4>{{ 'Queues'|trans({}, 'Modules.Matterhornimport.Admin') }}</h4>
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th></th><th>P</th><th>R</th><th>F</th><th>D</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th>{{ 'Images'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
+                <td>{{ matterhornStatus.images.pending }}</td>
+                <td>{{ matterhornStatus.images.processing }}</td>
+                <td>{{ matterhornStatus.images.failed }}</td>
+                <td>{{ matterhornStatus.images.done }}</td>
+              </tr>
+              <tr>
+                <th>{{ 'New products'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
+                <td>{{ matterhornStatus.new_products.pending }}</td>
+                <td>{{ matterhornStatus.new_products.processing }}</td>
+                <td>{{ matterhornStatus.new_products.failed }}</td>
+                <td>{{ matterhornStatus.new_products.done }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="mt-2 mb-0 text-muted">
+            {{ 'Image recovery orphans:'|trans({}, 'Modules.Matterhornimport.Admin') }} {{ matterhornStatus.image_orphans }}
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-header">
+          <i class="material-icons">terminal</i>
+          {{ 'Recommended CLI lanes'|trans({}, 'Modules.Matterhornimport.Admin') }}
+        </h3>
+        <div class="card-body">
+<pre class="mb-0">php bin/console matterhornimport:run --shop={{ shopId }}
+php bin/console matterhornimport:new-products --shop={{ shopId }}
+php bin/console matterhornimport:images --shop={{ shopId }}
+php bin/console matterhornimport:retry --shop={{ shopId }}
+php bin/console matterhornimport:doctor --shop={{ shopId }}
+php bin/console matterhornimport:status --shop={{ shopId }}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
