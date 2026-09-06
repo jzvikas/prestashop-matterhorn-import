@@ -14,6 +14,7 @@ bash tests/prestashop-db-single-row-limit-check.sh
 php tests/source-location-contract-check.php
 php tests/matterhorn-parser-mapper-check.php
 php tests/matterhorn-prewk-staging-check.php
+php tests/matterhorn-prewk-checkpoint-check.php
 php tests/run-source-snapshot-check.php
 php tests/matterhorn-domain-hash-isolation-check.php
 php tests/matterhorn-xml-streaming-bounds-check.php
@@ -59,7 +60,7 @@ php tests/image-pipeline-worker-contract-check.php
 php tests/image-curl-options-fail-closed-check.php
 php tests/image-failure-classifier-check.php
 php tests/image-queue-batch-lease-contract-check.php
-php tests/image-authoritative-manifest-queue-fence-check.php
+php tests/image-authoritative-manifest-queue-fence-contract-check.php
 php tests/image-out-of-feed-active-owner-fence-check.php
 php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
