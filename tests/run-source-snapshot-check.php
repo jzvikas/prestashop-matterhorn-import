@@ -26,9 +26,9 @@ try {
         throw new RuntimeException('Run source snapshot changed with mutable input');
     }
 
-    $manager->persistCheckpoint(7, 3, 25, 1234);
+    $manager->persistCheckpoint(7, 3, 25, 12);
     $checkpoint = $manager->checkpoint(7, 3);
-    if ($checkpoint !== ['record' => 25, 'byte' => 1234]) {
+    if ($checkpoint !== ['record' => 25, 'byte' => 12]) {
         throw new RuntimeException('Run source byte checkpoint was not persisted exactly');
     }
 
