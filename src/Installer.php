@@ -28,7 +28,6 @@ final class Installer
     private const CONFIG_KEYS = [
         'MATTERHORNIMPORT_SOURCE_FILE',
         'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID',
-        'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE',
         'MATTERHORNIMPORT_FEATURE_AUTO_CREATE',
         'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME',
         'MATTERHORNIMPORT_MAX_REMOVE_PERCENT',
@@ -77,7 +76,6 @@ final class Installer
             }
             $defaults = [
                 self::RETAIN_DATA_KEY => '1',
-                'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE' => '1',
                 'MATTERHORNIMPORT_FEATURE_AUTO_CREATE' => '1',
                 'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME' => 'Size',
                 'MATTERHORNIMPORT_MAX_REMOVE_PERCENT' => '25',
