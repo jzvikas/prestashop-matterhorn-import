@@ -50,13 +50,16 @@ final class ImportRunner
         $executionStarted = false;
         $remainingItems = $maxItems;
         $deadline = $timeLimitSeconds > 0 ? microtime(true) + $timeLimitSeconds : 0.0;
+        $boundedRequest = $maxItems > 0 || $timeLimitSeconds > 0;
 
         try {
             if ($resumeRunId !== null) {
                 $runId = $resumeRunId;
                 $run = $this->runs->assertContext($runId, $shopId, $source);
                 if (in_array((string) $run['status'], ['completed', 'cancelled'], true)) {
-                    throw new \RuntimeException('Matterhorn import run #' . $runId . ' is terminal and cannot be resumed');
+                    throw new \RuntimeException(
+                        'Matterhorn import run #' . $runId . ' is terminal and cannot be resumed'
+                    );
                 }
                 $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
                 $this->runs->resume($runId);
@@ -68,17 +71,15 @@ final class ImportRunner
 
             $run = $this->runs->assertContext($runId, $shopId, $source);
             if ((string) $run['read_status'] !== 'completed') {
-                if (!$this->hasBudget($remainingItems, $maxItems, $deadline)) {
-                    return $this->pauseBetweenStages($runId, 'read');
-                }
-                $completed = $this->read->run(
-                    $runId,
-                    $this->stageItemLimit($remainingItems, $maxItems),
-                    $this->remainingSeconds($deadline)
-                );
-                $remainingItems = $this->consumeItems($remainingItems, $maxItems);
-                if (!$completed) {
-                    return ['run' => $runId, 'status' => 'paused', 'stage' => 'read'];
+                // XML READ is deliberately one full Prewk streaming pass. It performs
+                // its own bounded DB commits but is not cut into AJAX item/time slices,
+                // avoiding the old reopen/rescan-from-zero behavior.
+                $this->read->run($runId, 0, 0);
+
+                // In AJAX/bounded mode keep READ as its own action, exactly like the
+                // Laravel CRM pipeline: XML staging first, DB-driven work afterwards.
+                if ($boundedRequest) {
+                    return $this->pauseBetweenStages($runId, 'import');
                 }
             }
 
@@ -138,15 +139,13 @@ final class ImportRunner
                 }
             }
 
-            // REMOVE currently completes the run as well. Keep this idempotent write here so
-            // the runner remains correct if stage ownership of the final status changes later.
             $this->runs->finish($runId, 'completed');
             return ['run' => $runId, 'status' => 'completed', 'stage' => 'completed'];
-        } catch (\Throwable $e) {
+        } catch (\Throwable $exception) {
             if ($runId !== null && $executionStarted) {
                 $this->markFailedBestEffort($runId);
             }
-            throw $e;
+            throw $exception;
         } finally {
             $this->lock->release();
         }
