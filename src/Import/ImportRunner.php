@@ -55,8 +55,8 @@ final class ImportRunner
             if ($resumeRunId !== null) {
                 $runId = $resumeRunId;
                 $run = $this->runs->assertContext($runId, $shopId, $source);
-                if ((string) $run['status'] === 'completed') {
-                    throw new \RuntimeException('Matterhorn import run #' . $runId . ' is already completed');
+                if (in_array((string) $run['status'], ['completed', 'cancelled'], true)) {
+                    throw new \RuntimeException('Matterhorn import run #' . $runId . ' is terminal and cannot be resumed');
                 }
                 $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
                 $this->runs->resume($runId);
@@ -191,6 +191,10 @@ final class ImportRunner
     private function markFailedBestEffort(int $runId): void
     {
         try {
+            $run = $this->runs->get($runId);
+            if ($run !== null && (string) ($run['status'] ?? '') === 'cancelled') {
+                return;
+            }
             $this->runs->finish($runId, 'failed');
         } catch (\Throwable $finishError) {
             error_log(sprintf(
