@@ -1,0 +1,25 @@
+{% extends '@PrestaShop/Admin/layout.html.twig' %}
+
+{% block content %}
+  {{ form_start(categoryForm) }}
+  <div class="card">
+    <h3 class="card-header">
+      <i class="material-icons">edit</i>
+      {{ 'Edit Matterhorn category mapping'|trans({}, 'Modules.Matterhornimport.Admin') }}
+    </h3>
+    <div class="card-body">
+      {{ form_widget(categoryForm) }}
+      <p class="text-muted mb-0"><code>{{ supplierKey }}</code></p>
+    </div>
+    <div class="card-footer d-flex justify-content-between">
+      <a href="{{ path('matterhorn_import_categories') }}" class="btn btn-outline-secondary">
+        {{ 'Cancel'|trans({}, 'Admin.Actions') }}
+      </a>
+      <button class="btn btn-primary">
+        <i class="material-icons">save</i>
+        {{ 'Save'|trans({}, 'Admin.Actions') }}
+      </button>
+    </div>
+  </div>
+  {{ form_end(categoryForm) }}
+{% endblock %}
