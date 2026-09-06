@@ -72,7 +72,8 @@ try {
 
 $sourceCode = (string) file_get_contents(dirname(__DIR__) . '/src/Source/MatterhornXmlSource.php');
 feedStructureCheck(str_contains($sourceCode, 'private function assertRoot'), 'source must explicitly validate the Matterhorn root element');
-feedStructureCheck(str_contains($sourceCode, 'XmlStringStreamer::createUniqueNodeParser'), 'source must use Prewk UniqueNode streaming');
+feedStructureCheck(str_contains($sourceCode, 'new UniqueNode('), 'source must construct the Prewk UniqueNode parser');
+feedStructureCheck(str_contains($sourceCode, 'new XmlStringStreamer('), 'source must run the Prewk XmlStringStreamer');
 feedStructureCheck(str_contains($sourceCode, "'uniqueNode' => 'product'"), 'source must target Matterhorn product nodes');
 
 echo "Matterhorn feed structure: OK\n";
