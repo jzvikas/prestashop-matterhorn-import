@@ -60,7 +60,7 @@ php tests/image-pipeline-worker-contract-check.php
 php tests/image-curl-options-fail-closed-check.php
 php tests/image-failure-classifier-check.php
 php tests/image-queue-batch-lease-contract-check.php
-php tests/image-authoritative-manifest-queue-fence-contract-check.php
+php tests/image-authoritative-manifest-queue-fence-check.php
 php tests/image-out-of-feed-active-owner-fence-check.php
 php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
