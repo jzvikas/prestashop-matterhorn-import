@@ -57,8 +57,6 @@ Configuration::$values = [
     'PS_LANG_DEFAULT:1:2' => '2',
     'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID:1:1' => '1',
     'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID:1:2' => '2',
-    'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE:1:1' => '1',
-    'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE:1:2' => '0',
     'MATTERHORNIMPORT_FEATURE_AUTO_CREATE:1:1' => '0',
     'MATTERHORNIMPORT_FEATURE_AUTO_CREATE:1:2' => '1',
     'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME:1:1' => 'EU Size',
@@ -69,7 +67,7 @@ $policy = new MatterhornPolicy();
 Context::getContext()->shop = new Shop(1);
 $shop1 = $policy->snapshot(1);
 policyCheck($shop1['source_language_id'] === 1, 'shop 1 source language');
-policyCheck($shop1['category_auto_create'] === true, 'shop 1 category policy');
+policyCheck(!array_key_exists('category_auto_create', $shop1), 'retired category policy must not exist');
 policyCheck($shop1['feature_auto_create'] === false, 'shop 1 feature policy');
 policyCheck($shop1['size_attribute_group_name'] === 'EU Size', 'shop 1 Size group');
 
@@ -80,7 +78,7 @@ policyCheck($policy->snapshot(1, true)['size_attribute_group_name'] === 'Changed
 Context::getContext()->shop = new Shop(2);
 $shop2 = $policy->snapshot(2);
 policyCheck($shop2['source_language_id'] === 2, 'shop 2 source language');
-policyCheck($shop2['category_auto_create'] === false, 'shop 2 category policy');
+policyCheck(!array_key_exists('category_auto_create', $shop2), 'retired category policy must stay absent per shop');
 policyCheck($shop2['feature_auto_create'] === true, 'shop 2 feature policy');
 policyCheck($shop2['size_attribute_group_name'] === 'US Size', 'shop 2 Size group');
 policyCheck($policy->hash($shop1) !== $policy->hash($shop2), 'different shop semantic policies must hash differently');
@@ -113,7 +111,7 @@ $row = [
 $mapper = new MatterhornProductMapper($resolver, new MatterhornCategoryPathNormalizer(), new MatterhornHtmlSanitizer(), $policy);
 $product = $mapper->map($row);
 policyCheck(($product->extra['source_language_id'] ?? 0) === 2, 'mapper must persist source language policy into snapshot payload');
-policyCheck(($product->extra['categories'][0]['auto_create'] ?? true) === false, 'mapper must honor category auto-create policy');
+policyCheck(!array_key_exists('auto_create', $product->extra['categories'][0] ?? []), 'normal product mapping must not request category creation');
 policyCheck(($product->extra['features_auto_create'] ?? false) === true, 'mapper must honor feature auto-create policy');
 policyCheck(($product->extra['combinations'][0]['attributes'][0]['group_name'] ?? '') === 'US Size', 'mapper Size descriptor must use shop policy');
 

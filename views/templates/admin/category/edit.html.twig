@@ -1,5 +1,7 @@
 {% extends '@PrestaShop/Admin/layout.html.twig' %}
 
+{% form_theme categoryForm '@PrestaShop/Admin/TwigTemplateForm/prestashop_ui_kit.html.twig' %}
+
 {% block content %}
   {{ form_start(categoryForm) }}
   <div class="card">

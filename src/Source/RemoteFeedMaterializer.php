@@ -85,7 +85,7 @@ final class RemoteFeedMaterializer
             CURLOPT_TIMEOUT => self::TRANSFER_TIMEOUT,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_USERAGENT => 'MatterhornImport/0.1.7 PrestaShop',
+            CURLOPT_USERAGENT => 'MatterhornImport/0.1.8 PrestaShop',
             CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
             CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
             CURLOPT_HEADERFUNCTION => static function ($curlHandle, string $line) use (&$responseHeaders): int {

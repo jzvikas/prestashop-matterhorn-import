@@ -7,7 +7,6 @@ use PrestaShopBundle\Form\Admin\Type\TranslatorAwareType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolver;
 
 final class CategoryMappingFormType extends TranslatorAwareType
 {
@@ -28,14 +27,6 @@ final class CategoryMappingFormType extends TranslatorAwareType
                 'label' => $this->trans('Use this supplier category', 'Modules.Matterhornimport.Admin'),
                 'required' => true,
             ]);
-    }
-
-    public function configureOptions(OptionsResolver $resolver): void
-    {
-        parent::configureOptions($resolver);
-        $resolver->setDefaults([
-            'form_theme' => '@PrestaShop/Admin/TwigTemplateForm/prestashop_ui_kit.html.twig',
-        ]);
     }
 
     /** @return array<string,int> */

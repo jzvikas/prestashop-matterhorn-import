@@ -38,7 +38,6 @@ $checks = [
     ['controller', 'matterhorn_category_auto_map'],
     ['controller', 'matterhorn_category_auto_create'],
     ['form', 'CategoryPathReader'],
-    ['form', 'form_theme'],
     ['form', 'PrestaShop category'],
     ['routes', 'matterhorn_import_categories:'],
     ['routes', 'matterhorn_import_category_edit:'],
@@ -46,6 +45,7 @@ $checks = [
     ['index', 'Synchronize categories from XML'],
     ['index', 'Auto-map existing full paths'],
     ['index', 'Create and map missing categories'],
+    ['edit', "form_theme categoryForm '@PrestaShop/Admin/TwigTemplateForm/prestashop_ui_kit.html.twig'"],
     ['edit', 'form_widget(categoryForm)'],
 ];
 foreach ($checks as [$file, $needle]) {
@@ -58,6 +58,9 @@ foreach (['reader', 'repository', 'auto_mapper', 'form'] as $file) {
     if (stripos($files[$file], 'GROUP_CONCAT') !== false) {
         throw new RuntimeException('Category path logic must not depend on GROUP_CONCAT: ' . $file);
     }
+}
+if (str_contains($files['form'], "'form_theme' =>")) {
+    throw new RuntimeException('Category form theme must be applied by Twig instead of a Symfony form option');
 }
 if (str_contains($files['repository'], '`active`=VALUES(`active`)')) {
     throw new RuntimeException('Supplier metadata refresh must not re-enable a manually disabled category mapping');

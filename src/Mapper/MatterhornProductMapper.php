@@ -90,7 +90,6 @@ final class MatterhornProductMapper implements ProductMapperInterface
         }
 
         $policy = ($this->policy ?? new MatterhornPolicy())->current();
-        $categoryAutoCreate = (bool) $policy['category_auto_create'];
         $featureAutoCreate = (bool) $policy['feature_auto_create'];
         $sourceLanguageId = (int) $policy['source_language_id'];
 
@@ -139,7 +138,6 @@ final class MatterhornProductMapper implements ProductMapperInterface
                 'key' => $this->categories->key($categoryId),
                 'name' => $categoryName !== '' ? $categoryName : $categoryId,
                 'path' => $categoryPath !== '' ? $categoryPath : ($categoryName !== '' ? $categoryName : $categoryId),
-                'auto_create' => $categoryAutoCreate,
             ]];
         }
 

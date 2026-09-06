@@ -11,6 +11,7 @@ fi
 
 while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find . -path './vendor' -prune -o -name '*.php' -print0)
 bash tests/prestashop-db-single-row-limit-check.sh
+php tests/source-location-contract-check.php
 php tests/matterhorn-parser-mapper-check.php
 php tests/matterhorn-domain-hash-isolation-check.php
 php tests/matterhorn-xml-streaming-bounds-check.php
@@ -22,6 +23,7 @@ php tests/matterhorn-image-credential-admission-check.php
 php tests/category-path-read-bound-check.php
 php tests/category-hierarchy-live-fence-check.php
 php tests/category-admin-mapping-contract-check.php
+php tests/category-auto-create-retirement-contract-check.php
 php tests/matterhorn-stock-bound-check.php
 php tests/matterhorn-price-bound-check.php
 php tests/matterhorn-catalog-text-bound-check.php
