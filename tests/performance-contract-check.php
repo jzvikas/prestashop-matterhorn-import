@@ -46,7 +46,7 @@ $check(str_contains($read, 'foreach ($this->source->rows() as $row)'), 'READ mus
 $check(!str_contains($read, 'rowsFrom($checkpoint)'), 'normal READ must not reopen and skip to a record checkpoint');
 $check(!str_contains($read, 'shouldStop()'), 'READ must not be repeatedly cut into AJAX XML rescans');
 $check(str_contains($runner, '$this->read->run($runId, 0, 0)'), 'runner must execute XML READ as one complete action');
-$check(str_contains($runner, "return $this->pauseBetweenStages($runId, 'import')"), 'bounded AJAX flow must pause after completed XML staging');
+$check(str_contains($runner, "return \$this->pauseBetweenStages(\$runId, 'import')"), 'bounded AJAX flow must pause after completed XML staging');
 $check(str_contains($snapshots, 'MAX_FETCH_PAYLOAD_BYTES = 8388608'), 'snapshot fetch payload bound missing');
 $check(str_contains($snapshots, 'MAX_WRITE_SQL_BYTES = 8388608'), 'snapshot escaped SQL write bound missing');
 $check(str_contains($snapshots, "s.source_key>'"), 'source-key keyset pagination missing');
@@ -68,9 +68,9 @@ $check(str_contains($product, 'private ?string $jsonCache'), 'ProductData JSON s
 $check(str_contains($product, 'private array $hashCache'), 'ProductData domain hash cache missing');
 $check(str_contains($product, '$this->jsonCache ??='), 'ProductData JSON cache not used');
 $check(str_contains($product, 'private ?array $combinationHashCache = null'), 'bounded two-hash combination cache missing');
-$check(str_contains($product, "return $this->combinationHashes()['structure'];"), 'combination structure hash must use shared projection pass');
-$check(str_contains($product, "return $this->combinationHashes()['stock'];"), 'combination stock hash must use shared projection pass');
-$check(str_contains($product, "'structure' => $this->hashValue([") && str_contains($product, "'stock' => $this->hashValue($stock)"), 'shared projection pass must cache only final combination hashes');
+$check(str_contains($product, "return \$this->combinationHashes()['structure'];"), 'combination structure hash must use shared projection pass');
+$check(str_contains($product, "return \$this->combinationHashes()['stock'];"), 'combination stock hash must use shared projection pass');
+$check(str_contains($product, "'structure' => \$this->hashValue([") && str_contains($product, "'stock' => \$this->hashValue(\$stock)"), 'shared projection pass must cache only final combination hashes');
 $check(substr_count($product, 'combinationAttributeTokens(') === 2, 'combination semantic-token projection must have one implementation call site plus method declaration');
 $check(!str_contains($product, 'combinationProjection(bool $stockOnly)'), 'legacy duplicate combination projection passes must be removed');
 
