@@ -55,7 +55,10 @@ if (!str_contains($manager, '$this->productFor($row, true)')
     $fail('explicit Category mapping action must retain internal category creation intent');
 }
 
-if (str_contains($mapper, "'auto_create' =>")) {
+if (preg_match("/\\$extra\\['categories'\\]\\s*=\\s*\\[\\[(.*?)\\]\\];/s", $mapper, $categoryDescriptor) !== 1) {
+    $fail('normal product mapper category descriptor was not found');
+}
+if (str_contains($categoryDescriptor[1], "'auto_create'")) {
     $fail('normal product mapper must not request category creation');
 }
 
