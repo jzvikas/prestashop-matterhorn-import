@@ -71,7 +71,8 @@ $check(!str_contains($product, 'combinationProjection(bool $stockOnly)'), 'legac
 $check(str_contains($attributeMapping, 'private array $pairCache'), 'attribute mapping process cache missing');
 $check(str_contains($attributeResolver, 'private array $availabilityCache'), 'attribute shop-availability cache missing');
 $check(str_contains($categoryAuto, 'private array $preparedMetadata'), 'category metadata write-dedup cache missing');
-$check(str_contains($categoryAuto, 'Conflicting Matterhorn category metadata'), 'category duplicate-key metadata conflict guard missing');
+$check(str_contains($categoryAuto, '$stored = $this->mapping->findOne($shopId, $key)'), 'category canonical metadata process cache must seed from persisted mapping state');
+$check(!str_contains($categoryAuto, 'Conflicting Matterhorn category metadata for supplier key'), 'category runtime mapper must not reject descriptive supplier metadata variants');
 $check(str_contains($categoryAuto, 'private array $availabilityCache'), 'category availability cache missing');
 $check(str_contains($categoryAuto, 'private array $childMap'), 'category child lookup process cache missing');
 $check(str_contains($categoryAuto, 'MAX_PATH_DEPTH = 32'), 'category path-depth bound missing');
