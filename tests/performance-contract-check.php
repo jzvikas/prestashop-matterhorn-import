@@ -4,6 +4,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $source = (string) file_get_contents($root . '/src/Source/MatterhornXmlSource.php');
 $read = (string) file_get_contents($root . '/src/Import/ReadStage.php');
+$runner = (string) file_get_contents($root . '/src/Import/ImportRunner.php');
 $snapshots = (string) file_get_contents($root . '/src/Repository/SnapshotRepository.php');
 $installer = (string) file_get_contents($root . '/src/Installer.php');
 $product = (string) file_get_contents($root . '/src/DTO/ProductData.php');
@@ -25,22 +26,27 @@ $check = static function (bool $condition, string $message) use ($fail): void {
     if (!$condition) { $fail($message); }
 };
 
-$check(str_contains($source, 'new \\XMLReader()'), 'Matterhorn source must stream through XMLReader');
-$check(str_contains($source, 'private function readProduct(\\XMLReader $reader, int $record): array'), 'Matterhorn source must stream the current product without whole-record materialization');
-$check(!str_contains($source, 'readOuterXML'), 'source must not materialize a whole product XML string');
-$check(!str_contains($source, 'simplexml_load_string'), 'source must not reparse a whole product through SimpleXML');
+$check(str_contains($source, 'XmlStringStreamer::createUniqueNodeParser'), 'Matterhorn source must stream through prewk unique-node parser');
+$check(str_contains($source, "'uniqueNode' => 'product'"), 'Matterhorn source must stream product nodes');
+$check(str_contains($source, 'simplexml_load_string'), 'complete product fragments must be parsed independently');
+$check(!str_contains($source, 'new \\XMLReader()'), 'Matterhorn product streaming must not use the old XMLReader scanner');
 $check(!str_contains($source, 'file_get_contents($path)'), 'source must never read the entire XML into memory');
 $check(!str_contains($source, 'simplexml_load_file'), 'source must never build whole-feed SimpleXML tree');
-$check(str_contains($source, 'MAX_SOURCE_RECORD_BYTES = 4194304'), 'source per-product decoded-text bound missing');
+$check(str_contains($source, 'MAX_SOURCE_RECORD_BYTES = 4194304'), 'source per-product raw fragment bound missing');
 $check(str_contains($source, 'MAX_SOURCE_FIELD_BYTES = 2097152'), 'source per-field decoded-text bound missing');
 $check(str_contains($source, 'MAX_IMAGES_PER_PRODUCT = 1000'), 'source image fan-out bound missing');
 $check(str_contains($source, 'MAX_OPTIONS_PER_PRODUCT = 5000'), 'source option fan-out bound missing');
-$check(str_contains($source, 'readImageUrlElement'), 'source bounded optional image URL reader missing');
-$check(str_contains($source, 'skipCurrentElementCounting'), 'ignored source elements must still contribute to the record byte budget');
-$check(str_contains($source, 'LIBXML_COMPACT'), 'XMLReader must use compact parser mode');
+$check(str_contains($source, 'private function readImages'), 'source bounded image reader missing');
+$check(str_contains($source, 'private function readOptions'), 'source bounded option reader missing');
+$check(str_contains($source, 'private function boundedAttribute'), 'source bounded supplier identity reader missing');
 $check(str_contains($read, 'MAX_PRODUCT_PAYLOAD_BYTES = 2097152'), 'READ per-product payload bound missing');
 $check(str_contains($read, 'MAX_BATCH_PAYLOAD_BYTES = 8388608'), 'READ batch payload bound missing');
-$check(str_contains($read, 'WRITE_BATCH = 500'), 'READ bounded write batch missing');
+$check(str_contains($read, 'WRITE_BATCH = 250'), 'READ bounded shared-hosting write batch missing');
+$check(str_contains($read, 'foreach ($this->source->rows() as $row)'), 'READ must perform one linear source pass');
+$check(!str_contains($read, 'rowsFrom($checkpoint)'), 'normal READ must not reopen and skip to a record checkpoint');
+$check(!str_contains($read, 'shouldStop()'), 'READ must not be repeatedly cut into AJAX XML rescans');
+$check(str_contains($runner, '$this->read->run($runId, 0, 0)'), 'runner must execute XML READ as one complete action');
+$check(str_contains($runner, "return $this->pauseBetweenStages($runId, 'import')"), 'bounded AJAX flow must pause after completed XML staging');
 $check(str_contains($snapshots, 'MAX_FETCH_PAYLOAD_BYTES = 8388608'), 'snapshot fetch payload bound missing');
 $check(str_contains($snapshots, 'MAX_WRITE_SQL_BYTES = 8388608'), 'snapshot escaped SQL write bound missing');
 $check(str_contains($snapshots, "s.source_key>'"), 'source-key keyset pagination missing');
@@ -62,9 +68,9 @@ $check(str_contains($product, 'private ?string $jsonCache'), 'ProductData JSON s
 $check(str_contains($product, 'private array $hashCache'), 'ProductData domain hash cache missing');
 $check(str_contains($product, '$this->jsonCache ??='), 'ProductData JSON cache not used');
 $check(str_contains($product, 'private ?array $combinationHashCache = null'), 'bounded two-hash combination cache missing');
-$check(str_contains($product, "return \$this->combinationHashes()['structure'];"), 'combination structure hash must use shared projection pass');
-$check(str_contains($product, "return \$this->combinationHashes()['stock'];"), 'combination stock hash must use shared projection pass');
-$check(str_contains($product, "'structure' => \$this->hashValue([") && str_contains($product, "'stock' => \$this->hashValue(\$stock)"), 'shared projection pass must cache only final combination hashes');
+$check(str_contains($product, "return $this->combinationHashes()['structure'];"), 'combination structure hash must use shared projection pass');
+$check(str_contains($product, "return $this->combinationHashes()['stock'];"), 'combination stock hash must use shared projection pass');
+$check(str_contains($product, "'structure' => $this->hashValue([") && str_contains($product, "'stock' => $this->hashValue($stock)"), 'shared projection pass must cache only final combination hashes');
 $check(substr_count($product, 'combinationAttributeTokens(') === 2, 'combination semantic-token projection must have one implementation call site plus method declaration');
 $check(!str_contains($product, 'combinationProjection(bool $stockOnly)'), 'legacy duplicate combination projection passes must be removed');
 
