@@ -174,11 +174,17 @@ final class GcService
         $snapshotTable = _DB_PREFIX_ . 'li_matterhornim_99dfbf_snapshot';
         $scopeWhere = " AND r.source='" . pSQL($source) . "' AND r.id_shop=" . $shopId;
 
+        // A newer run is not sufficient to make an older snapshot disposable. Image
+        // reconciliation/revalidation may still depend on the last reconciled generation while
+        // a newer run is paused, failed, or waiting for its image queue to drain. Only let a
+        // snapshot become collectible after a newer fully reconciled generation exists.
         $sql = 'DELETE FROM `' . $snapshotTable . '` WHERE id_run<' . $keepRunId .
             ' AND id_run IN (' .
             'SELECT r.id_run FROM `' . $runTable . '` r WHERE 1=1' . $scopeWhere .
             ' AND EXISTS (SELECT 1 FROM `' . $runTable . '` newer ' .
-            'WHERE newer.id_shop=r.id_shop AND newer.source=r.source AND newer.id_run>r.id_run)' .
+            'WHERE newer.id_shop=r.id_shop AND newer.source=r.source AND newer.id_run>r.id_run ' .
+            "AND newer.status='completed' AND newer.read_status='completed' AND newer.import_status='completed' " .
+            "AND newer.update_status='completed' AND newer.remove_status='completed' AND newer.image_reconcile_status='completed')" .
             ') ORDER BY id_run,source_key LIMIT ' . $limit;
         $db = \Db::getInstance();
         if (!$db->execute($sql)) { throw new \RuntimeException('Bounded snapshot GC failed'); }
