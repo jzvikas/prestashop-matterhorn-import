@@ -154,6 +154,13 @@ final class RunRepository
 
     public function resume(int $runId): void
     {
+        $run = $this->get($runId);
+        if ($run === null) {
+            throw new \RuntimeException('Matterhorn import run not found: ' . $runId);
+        }
+        if (in_array((string) ($run['status'] ?? ''), ['completed', 'cancelled'], true)) {
+            throw new \RuntimeException('Matterhorn import run #' . $runId . ' is terminal and cannot be resumed');
+        }
         if (!\Db::getInstance()->update(self::TABLE, ['status' => 'running', 'finished_at' => null], 'id_run=' . (int) $runId, 0, true)) {
             throw new \RuntimeException('Could not resume Matterhorn import run');
         }
@@ -161,13 +168,48 @@ final class RunRepository
 
     public function finish(int $runId, string $status = 'completed'): void
     {
-        if (!in_array($status, ['completed','failed','paused'], true)) { throw new \InvalidArgumentException('Invalid run status: ' . $status); }
+        if (!in_array($status, ['completed','failed','paused','cancelled'], true)) { throw new \InvalidArgumentException('Invalid run status: ' . $status); }
         if (!\Db::getInstance()->update(self::TABLE, [
             'status' => pSQL($status),
             'finished_at' => date('Y-m-d H:i:s'),
         ], 'id_run=' . (int) $runId)) {
             throw new \RuntimeException('Could not finish Matterhorn import run');
         }
+    }
+
+    /** @return array<string,mixed> */
+    public function cancel(int $runId): array
+    {
+        $run = $this->get($runId);
+        if ($run === null) {
+            throw new \RuntimeException('Matterhorn import run not found: ' . $runId);
+        }
+        if (!in_array((string) ($run['status'] ?? ''), ['running', 'paused'], true)) {
+            throw new \RuntimeException('Only an active Matterhorn import run can be cancelled');
+        }
+
+        $sql = 'UPDATE `' . _DB_PREFIX_ . self::TABLE . '` SET ' .
+            "`status`='cancelled'," .
+            "`read_status`=IF(`read_status`='running','paused',`read_status`)," .
+            "`import_status`=IF(`import_status`='running','paused',`import_status`)," .
+            "`update_status`=IF(`update_status`='running','paused',`update_status`)," .
+            "`remove_status`=IF(`remove_status`='running','paused',`remove_status`)," .
+            "`finished_at`='" . pSQL(date('Y-m-d H:i:s')) . "' " .
+            'WHERE id_run=' . (int) $runId . " AND status IN ('running','paused')";
+        $db = \Db::getInstance();
+        if (!$db->execute($sql)) {
+            throw new \RuntimeException('Could not cancel Matterhorn import run');
+        }
+        if ((int) $db->Affected_Rows() !== 1) {
+            throw new \RuntimeException('Matterhorn import run changed state before cancellation');
+        }
+
+        $cancelled = $this->get($runId);
+        if ($cancelled === null || (string) ($cancelled['status'] ?? '') !== 'cancelled') {
+            throw new \RuntimeException('Matterhorn import cancellation could not be verified');
+        }
+
+        return $cancelled;
     }
 
     public function previousCompleted(int $runId, int $shopId, string $source): ?array
@@ -209,11 +251,51 @@ final class RunRepository
 
     public function latest(int $shopId, string $source): ?array
     {
+        $source = trim($source);
+        if ($shopId <= 0 || $source === '') {
+            throw new \InvalidArgumentException('Latest run lookup requires shop/source');
+        }
         $row = \Db::getInstance()->getRow(
             'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_shop=' . (int) $shopId .
             " AND source='" . pSQL($source) . "' ORDER BY id_run DESC",
             false
         );
         return is_array($row) ? $row : null;
+    }
+
+    public function findActive(int $shopId, string $source): ?array
+    {
+        $source = trim($source);
+        if ($shopId <= 0 || $source === '') {
+            throw new \InvalidArgumentException('Active run lookup requires shop/source');
+        }
+        $row = \Db::getInstance()->getRow(
+            'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_shop=' . (int) $shopId .
+            " AND source='" . pSQL($source) . "' AND status IN ('running','paused') ORDER BY id_run DESC",
+            false
+        );
+
+        return is_array($row) ? $row : null;
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function recent(int $shopId, string $source, int $limit = 20): array
+    {
+        $source = trim($source);
+        if ($shopId <= 0 || $source === '') {
+            throw new \InvalidArgumentException('Recent run lookup requires shop/source');
+        }
+        $limit = max(1, min(100, $limit));
+        $rows = \Db::getInstance()->executeS(
+            'SELECT * FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_shop=' . (int) $shopId .
+            " AND source='" . pSQL($source) . "' ORDER BY id_run DESC LIMIT " . $limit,
+            true,
+            false
+        );
+        if ($rows === false) {
+            throw new \RuntimeException('Could not load recent Matterhorn import runs');
+        }
+
+        return array_values($rows);
     }
 }

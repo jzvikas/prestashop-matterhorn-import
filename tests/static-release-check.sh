@@ -24,6 +24,7 @@ php tests/category-path-read-bound-check.php
 php tests/category-hierarchy-live-fence-check.php
 php tests/category-admin-mapping-contract-check.php
 php tests/category-trailing-eof-hotfix-check.php
+php tests/admin-ajax-import-contract-check.php
 php tests/category-auto-create-retirement-contract-check.php
 php tests/matterhorn-stock-bound-check.php
 php tests/matterhorn-price-bound-check.php

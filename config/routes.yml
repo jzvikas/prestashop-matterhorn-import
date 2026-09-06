@@ -6,6 +6,42 @@ matterhorn_import_configuration:
     _legacy_controller: AdminModules
     _legacy_link: AdminModules
 
+matterhorn_import_ajax:
+  path: /matterhornimport/import
+  methods: [GET]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\ImportController::index'
+    _legacy_controller: AdminModules
+    _legacy_link: AdminModules
+
+matterhorn_import_ajax_start:
+  path: /matterhornimport/import/start
+  methods: [POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\ImportController::start'
+    _legacy_controller: AdminModules
+
+matterhorn_import_ajax_batch:
+  path: /matterhornimport/import/batch
+  methods: [POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\ImportController::batch'
+    _legacy_controller: AdminModules
+
+matterhorn_import_ajax_status:
+  path: /matterhornimport/import/status
+  methods: [POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\ImportController::status'
+    _legacy_controller: AdminModules
+
+matterhorn_import_ajax_cancel:
+  path: /matterhornimport/import/cancel
+  methods: [POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\ImportController::cancel'
+    _legacy_controller: AdminModules
+
 matterhorn_import_categories:
   path: /matterhornimport/categories
   methods: [GET]

@@ -1,0 +1,155 @@
+{% extends '@PrestaShop/Admin/layout.html.twig' %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">
+      <i class="material-icons">sync</i>
+      {{ 'Matterhorn AJAX import'|trans({}, 'Modules.Matterhornimport.Admin') }}
+    </h2>
+    <div>
+      <a class="btn btn-outline-secondary" href="{{ path('matterhorn_import_configuration') }}">
+        <i class="material-icons">settings</i>
+        {{ 'Settings'|trans({}, 'Admin.Global') }}
+      </a>
+      <a class="btn btn-outline-primary" href="{{ path('matterhorn_import_categories') }}">
+        <i class="material-icons">account_tree</i>
+        {{ 'Category mapping'|trans({}, 'Modules.Matterhornimport.Admin') }}
+      </a>
+    </div>
+  </div>
+
+  {% if shopContextError %}
+    <div class="alert alert-warning">
+      <i class="material-icons">warning</i>
+      {{ shopContextError }}
+    </div>
+  {% else %}
+    <div id="matterhorn-import-app"
+         data-start-url="{{ path('matterhorn_import_ajax_start') }}"
+         data-batch-url="{{ path('matterhorn_import_ajax_batch') }}"
+         data-status-url="{{ path('matterhorn_import_ajax_status') }}"
+         data-cancel-url="{{ path('matterhorn_import_ajax_cancel') }}"
+         data-token="{{ csrf_token('matterhorn_ajax_import') }}"
+         data-active-job="{{ activeRun ? activeRun.id_run : 0 }}">
+      <div class="alert alert-info">
+        <strong>{{ 'Shop:'|trans({}, 'Admin.Global') }}</strong>
+        {{ currentShopName }} (#{{ currentShopId }}).
+        {{ 'The browser executes the same resumable READ → IMPORT → UPDATE → REMOVE pipeline in short crash-safe batches.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+      </div>
+
+      <div class="card mb-3">
+        <h3 class="card-header">
+          <i class="material-icons">sync</i>
+          {{ 'AJAX batch import'|trans({}, 'Modules.Matterhornimport.Admin') }} — {{ currentShopName }}
+        </h3>
+        <div class="card-body">
+          <div class="form-row align-items-end">
+            <div class="col-md-4">
+              <label for="matterhorn-batch-size">{{ 'Batch size'|trans({}, 'Modules.Matterhornimport.Admin') }}</label>
+              <input id="matterhorn-batch-size" class="form-control" type="number" min="1" max="1000" value="{{ batchSize }}">
+              <small class="form-text text-muted">
+                {{ 'Each AJAX request processes at most this many products and has a soft 20-second execution budget. Recommended: 100-250.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+              </small>
+            </div>
+            <div class="col-md-8 text-md-right mt-3 mt-md-0">
+              <button id="matterhorn-start" type="button" class="btn btn-primary">
+                <i class="material-icons">play_arrow</i>
+                {% if activeRun %}
+                  {{ 'Continue active import'|trans({}, 'Modules.Matterhornimport.Admin') }}
+                {% else %}
+                  {{ 'Start import'|trans({}, 'Modules.Matterhornimport.Admin') }}
+                {% endif %}
+              </button>
+              <button id="matterhorn-cancel" type="button" class="btn btn-outline-danger" {% if not activeRun %}disabled{% endif %}>
+                <i class="material-icons">stop</i>
+                {{ 'Cancel'|trans({}, 'Admin.Actions') }}
+              </button>
+            </div>
+          </div>
+
+          {% set initialProgress = activeRun and activeRun.progress is defined ? activeRun.progress : null %}
+          {% set initialPercent = initialProgress ? initialProgress.overall_percent : 0 %}
+          <div class="mt-4">
+            <div class="progress" style="height: 24px;">
+              <div id="matterhorn-progress-bar"
+                   class="progress-bar{% if initialProgress and initialProgress.indeterminate %} progress-bar-striped progress-bar-animated{% endif %}"
+                   role="progressbar"
+                   aria-valuemin="0"
+                   aria-valuemax="100"
+                   aria-valuenow="{{ initialPercent }}"
+                   style="width: {{ initialProgress and initialProgress.indeterminate ? 100 : initialPercent }}%">
+                {% if initialProgress and initialProgress.indeterminate %}
+                  {{ initialProgress.label }} {{ initialProgress.phase_index }}/{{ initialProgress.phase_count }}
+                {% else %}
+                  {{ initialPercent }}%
+                {% endif %}
+              </div>
+            </div>
+            <div id="matterhorn-status" class="mt-2 text-muted">
+              {% if activeRun and initialProgress %}
+                <strong>#{{ activeRun.id_run }} — {{ activeRun.status }}.</strong>
+                {{ 'Phase'|trans({}, 'Admin.Global') }} {{ initialProgress.phase_index }}/{{ initialProgress.phase_count }} — {{ initialProgress.label }}: {{ initialProgress.phase_status }}.
+                {{ initialProgress.stats }}
+              {% else %}
+                {{ 'No active Matterhorn import for this shop.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+              {% endif %}
+            </div>
+            <div id="matterhorn-error" class="alert alert-danger mt-3 d-none"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-header">
+          <i class="material-icons">history</i>
+          {{ 'Recent import runs'|trans({}, 'Modules.Matterhornimport.Admin') }} — {{ currentShopName }}
+        </h3>
+        <div class="table-responsive">
+          <table class="table mb-0">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>{{ 'Status'|trans({}, 'Admin.Global') }}</th>
+                <th>{{ 'Phase'|trans({}, 'Admin.Global') }}</th>
+                <th>READ</th>
+                <th>IMPORT</th>
+                <th>UPDATE</th>
+                <th>REMOVE</th>
+                <th>{{ 'Started'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
+                <th>{{ 'Finished'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for job in jobs %}
+                <tr>
+                  <td>#{{ job.id_run }}</td>
+                  <td><span class="badge badge-info">{{ job.status }}</span></td>
+                  <td>{{ job.progress.label }} {{ job.progress.phase_index }}/{{ job.progress.phase_count }}</td>
+                  <td>{{ job.source_valid }}/{{ job.source_total }}</td>
+                  <td>{{ job.import_done }} / {{ job.import_failed }}</td>
+                  <td>{{ job.update_done }} / {{ job.update_skipped }} / {{ job.update_failed }}</td>
+                  <td>{{ job.remove_done }} / {{ job.remove_failed }}</td>
+                  <td>{{ job.started_at }}</td>
+                  <td>{{ job.finished_at ?: '—' }}</td>
+                </tr>
+              {% else %}
+                <tr>
+                  <td colspan="9" class="text-center text-muted py-4">
+                    {{ 'No Matterhorn import runs for this shop yet.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block javascripts %}
+  {{ parent() }}
+  {% if not shopContextError %}
+    <script src="{{ asset('../modules/matterhornimport/views/js/admin-import.js') }}?v={{ adminImportAssetVersion|url_encode }}"></script>
+  {% endif %}
+{% endblock %}
