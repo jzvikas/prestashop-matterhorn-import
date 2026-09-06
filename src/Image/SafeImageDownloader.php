@@ -91,7 +91,12 @@ final class SafeImageDownloader
             $resolveIp = str_contains($ip, ':') ? '[' . $ip . ']' : $ip;
             $options[CURLOPT_RESOLVE] = [$host . ':' . $port . ':' . $resolveIp];
         }
-        curl_setopt_array($ch, $options);
+        if (!curl_setopt_array($ch, $options)) {
+            curl_close($ch);
+            fclose($fp);
+            @unlink($tmp);
+            throw new \RuntimeException('Could not apply secure image HTTP client options');
+        }
         $ok = curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $contentType = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
