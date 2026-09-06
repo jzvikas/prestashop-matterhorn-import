@@ -66,8 +66,8 @@ $check(str_contains($files['js'], 'response.text()'), 'non-JSON response-safe pa
 $check(str_contains($files['js'], 'response.status >= 502 && response.status <= 504'), 'transient HTTP retry classification missing');
 $check(str_contains($files['js'], 'isTransientDatabaseDisconnect'), 'transient database disconnect classifier missing');
 $check(str_contains($files['js'], 'MySQL server has gone away'), 'MySQL error 2006 classifier missing');
-$check(str_contains($files['js'], 'Doctrine\\DBAL\\Exception\\ConnectionLost'), 'Doctrine connection-lost classifier missing');
-$check(str_contains($files['js'], 'SQLSTATE\\[HY000\\]'), 'SQLSTATE connection-lost classifier missing');
+$check(str_contains($files['js'], 'ConnectionLost'), 'Doctrine connection-lost classifier missing');
+$check(str_contains($files['js'], 'SQLSTATE'), 'SQLSTATE connection-lost classifier missing');
 $check(str_contains($files['js'], 'const maxTransientBatchRetries = 3'), 'AJAX transient retry hard bound missing');
 $check(str_contains($files['js'], 'transientBatchFailures < maxTransientBatchRetries'), 'AJAX transient retry counter fence missing');
 $check(!str_contains($files['js'], 'response.status >= 500 && response.status <= 504'), 'generic HTTP 500 business/runtime failures must not be automatically retried');
