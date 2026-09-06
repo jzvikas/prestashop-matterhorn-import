@@ -15,8 +15,11 @@ $checks = [
     [$stage,'Payload-only changes are supplier/runtime metadata'],
     [$snapshot,'changedRows'], [$snapshot,'product_exists'], [$snapshot,'old_feature_hash'],
     [$snapshot,'removedRows'], [$snapshot,'countRemoved'], [$command,'matterhornimport:update'],
-    [$services,'Lp\\MatterhornImport\\Command\\UpdateCommand'],
+    [$services,'autoconfigure: true'], [$services,"resource: '../src/'"],
 ];
 foreach ($checks as [$haystack,$needle]) { if (!str_contains($haystack, $needle)) { throw new RuntimeException('UPDATE contract missing: ' . $needle); } }
 if (str_contains($stage, "old_payload_hash', 'payload_hash'")) { throw new RuntimeException('UPDATE must not route metadata-only payload differences into core catalog writes'); }
+if (str_contains($services, 'Lp\\MatterhornImport\\Command\\UpdateCommand:')) {
+    throw new RuntimeException('UPDATE command should rely on Symfony autoconfiguration, not duplicate manual service registration');
+}
 echo "UPDATE orchestration contract: OK\n";
