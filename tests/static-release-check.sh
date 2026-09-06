@@ -22,6 +22,7 @@ php tests/matterhorn-image-credential-admission-check.php
 php tests/category-path-read-bound-check.php
 php tests/category-hierarchy-live-fence-check.php
 php tests/category-admin-mapping-contract-check.php
+php tests/category-auto-create-retirement-contract-check.php
 php tests/matterhorn-stock-bound-check.php
 php tests/matterhorn-price-bound-check.php
 php tests/matterhorn-catalog-text-bound-check.php
