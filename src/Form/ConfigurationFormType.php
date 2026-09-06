@@ -8,7 +8,6 @@ use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\Extension\Core\Type\IntegerType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\FormBuilderInterface;
-use Symfony\Component\OptionsResolver\OptionsResolver;
 use Symfony\Component\Validator\Constraints\Length;
 use Symfony\Component\Validator\Constraints\NotBlank;
 use Symfony\Component\Validator\Constraints\Range;
@@ -49,14 +48,6 @@ final class ConfigurationFormType extends TranslatorAwareType
             ->add(OperationalSettings::NEW_PRODUCT_WORKER_LIMIT, IntegerType::class, $this->integerOptions('New-product jobs per tick', 1, 200))
             ->add(OperationalSettings::NEW_PRODUCT_WORKER_RUNTIME, IntegerType::class, $this->integerOptions('New-product worker runtime seconds (0 = one tick)', 0, 86400))
             ->add(OperationalSettings::RETRY_LIMIT, IntegerType::class, $this->integerOptions('Retry reset limit per domain', 1, 100000));
-    }
-
-    public function configureOptions(OptionsResolver $resolver): void
-    {
-        parent::configureOptions($resolver);
-        $resolver->setDefaults([
-            'form_theme' => '@PrestaShop/Admin/TwigTemplateForm/prestashop_ui_kit.html.twig',
-        ]);
     }
 
     /** @return array<string,int> */
