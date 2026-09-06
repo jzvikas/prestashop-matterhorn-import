@@ -1,10 +1,13 @@
+imports:
+  - { resource: 'services_bootstrap.php' }
+
 services:
   _defaults:
     public: false
     autowire: true
     autoconfigure: false
   Lp\MatterhornImport\:
-    resource: '../src/'
+    resource: '../src/*'
     exclude: ['../src/DTO/','../src/Installer.php']
   Lp\MatterhornImport\Contract\SourceInterface:
     alias: Lp\MatterhornImport\Source\MatterhornXmlSource
