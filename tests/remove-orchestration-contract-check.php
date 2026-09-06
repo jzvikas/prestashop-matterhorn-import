@@ -8,6 +8,7 @@ $snapshot = (string) file_get_contents($root . '/src/Repository/SnapshotReposito
 $installer = (string) file_get_contents($root . '/src/Installer.php');
 $upgrade = (string) file_get_contents($root . '/upgrade/upgrade-0.1.1.php');
 $module = (string) file_get_contents($root . '/matterhornimport.php');
+$form = (string) file_get_contents($root . '/src/Form/ConfigurationFormType.php');
 $command = (string) file_get_contents($root . '/src/Command/RemoveCommand.php');
 
 $checks = [
@@ -30,7 +31,8 @@ $checks = [
     [$installer, 'upgradeMappingState'],
     [$installer, 'idx_feed_state'],
     [$upgrade, 'upgrade_module_0_1_1'],
-    [$module, 'Maximum REMOVE percentage'],
+    [$form, 'Maximum REMOVE percentage'],
+    [$form, 'MAX_REMOVE_PERCENT'],
     [$command, 'matterhornimport:remove'],
     [$command, 'dry-run'],
 ];
