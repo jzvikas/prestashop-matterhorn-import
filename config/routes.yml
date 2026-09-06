@@ -5,3 +5,41 @@ matterhorn_import_configuration:
     _controller: 'Lp\MatterhornImport\Controller\ConfigurationController::index'
     _legacy_controller: AdminModules
     _legacy_link: AdminModules
+
+matterhorn_import_categories:
+  path: /matterhornimport/categories
+  methods: [GET]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\CategoryController::index'
+    _legacy_controller: AdminModules
+    _legacy_link: AdminModules
+
+matterhorn_import_categories_sync:
+  path: /matterhornimport/categories/sync
+  methods: [POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\CategoryController::synchronize'
+    _legacy_controller: AdminModules
+
+matterhorn_import_categories_auto_map:
+  path: /matterhornimport/categories/auto-map
+  methods: [POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\CategoryController::autoMap'
+    _legacy_controller: AdminModules
+
+matterhorn_import_categories_auto_create:
+  path: /matterhornimport/categories/auto-create
+  methods: [POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\CategoryController::autoCreate'
+    _legacy_controller: AdminModules
+
+matterhorn_import_category_edit:
+  path: /matterhornimport/categories/{supplierKey}/edit
+  methods: [GET, POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\CategoryController::edit'
+    _legacy_controller: AdminModules
+  requirements:
+    supplierKey: '[A-Za-z0-9:_\.-]+'
