@@ -1,11 +1,15 @@
 <?php
 namespace Lp\MatterhornImport\Repository;
 
+use Lp\MatterhornImport\Category\CategoryPathReader;
+
 final class CategoryMappingRepository
 {
     private const PRELOAD_CHUNK = 500;
     /** @var array<int,array<string,array<string,mixed>|null>> */
     private array $cache = [];
+
+    public function __construct(private CategoryPathReader $pathReader) {}
 
     /** @param list<string> $supplierKeys @return array<string,int> */
     public function resolveActiveCategoryIds(array $supplierKeys, int $shopId): array
@@ -139,13 +143,18 @@ final class CategoryMappingRepository
     {
         $this->assertAdminContext($shopId, $langId);
         $limit = max(1, min(5000, $limit));
-        $rootId = $this->rootCategoryId($shopId);
-        $homeId = $this->homeCategoryId($shopId);
         $rows = \Db::getInstance()->executeS(sprintf(
-            "SELECT m.*,cl.name AS prestashop_category_name,(SELECT GROUP_CONCAT(pl.name ORDER BY p.nleft SEPARATOR ' > ') FROM `%1\$scategory` leaf INNER JOIN `%1\$scategory` p ON leaf.nleft BETWEEN p.nleft AND p.nright INNER JOIN `%1\$scategory_lang` pl ON pl.id_category=p.id_category AND pl.id_lang=%2\$d AND pl.id_shop=%3\$d WHERE leaf.id_category=m.id_category AND p.id_category NOT IN (%4\$d,%5\$d)) AS prestashop_category_path FROM `%1\$sli_matterhornim_99dfbf_category_mapping` m LEFT JOIN `%1\$scategory_lang` cl ON cl.id_category=m.id_category AND cl.id_lang=%2\$d AND cl.id_shop=%3\$d WHERE m.id_shop=%3\$d ORDER BY COALESCE(NULLIF(m.supplier_path,''),m.supplier_name),m.supplier_key LIMIT %6\$d",
-            _DB_PREFIX_, $langId, $shopId, $rootId, $homeId, $limit
+            "SELECT m.*,cl.name AS prestashop_category_name FROM `%1\$sli_matterhornim_99dfbf_category_mapping` m LEFT JOIN `%1\$scategory_lang` cl ON cl.id_category=m.id_category AND cl.id_lang=%2\$d AND cl.id_shop=%3\$d WHERE m.id_shop=%3\$d ORDER BY COALESCE(NULLIF(m.supplier_path,''),m.supplier_name),m.supplier_key LIMIT %4\$d",
+            _DB_PREFIX_, $langId, $shopId, $limit
         ), true, false);
         if ($rows === false) { throw new \RuntimeException('Could not load Matterhorn category mappings'); }
+
+        $paths = $this->pathReader->paths($shopId, $langId);
+        foreach ($rows as &$row) {
+            $categoryId = (int) ($row['id_category'] ?? 0);
+            $row['prestashop_category_path'] = $categoryId > 0 ? ($paths[$categoryId] ?? null) : null;
+        }
+        unset($row);
         return array_values($rows);
     }
 
@@ -208,20 +217,5 @@ final class CategoryMappingRepository
         if ($shopId <= 0 || $langId <= 0) {
             throw new \InvalidArgumentException('Category mapping requires concrete shop and language');
         }
-    }
-
-    private function rootCategoryId(int $shopId): int
-    {
-        $shop = \Shop::getShop($shopId);
-        $id = is_array($shop) ? (int) ($shop['id_category'] ?? 0) : 0;
-        if ($id <= 0) { $id = (int) \Configuration::get('PS_ROOT_CATEGORY', null, null, $shopId); }
-        return max(0, $id);
-    }
-
-    private function homeCategoryId(int $shopId): int
-    {
-        $id = (int) \Configuration::get('PS_HOME_CATEGORY', null, null, $shopId);
-        if ($id <= 0) { $id = (int) \Configuration::get('PS_HOME_CATEGORY'); }
-        return max(0, $id);
     }
 }
