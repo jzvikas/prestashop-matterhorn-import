@@ -1,0 +1,7 @@
+matterhorn_import_configuration:
+  path: /matterhornimport/configuration
+  methods: [GET, POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\ConfigurationController::index'
+    _legacy_controller: AdminModules
+    _legacy_link: AdminModules
