@@ -57,13 +57,23 @@ expectFeedStructureFailure(
     'root must be <products>'
 );
 
-expectFeedStructureFailure(
-    '<?xml version="1.0"?><products><group><product id="3"><name>Nested</name><price>1</price></product></group></products>',
-    '<product> records must be direct children of <products>'
+// Prewk UniqueNode intentionally discovers the requested node by name without
+// maintaining a full-document element-depth stack. This matches the proven
+// Laravel CRM Matterhorn importer and keeps the large feed on one linear pass.
+$nestedPath = feedStructureTemp(
+    '<?xml version="1.0"?><products><group><product id="3"><name>Nested</name><price>1</price></product></group></products>'
 );
+try {
+    $rows = iterator_to_array((new MatterhornXmlSource($nestedPath))->rows(), false);
+    feedStructureCheck(count($rows) === 1 && ($rows[0]['id'] ?? '') === '3', 'Prewk UniqueNode must preserve node-name streaming semantics');
+} finally {
+    @unlink($nestedPath);
+}
 
 $sourceCode = (string) file_get_contents(dirname(__DIR__) . '/src/Source/MatterhornXmlSource.php');
-feedStructureCheck(str_contains($sourceCode, "localName !== 'products'"), 'source must explicitly validate the Matterhorn root element');
-feedStructureCheck(str_contains($sourceCode, '$reader->depth !== $rootDepth + 1'), 'source must fence product records to direct root children');
+feedStructureCheck(str_contains($sourceCode, 'private function assertRoot'), 'source must explicitly validate the Matterhorn root element');
+feedStructureCheck(str_contains($sourceCode, 'new UniqueNode('), 'source must construct the Prewk UniqueNode parser');
+feedStructureCheck(str_contains($sourceCode, 'new XmlStringStreamer('), 'source must run the Prewk XmlStringStreamer');
+feedStructureCheck(str_contains($sourceCode, "'uniqueNode' => 'product'"), 'source must target Matterhorn product nodes');
 
 echo "Matterhorn feed structure: OK\n";

@@ -138,8 +138,6 @@ final class ImportRunner
                 }
             }
 
-            // REMOVE currently completes the run as well. Keep this idempotent write here so
-            // the runner remains correct if stage ownership of the final status changes later.
             $this->runs->finish($runId, 'completed');
             return ['run' => $runId, 'status' => 'completed', 'stage' => 'completed'];
         } catch (\Throwable $e) {

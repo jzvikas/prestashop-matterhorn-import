@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $source = (string) file_get_contents($root . '/src/Source/MatterhornXmlSource.php');
+$configuredSource = (string) file_get_contents($root . '/src/Source/ConfiguredMatterhornXmlSource.php');
 $read = (string) file_get_contents($root . '/src/Import/ReadStage.php');
 $snapshots = (string) file_get_contents($root . '/src/Repository/SnapshotRepository.php');
 $installer = (string) file_get_contents($root . '/src/Installer.php');
@@ -25,22 +26,29 @@ $check = static function (bool $condition, string $message) use ($fail): void {
     if (!$condition) { $fail($message); }
 };
 
-$check(str_contains($source, 'new \\XMLReader()'), 'Matterhorn source must stream through XMLReader');
-$check(str_contains($source, 'private function readProduct(\\XMLReader $reader, int $record): array'), 'Matterhorn source must stream the current product without whole-record materialization');
-$check(!str_contains($source, 'readOuterXML'), 'source must not materialize a whole product XML string');
-$check(!str_contains($source, 'simplexml_load_string'), 'source must not reparse a whole product through SimpleXML');
+$check(str_contains($source, 'new UniqueNode(['), 'Matterhorn source must use Prewk UniqueNode parser');
+$check(str_contains($source, "'uniqueNode' => 'product'"), 'Matterhorn source must stream product nodes');
+$check(str_contains($source, 'new XmlStringStreamer($parser, $stream)'), 'Matterhorn source must stream through Prewk XmlStringStreamer');
+$check(str_contains($source, 'simplexml_load_string'), 'complete product fragments must be parsed independently');
+$check(!str_contains($source, 'new \\XMLReader()'), 'Matterhorn product streaming must not use the old XMLReader scanner');
 $check(!str_contains($source, 'file_get_contents($path)'), 'source must never read the entire XML into memory');
 $check(!str_contains($source, 'simplexml_load_file'), 'source must never build whole-feed SimpleXML tree');
-$check(str_contains($source, 'MAX_SOURCE_RECORD_BYTES = 4194304'), 'source per-product decoded-text bound missing');
+$check(str_contains($source, 'STREAM_CHUNK_BYTES = 65536'), 'Prewk file stream chunk size missing');
+$check(str_contains($source, '$parser->getCurrentWorkingBlob()'), 'Prewk unread-buffer resume cursor missing');
+$check(str_contains($source, '$nextByte = $byteOffset + $readBytes - strlen($workingBlob)'), 'exact Prewk resume byte calculation missing');
+$check(str_contains($configuredSource, "rowsFromByte(\$checkpoint['byte'], \$offset)"), 'normal AJAX READ resume must seek directly instead of rescanning old records');
+$check(str_contains($source, 'MAX_SOURCE_RECORD_BYTES = 4194304'), 'source per-product raw fragment bound missing');
 $check(str_contains($source, 'MAX_SOURCE_FIELD_BYTES = 2097152'), 'source per-field decoded-text bound missing');
 $check(str_contains($source, 'MAX_IMAGES_PER_PRODUCT = 1000'), 'source image fan-out bound missing');
 $check(str_contains($source, 'MAX_OPTIONS_PER_PRODUCT = 5000'), 'source option fan-out bound missing');
-$check(str_contains($source, 'readImageUrlElement'), 'source bounded optional image URL reader missing');
-$check(str_contains($source, 'skipCurrentElementCounting'), 'ignored source elements must still contribute to the record byte budget');
-$check(str_contains($source, 'LIBXML_COMPACT'), 'XMLReader must use compact parser mode');
+$check(str_contains($source, 'private function readImages'), 'source bounded image reader missing');
+$check(str_contains($source, 'private function readOptions'), 'source bounded option reader missing');
+$check(str_contains($source, 'private function boundedAttribute'), 'source bounded supplier identity reader missing');
 $check(str_contains($read, 'MAX_PRODUCT_PAYLOAD_BYTES = 2097152'), 'READ per-product payload bound missing');
 $check(str_contains($read, 'MAX_BATCH_PAYLOAD_BYTES = 8388608'), 'READ batch payload bound missing');
-$check(str_contains($read, 'WRITE_BATCH = 500'), 'READ bounded write batch missing');
+$check(str_contains($read, 'WRITE_BATCH = 250'), 'READ bounded shared-hosting write batch missing');
+$check(str_contains($read, '$this->budget->shouldStop()'), 'READ shared-hosting execution budget missing');
+$check(str_contains($read, 'persistRunCheckpointBestEffort'), 'READ must persist Prewk cursor after committed staging writes');
 $check(str_contains($snapshots, 'MAX_FETCH_PAYLOAD_BYTES = 8388608'), 'snapshot fetch payload bound missing');
 $check(str_contains($snapshots, 'MAX_WRITE_SQL_BYTES = 8388608'), 'snapshot escaped SQL write bound missing');
 $check(str_contains($snapshots, "s.source_key>'"), 'source-key keyset pagination missing');

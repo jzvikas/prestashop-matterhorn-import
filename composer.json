@@ -10,7 +10,8 @@
     "ext-fileinfo": "*",
     "ext-mbstring": "*",
     "ext-simplexml": "*",
-    "ext-xmlreader": "*"
+    "ext-xmlreader": "*",
+    "prewk/xml-string-streamer": "^1.2"
   },
   "autoload": {
     "psr-4": {

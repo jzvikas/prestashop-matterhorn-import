@@ -45,7 +45,7 @@ $checks = [
     [$formProvider, '$this->operationalSettings->save($shopId, $shopGroupId', 'shop-scoped operational persistence'],
     [$location, "\$scheme === 'http' || \$scheme === 'https'", 'HTTP(S) source acceptance'],
     [$location, '!is_file($location) || !is_readable($location)', 'local source readability validation'],
-    [$configuredSource, 'ConfiguredMatterhornXmlSource implements CheckpointableSourceInterface', 'remote-aware checkpointable source'],
+    [$configuredSource, 'ConfiguredMatterhornXmlSource implements ByteCheckpointableSourceInterface, RunScopedSourceInterface', 'remote-aware resumable checkpointable source'],
     [$configuredSource, "hash_file('sha256', \$path)", 'stable remote content fingerprint'],
     [$materializer, 'curl_setopt_array', 'explicit remote transport configuration'],
     [$materializer, 'CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS', 'remote protocol restriction'],

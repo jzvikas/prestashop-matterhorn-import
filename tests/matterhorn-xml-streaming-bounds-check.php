@@ -39,8 +39,14 @@ function expectStreamFailure(string $body, string $needle): void
 }
 
 $sourceCode = (string) file_get_contents(dirname(__DIR__) . '/src/Source/MatterhornXmlSource.php');
-streamingCheck(!str_contains($sourceCode, 'readOuterXML'), 'Matterhorn source must not materialize whole product XML');
-streamingCheck(!str_contains($sourceCode, 'simplexml_load_string'), 'Matterhorn source must not reparse whole product through SimpleXML');
+streamingCheck(str_contains($sourceCode, 'new UniqueNode('), 'Matterhorn source must use the Prewk UniqueNode parser');
+streamingCheck(str_contains($sourceCode, 'new XmlStringStreamer('), 'Matterhorn source must use the Prewk XmlStringStreamer runtime');
+streamingCheck(str_contains($sourceCode, 'new FileStream('), 'Matterhorn source must use the Prewk file stream');
+streamingCheck(str_contains($sourceCode, "'uniqueNode' => 'product'"), 'prewk streamer must target product nodes');
+streamingCheck(str_contains($sourceCode, 'simplexml_load_string'), 'each complete product fragment must be parsed independently with SimpleXML');
+streamingCheck(!str_contains($sourceCode, 'new \\XMLReader()'), 'main Matterhorn product parser must not use XMLReader');
+streamingCheck(!str_contains($sourceCode, 'file_get_contents($path)'), 'source must never read the entire XML into memory');
+streamingCheck(!str_contains($sourceCode, 'simplexml_load_file'), 'source must never build a whole-feed SimpleXML tree');
 foreach ([
     'MAX_SOURCE_RECORD_BYTES = 4194304',
     'MAX_SOURCE_FIELD_BYTES = 2097152',
@@ -48,9 +54,8 @@ foreach ([
     'MAX_IMAGE_URL_BYTES = 16384',
     'MAX_IMAGES_PER_PRODUCT = 1000',
     'MAX_OPTIONS_PER_PRODUCT = 5000',
-    'skipCurrentElementCounting',
-    'readImageUrlElement',
-    'readBoundedAttribute',
+    'boundedAttribute',
+    'assertSingletonField',
 ] as $token) {
     streamingCheck(str_contains($sourceCode, $token), 'missing streaming bound: ' . $token);
 }
@@ -63,7 +68,7 @@ streamingCheck(($fixtureRows[0]['options'][0]['id'] ?? '') === 'M1188149', 'boun
 streamingCheck(($fixtureRows[0]['options'][0]['available_in'] ?? '') === '3', 'bounded parser must preserve avaible_in metadata');
 streamingCheck(count($fixtureRows[0]['images'] ?? []) === 4, 'bounded parser must preserve ordered image deduplication');
 $resumed = iterator_to_array((new MatterhornXmlSource($fixture))->rowsFrom(1), false);
-streamingCheck(count($resumed) === 2 && ($resumed[0]['id'] ?? '') === '34375', 'bounded parser must preserve checkpoint resume');
+streamingCheck(count($resumed) === 2 && ($resumed[0]['id'] ?? '') === '34375', 'legacy record resume compatibility must remain available');
 
 $oversizedUrl = 'https://supplier.invalid/' . str_repeat('x', 16384);
 $warningPath = tempXml(

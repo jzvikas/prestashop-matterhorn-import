@@ -26,20 +26,20 @@ try {
         throw new RuntimeException('Run source snapshot changed with mutable input');
     }
 
-    $manager->persistCheckpoint(7, 3, 25, 12);
+    $manager->persistCheckpoint(7, 3, 1, 24);
     $checkpoint = $manager->checkpoint(7, 3);
-    if ($checkpoint !== ['record' => 25, 'byte' => 12]) {
-        throw new RuntimeException('Run source byte checkpoint was not persisted exactly');
+    if ($checkpoint !== ['record' => 1, 'byte' => 24]) {
+        throw new RuntimeException('Prewk run-source cursor was not persisted exactly');
     }
 
     $loaded = $manager->load(7, 3);
-    if ($loaded === null || $loaded['fingerprint'] !== $fingerprint) {
+    if ($loaded === null || $loaded['fingerprint'] !== $fingerprint || $loaded['bytes'] !== strlen($frozen)) {
         throw new RuntimeException('Frozen run source could not be reloaded');
     }
 
     $manager->release(7, 3);
-    if ($manager->load(7, 3) !== null) {
-        throw new RuntimeException('Frozen run source was not released');
+    if ($manager->load(7, 3) !== null || $manager->checkpoint(7, 3) !== null) {
+        throw new RuntimeException('Frozen run source/cursor was not released');
     }
 } finally {
     $iterator = new RecursiveIteratorIterator(

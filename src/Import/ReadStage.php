@@ -16,7 +16,7 @@ use Lp\MatterhornImport\Util\ShopContextManager;
 
 final class ReadStage
 {
-    private const WRITE_BATCH = 500;
+    private const WRITE_BATCH = 250;
     private const MAX_PRODUCT_PAYLOAD_BYTES = 2097152;
     private const MAX_BATCH_PAYLOAD_BYTES = 8388608;
 
@@ -57,8 +57,9 @@ final class ReadStage
         $this->budget->start($maxItems, $timeLimitSeconds);
 
         try {
-            // A run-scoped source freezes the exact XML before fingerprint validation.
-            // Resume requests therefore never re-download/re-hash a mutable supplier file.
+            // Freeze/download the supplier file once per import run. On every normal
+            // AJAX resume ConfiguredMatterhornXmlSource seeks its frozen Prewk stream
+            // to the byte cursor paired with the DB record checkpoint.
             $runScopedSource?->activateRun($runId, $checkpoint > 0);
 
             $fingerprint = $checkpointSource?->fingerprint();
@@ -89,7 +90,7 @@ final class ReadStage
 
             foreach ($stream as $row) {
                 if ($this->budget->shouldStop()) { $paused = true; break; }
-                $absoluteCheckpoint++;
+                ++$absoluteCheckpoint;
                 try {
                     $product = $this->mapper->map($row);
                     $payloadBytes = strlen($product->toJson());
@@ -112,19 +113,20 @@ final class ReadStage
                         if ($message !== '') { $batchWarnings[] = ['source_key' => $product->sourceKey, 'message' => $message]; }
                     }
                     $batchPayloadBytes += $payloadBytes;
-                    $batchValid++;
+                    ++$batchValid;
                 } catch (\Throwable $e) {
-                    $batchInvalid++;
+                    ++$batchInvalid;
                     $batchErrors[] = ['source_key' => (string) ($row['id'] ?? $row['reference'] ?? ''), 'error' => $e];
                 }
 
-                // The byte source advances only when a complete product fragment was
-                // yielded. Keep that offset paired with the same DB record checkpoint.
+                // This cursor is produced by Prewk's own parser/stream buffering:
+                // bytes read minus the parser's unread working blob. No custom XML
+                // tag scanner is involved.
                 if ($byteSource !== null) {
                     $lastProcessedByteCheckpoint = $byteSource->byteCheckpoint();
                 }
 
-                $batchTotal++;
+                ++$batchTotal;
                 $this->budget->markItem();
                 if ($batchTotal >= self::WRITE_BATCH) {
                     $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
@@ -233,13 +235,13 @@ final class ReadStage
         }
 
         try {
-            // Persist only after the DB transaction committed. If this sidecar write
-            // fails, correctness is preserved: the next request raw-scans to the DB
-            // record checkpoint once and recreates the byte checkpoint.
+            // Write only after the DB transaction committed. If this tiny sidecar
+            // write fails, the DB checkpoint remains correct and the next request
+            // performs one recovery scan before recreating the byte cursor.
             $source->persistRunCheckpoint($runId, $recordCheckpoint, $byteCheckpoint);
         } catch (\Throwable $exception) {
             error_log(sprintf(
-                '[matterhornimport] could not persist READ byte checkpoint for run %d: %s',
+                '[matterhornimport] could not persist READ Prewk checkpoint for run %d: %s',
                 $runId,
                 $exception->getMessage()
             ));
