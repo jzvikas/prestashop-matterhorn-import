@@ -1,7 +1,11 @@
 <?php
 if (!defined('_PS_VERSION_')) { exit; }
-require_once __DIR__ . '/autoload.php';
-if (is_file(__DIR__ . '/vendor/autoload.php')) { require_once __DIR__ . '/vendor/autoload.php'; }
+
+$composerAutoload = __DIR__ . '/vendor/autoload.php';
+if (!is_file($composerAutoload)) {
+    throw new RuntimeException('Matterhorn Import requires its Composer vendor/autoload.php. Build the production module with composer install --no-dev --optimize-autoloader.');
+}
+require_once $composerAutoload;
 
 use Lp\MatterhornImport\Config\OperationalSettings;
 use Lp\MatterhornImport\Installer;
