@@ -1,10 +1,10 @@
 <?php
 namespace Lp\MatterhornImport\Source;
 
-use Lp\MatterhornImport\Contract\CheckpointableSourceInterface;
+use Lp\MatterhornImport\Contract\ByteCheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\RunScopedSourceInterface;
 
-final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterface, RunScopedSourceInterface
+final class ConfiguredMatterhornXmlSource implements ByteCheckpointableSourceInterface, RunScopedSourceInterface
 {
     private ?MatterhornXmlSource $delegate = null;
     private ?MatterhornXmlSource $runDelegate = null;
@@ -32,7 +32,32 @@ final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterfa
 
     public function rowsFrom(int $offset): iterable
     {
-        yield from ($this->runDelegate ?? $this->delegate())->rowsFrom($offset);
+        if ($this->runDelegate !== null) {
+            $checkpoint = $this->runSnapshots->checkpoint($this->activeRunId, $this->activeShopId);
+            if ($checkpoint !== null && $checkpoint['record'] === $offset) {
+                yield from $this->runDelegate->rowsFromByte($checkpoint['byte'], $offset);
+                return;
+            }
+
+            // Crash-safe fallback only. The DB record checkpoint is authoritative;
+            // if the tiny byte sidecar is missing after a successful DB commit,
+            // Prewk scans those already committed product nodes once and recreates
+            // the byte cursor on the next flush.
+            yield from $this->runDelegate->rowsFrom($offset);
+            return;
+        }
+
+        yield from $this->delegate()->rowsFrom($offset);
+    }
+
+    public function rowsFromByte(int $byteOffset, int $recordOffset = 0): iterable
+    {
+        yield from ($this->runDelegate ?? $this->delegate())->rowsFromByte($byteOffset, $recordOffset);
+    }
+
+    public function byteCheckpoint(): int
+    {
+        return ($this->runDelegate ?? $this->delegate())->byteCheckpoint();
     }
 
     public function fingerprint(): string
@@ -87,6 +112,20 @@ final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterfa
         $this->runDelegate = new MatterhornXmlSource($snapshot['path']);
         $this->delegate = null;
         $this->remoteFingerprint = null;
+    }
+
+    public function persistRunCheckpoint(int $runId, int $recordCheckpoint, int $byteCheckpoint): void
+    {
+        if ($runId !== $this->activeRunId || $this->activeShopId <= 0) {
+            throw new \RuntimeException('Matterhorn run-source checkpoint context mismatch');
+        }
+
+        $this->runSnapshots->persistCheckpoint(
+            $runId,
+            $this->activeShopId,
+            $recordCheckpoint,
+            $byteCheckpoint
+        );
     }
 
     public function releaseRun(int $runId): void
