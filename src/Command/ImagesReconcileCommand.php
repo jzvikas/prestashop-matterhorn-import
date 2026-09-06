@@ -22,8 +22,8 @@ final class ImagesReconcileCommand extends Command
             ->addOption('run', null, InputOption::VALUE_REQUIRED, 'Completed import run ID')
             ->addOption('shop', null, InputOption::VALUE_REQUIRED, 'Target shop ID')
             ->addOption('batch', null, InputOption::VALUE_REQUIRED, 'Products per keyset page', '500')
-            ->addOption('max-items', null, InputOption::VALUE_REQUIRED, 'Maximum products this invocation; 0 = unlimited', '0')
-            ->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Soft runtime limit in seconds; 0 = unlimited', '0');
+            ->addOption('max-items', null, InputOption::VALUE_REQUIRED, 'Maximum products this invocation; 0 disables only this bound', '0')
+            ->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Soft runtime limit in seconds; 0 disables only this bound; at least one execution bound must stay positive', '0');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -33,6 +33,9 @@ final class ImagesReconcileCommand extends Command
         $batch = CommandInput::positiveInt($input->getOption('batch'), '--batch', 2000);
         $maxItems = CommandInput::nonNegativeInt($input->getOption('max-items'), '--max-items', 1000000000);
         $timeLimit = CommandInput::nonNegativeInt($input->getOption('time-limit'), '--time-limit', 86400);
+        if ($maxItems === 0 && $timeLimit === 0) {
+            throw new \InvalidArgumentException('Image reconciliation requires a positive --max-items or --time-limit bound');
+        }
         $result = $this->reconciler->run($runId, $shopId, $batch, $maxItems, $timeLimit);
         $json = json_encode($result, JSON_UNESCAPED_SLASHES);
         if ($json === false) { throw new \RuntimeException('Could not encode image reconciliation result'); }

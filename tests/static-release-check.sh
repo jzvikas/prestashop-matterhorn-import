@@ -47,6 +47,7 @@ php tests/image-authoritative-manifest-queue-fence-check.php
 php tests/image-out-of-feed-active-owner-fence-check.php
 php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
+php tests/image-reconciliation-execution-bound-check.php
 php tests/new-product-worker-contract-check.php
 php tests/new-product-enqueue-execution-bound-check.php
 php tests/worker-runtime-budget-contract-check.php
