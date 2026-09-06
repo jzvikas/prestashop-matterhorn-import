@@ -55,10 +55,16 @@ if (!str_contains($manager, '$this->productFor($row, true)')
     $fail('explicit Category mapping action must retain internal category creation intent');
 }
 
-if (preg_match("/\\$extra\\['categories'\\]\\s*=\\s*\\[\\[(.*?)\\]\\];/s", $mapper, $categoryDescriptor) !== 1) {
+$categoryStart = strpos($mapper, "\$extra['categories'] = [[");
+if ($categoryStart === false) {
     $fail('normal product mapper category descriptor was not found');
 }
-if (str_contains($categoryDescriptor[1], "'auto_create'")) {
+$categoryEnd = strpos($mapper, ']];', $categoryStart);
+if ($categoryEnd === false) {
+    $fail('normal product mapper category descriptor ending was not found');
+}
+$categoryDescriptor = substr($mapper, $categoryStart, $categoryEnd - $categoryStart + 3);
+if (str_contains($categoryDescriptor, "'auto_create'")) {
     $fail('normal product mapper must not request category creation');
 }
 
