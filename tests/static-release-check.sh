@@ -54,6 +54,7 @@ php tests/new-product-retry-recovery-contract-check.php
 php tests/new-product-enqueue-execution-bound-check.php
 php tests/worker-runtime-budget-contract-check.php
 php tests/retry-shop-isolation-contract-check.php
+php tests/gc-reconciled-snapshot-retention-check.php
 php tests/error-observability-contract-check.php
 php tests/operations-contract-check.php
 php tests/back-office-config-contract-check.php
