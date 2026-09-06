@@ -1,14 +1,13 @@
 <?php
 namespace Lp\MatterhornImport\Source;
 
-use Lp\MatterhornImport\Contract\ByteCheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\CheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\RunScopedSourceInterface;
 
-final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterface, ByteCheckpointableSourceInterface, RunScopedSourceInterface
+final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterface, RunScopedSourceInterface
 {
     private ?MatterhornXmlSource $delegate = null;
-    private ?MatterhornByteStreamSource $runDelegate = null;
+    private ?MatterhornXmlSource $runDelegate = null;
     private ?string $remoteFingerprint = null;
     private ?string $runFingerprint = null;
     private int $activeRunId = 0;
@@ -28,41 +27,12 @@ final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterfa
 
     public function rows(): iterable
     {
-        if ($this->runDelegate !== null) {
-            yield from $this->runDelegate->rows();
-            return;
-        }
-
-        yield from $this->delegate()->rows();
+        yield from ($this->runDelegate ?? $this->delegate())->rows();
     }
 
     public function rowsFrom(int $offset): iterable
     {
-        if ($this->runDelegate !== null) {
-            $checkpoint = $this->runSnapshots->checkpoint($this->activeRunId, $this->activeShopId);
-            if ($checkpoint !== null && $checkpoint['record'] === $offset) {
-                yield from $this->runDelegate->rowsFromByte($checkpoint['byte'], $offset);
-                return;
-            }
-
-            // Backward compatibility for paused runs that predate durable byte
-            // checkpoints, or if a checkpoint sidecar was lost after the DB commit.
-            // This raw-scans the already consumed records once, then ReadStage
-            // persists a byte checkpoint and all later AJAX requests seek directly.
-            yield from $this->runDelegate->rowsFrom($offset);
-            return;
-        }
-
-        yield from $this->delegate()->rowsFrom($offset);
-    }
-
-    public function byteCheckpoint(): int
-    {
-        if ($this->runDelegate === null) {
-            return 0;
-        }
-
-        return $this->runDelegate->byteCheckpoint();
+        yield from ($this->runDelegate ?? $this->delegate())->rowsFrom($offset);
     }
 
     public function fingerprint(): string
@@ -102,9 +72,6 @@ final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterfa
                 ? $this->fingerprintRemote($location, $path)
                 : (new MatterhornXmlSource($path))->fingerprint();
 
-            // RemoteFeedMaterializer replaces its cache by atomic rename, so a
-            // hard link safely freezes that exact inode for the run. Local source
-            // paths are copied because an external process may modify them in place.
             $snapshot = $this->runSnapshots->create(
                 $runId,
                 $shopId,
@@ -117,22 +84,9 @@ final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterfa
         $this->activeRunId = $runId;
         $this->activeShopId = $shopId;
         $this->runFingerprint = $snapshot['fingerprint'];
-        $this->runDelegate = new MatterhornByteStreamSource($snapshot['path']);
+        $this->runDelegate = new MatterhornXmlSource($snapshot['path']);
         $this->delegate = null;
         $this->remoteFingerprint = null;
-    }
-
-    public function persistRunCheckpoint(int $runId, int $recordCheckpoint, int $byteCheckpoint): void
-    {
-        if ($runId !== $this->activeRunId || $this->activeShopId <= 0) {
-            throw new \RuntimeException('Matterhorn run-source checkpoint context mismatch');
-        }
-        $this->runSnapshots->persistCheckpoint(
-            $runId,
-            $this->activeShopId,
-            $recordCheckpoint,
-            $byteCheckpoint
-        );
     }
 
     public function releaseRun(int $runId): void
