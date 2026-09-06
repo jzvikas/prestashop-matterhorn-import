@@ -28,9 +28,6 @@ final class ConfigurationFormType extends TranslatorAwareType
                 'help' => $this->trans('CREATE fills required shop languages from this supplier value as fallback; UPDATE changes only this supplier-owned language.', 'Modules.Matterhornimport.Admin'),
                 'choices' => $this->languageChoices(),
             ])
-            ->add(ConfigurationFormDataProvider::CATEGORY_AUTO_CREATE, SwitchType::class, [
-                'label' => $this->trans('Auto-create missing categories', 'Modules.Matterhornimport.Admin'),
-            ])
             ->add(ConfigurationFormDataProvider::FEATURE_AUTO_CREATE, SwitchType::class, [
                 'label' => $this->trans('Auto-create Color/Type features', 'Modules.Matterhornimport.Admin'),
             ])
