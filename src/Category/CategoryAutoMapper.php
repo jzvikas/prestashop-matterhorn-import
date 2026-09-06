@@ -15,6 +15,8 @@ final class CategoryAutoMapper
     private array $pathMap = [];
     /** @var array<int,array<int,array<string,int>>> */
     private array $childMap = [];
+    /** @var array<int,array<string,array<string,mixed>|null>> */
+    private array $preparedMetadata = [];
     /** @var array<string,bool> */
     private array $availabilityCache = [];
 
@@ -55,17 +57,26 @@ final class CategoryAutoMapper
              * During import we preserve that stored canonical metadata instead
              * of letting later product rows overwrite or contradict it.
              */
-            $stored = $this->mapping->findOne($shopId, $key);
-            if ($stored === null) {
-                $this->mapping->upsertMetadata(
-                    $shopId,
-                    $key,
-                    $name,
-                    $parentKey ?: null,
-                    $path,
-                    true
-                );
+            if (!array_key_exists($key, $this->preparedMetadata[$shopId] ?? [])) {
                 $stored = $this->mapping->findOne($shopId, $key);
+                if ($stored === null) {
+                    $this->mapping->upsertMetadata(
+                        $shopId,
+                        $key,
+                        $name,
+                        $parentKey ?: null,
+                        $path,
+                        true
+                    );
+                    $stored = [
+                        'supplier_name' => $name,
+                        'supplier_path' => $path,
+                        'active' => 1,
+                    ];
+                }
+                $this->preparedMetadata[$shopId][$key] = $stored;
+            } else {
+                $stored = $this->preparedMetadata[$shopId][$key];
             }
 
             if (is_array($stored)) {
