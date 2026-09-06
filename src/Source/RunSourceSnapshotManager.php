@@ -4,7 +4,6 @@ namespace Lp\MatterhornImport\Source;
 final class RunSourceSnapshotManager
 {
     private const META_FILE = 'source.meta.json';
-    private const CHECKPOINT_FILE = 'read.checkpoint.json';
     private const SOURCE_FILE = 'source.xml';
 
     /**
@@ -102,44 +101,6 @@ final class RunSourceSnapshotManager
         return ['path' => $path, 'fingerprint' => $fingerprint, 'bytes' => $bytes];
     }
 
-    /** @return array{record:int,byte:int}|null */
-    public function checkpoint(int $runId, int $shopId): ?array
-    {
-        $this->assertIdentity($runId, $shopId);
-        $data = $this->readJson($this->directory($runId, $shopId) . '/' . self::CHECKPOINT_FILE);
-        if ($data === []) {
-            return null;
-        }
-        $record = (int) ($data['record'] ?? -1);
-        $byte = (int) ($data['byte'] ?? -1);
-        if ($record < 0 || $byte < 0) {
-            return null;
-        }
-
-        return ['record' => $record, 'byte' => $byte];
-    }
-
-    public function persistCheckpoint(int $runId, int $shopId, int $record, int $byte): void
-    {
-        $this->assertIdentity($runId, $shopId);
-        if ($record < 0 || $byte < 0) {
-            throw new \InvalidArgumentException('Matterhorn run-source checkpoint cannot be negative');
-        }
-        $snapshot = $this->load($runId, $shopId);
-        if ($snapshot === null) {
-            throw new \RuntimeException('Cannot persist checkpoint without a frozen Matterhorn run source');
-        }
-        if ($byte > $snapshot['bytes']) {
-            throw new \RuntimeException('Matterhorn byte checkpoint exceeds frozen source size');
-        }
-
-        $this->writeJson($this->directory($runId, $shopId) . '/' . self::CHECKPOINT_FILE, [
-            'record' => $record,
-            'byte' => $byte,
-            'updated_at' => gmdate('c'),
-        ]);
-    }
-
     public function release(int $runId, int $shopId): void
     {
         $this->assertIdentity($runId, $shopId);
@@ -197,7 +158,7 @@ final class RunSourceSnapshotManager
         if (!is_dir($directory)) {
             return;
         }
-        foreach ([self::CHECKPOINT_FILE, self::META_FILE, self::SOURCE_FILE] as $file) {
+        foreach ([self::META_FILE, self::SOURCE_FILE] as $file) {
             @unlink($directory . '/' . $file);
         }
         foreach (glob($directory . '/*.tmp.*') ?: [] as $temp) {
