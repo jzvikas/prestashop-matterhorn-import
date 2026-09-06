@@ -2,9 +2,10 @@
 namespace Lp\MatterhornImport\Source;
 
 use Lp\MatterhornImport\Contract\ByteCheckpointableSourceInterface;
+use Lp\MatterhornImport\Contract\CheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\RunScopedSourceInterface;
 
-final class ConfiguredMatterhornXmlSource implements ByteCheckpointableSourceInterface, RunScopedSourceInterface
+final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterface, ByteCheckpointableSourceInterface, RunScopedSourceInterface
 {
     private ?MatterhornXmlSource $delegate = null;
     private ?MatterhornByteStreamSource $runDelegate = null;
