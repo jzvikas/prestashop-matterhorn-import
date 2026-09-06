@@ -106,10 +106,15 @@ $checks = [
     [$gc, "li_matterhornim_99dfbf_snapshot", 'snapshot GC must target module snapshot table'],
     [$gc, 'NOT EXISTS (SELECT 1 FROM `', 'image-state GC must recheck live ownership during delete'],
     [$gc, "li_matterhornim_99dfbf_image_state", 'image-state GC must target module image state'],
-    [$services, 'Lp\\MatterhornImport\\Command\\GcCommand:', 'GC service registration'],
+    [$services, 'autoconfigure: true', 'Symfony command autoconfiguration'],
+    [$services, "Lp\\MatterhornImport\\:\n", 'PSR-4 service discovery for module classes'],
 ];
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
+}
+if (str_contains($services, 'Lp\\MatterhornImport\\Command\\GcCommand:')) {
+    fwrite(STDERR, "FAIL: GC command must rely on Symfony autoconfiguration, not a manual service entry\n");
+    exit(1);
 }
 
 if (substr_count($imageOrphans, "true,\n            false") < 1) {
