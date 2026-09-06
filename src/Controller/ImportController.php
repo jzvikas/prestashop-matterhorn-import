@@ -4,6 +4,7 @@ namespace Lp\MatterhornImport\Controller;
 use Lp\MatterhornImport\Admin\AdminErrorReporter;
 use Lp\MatterhornImport\Admin\ImportStatusProvider;
 use Lp\MatterhornImport\Config\OperationalSettings;
+use Lp\MatterhornImport\Database\AjaxDatabaseSessionGuard;
 use Lp\MatterhornImport\Import\ImportRunner;
 use Lp\MatterhornImport\Lock\ImportLock;
 use Lp\MatterhornImport\Repository\RunRepository;
@@ -16,7 +17,7 @@ use Symfony\Component\HttpFoundation\Response;
 final class ImportController extends PrestaShopAdminController
 {
     private const SOURCE = 'matterhorn';
-    private const AJAX_TIME_LIMIT_SECONDS = 20;
+    private const AJAX_TIME_LIMIT_SECONDS = 10;
     private const MAX_AJAX_BATCH = 1000;
 
     #[AdminSecurity("is_granted('read', request.get('_legacy_controller'))")]
@@ -110,7 +111,8 @@ final class ImportController extends PrestaShopAdminController
         RunRepository $runs,
         ImportRunner $runner,
         ImportStatusProvider $status,
-        AdminErrorReporter $errors
+        AdminErrorReporter $errors,
+        AjaxDatabaseSessionGuard $databaseSession
     ): JsonResponse {
         if (!$this->isValidAjaxPost($request)) {
             return $this->jsonError('Invalid security token.', Response::HTTP_BAD_REQUEST);
@@ -128,6 +130,7 @@ final class ImportController extends PrestaShopAdminController
                 );
             }
 
+            $databaseSession->prepareLegacy();
             $runner->runBounded(
                 $shopId,
                 $batch,
