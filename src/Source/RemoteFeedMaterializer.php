@@ -65,7 +65,8 @@ final class RemoteFeedMaterializer
         }
 
         $requestHeaders = ['Accept: application/xml,text/xml;q=0.9,*/*;q=0.1'];
-        if (is_file($target) && is_readable($target)) {
+        $sameSource = (string) ($metadata['url'] ?? '') === $url;
+        if ($sameSource && is_file($target) && is_readable($target)) {
             if (!empty($metadata['etag'])) {
                 $requestHeaders[] = 'If-None-Match: ' . $metadata['etag'];
             }
@@ -128,8 +129,8 @@ final class RemoteFeedMaterializer
 
             if ($status === 304) {
                 @unlink($temp);
-                if (!is_file($target) || !is_readable($target)) {
-                    throw new \RuntimeException('Matterhorn source returned 304 but no cached file exists.');
+                if (!$sameSource || !is_file($target) || !is_readable($target)) {
+                    throw new \RuntimeException('Matterhorn source returned an unusable 304 response.');
                 }
                 return $target;
             }
