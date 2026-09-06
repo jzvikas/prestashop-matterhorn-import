@@ -8,6 +8,7 @@ use Lp\MatterhornImport\Database\AjaxDatabaseSessionGuard;
 use Lp\MatterhornImport\Import\ImportRunner;
 use Lp\MatterhornImport\Lock\ImportLock;
 use Lp\MatterhornImport\Repository\RunRepository;
+use Lp\MatterhornImport\Source\RunSourceSnapshotManager;
 use PrestaShopBundle\Controller\Admin\PrestaShopAdminController;
 use PrestaShopBundle\Security\Attribute\AdminSecurity;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -181,7 +182,8 @@ final class ImportController extends PrestaShopAdminController
         RunRepository $runs,
         ImportStatusProvider $status,
         ImportLock $lock,
-        AdminErrorReporter $errors
+        AdminErrorReporter $errors,
+        RunSourceSnapshotManager $runSources
     ): JsonResponse {
         if (!$this->isValidAjaxPost($request)) {
             return $this->jsonError('Invalid security token.', Response::HTTP_BAD_REQUEST);
@@ -201,6 +203,15 @@ final class ImportController extends PrestaShopAdminController
 
             try {
                 $run = $runs->cancel($runId);
+                try {
+                    $runSources->release($runId, $shopId);
+                } catch (\Throwable $cleanupError) {
+                    error_log(sprintf(
+                        '[matterhornimport] could not release cancelled run source %d: %s',
+                        $runId,
+                        $cleanupError->getMessage()
+                    ));
+                }
             } finally {
                 $lock->release();
             }
