@@ -35,15 +35,18 @@ final class ConfiguredMatterhornXmlSource implements CheckpointableSourceInterfa
         if (!$this->locations->isRemote($location)) {
             return $this->delegate()->fingerprint();
         }
+        if ($this->remoteFingerprint !== null) {
+            return $this->remoteFingerprint;
+        }
 
         $path = $this->materializedPath($location);
-        if ($this->remoteFingerprint === null) {
-            $hash = hash_file('sha256', $path);
-            if (!is_string($hash) || $hash === '') {
-                throw new \RuntimeException('Could not fingerprint downloaded Matterhorn XML.');
-            }
-            $this->remoteFingerprint = hash('sha256', 'url:' . $location . '|sha256:' . $hash);
+        $hash = hash_file('sha256', $path);
+        if (!is_string($hash) || $hash === '') {
+            throw new \RuntimeException('Could not fingerprint downloaded Matterhorn XML.');
         }
+
+        $this->delegate = new MatterhornXmlSource($path);
+        $this->remoteFingerprint = hash('sha256', 'url:' . $location . '|sha256:' . $hash);
 
         return $this->remoteFingerprint;
     }
