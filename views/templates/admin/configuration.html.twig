@@ -1,5 +1,7 @@
 {% extends '@PrestaShop/Admin/layout.html.twig' %}
 
+{% form_theme configurationForm '@PrestaShop/Admin/TwigTemplateForm/prestashop_ui_kit.html.twig' %}
+
 {% block content %}
   <div class="row">
     <div class="col-xl-8">
@@ -19,7 +21,6 @@
         <div class="card-body">
           {{ form_row(configurationForm.source_location) }}
           {{ form_row(configurationForm.source_language_id) }}
-          {{ form_row(configurationForm.category_auto_create) }}
           {{ form_row(configurationForm.feature_auto_create) }}
           {{ form_row(configurationForm.size_attribute_group) }}
           {{ form_row(configurationForm.max_remove_percent) }}
