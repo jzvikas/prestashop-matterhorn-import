@@ -116,12 +116,16 @@ $checks = [
     [$reconcileCommand, "parent::__construct('matterhornimport:images:reconcile')", 'image reconcile command name'],
     [$reconcileCommand, "addOption('max-items'", 'bounded reconcile max-items CLI'],
     [$reconcileCommand, "addOption('time-limit'", 'bounded reconcile time-limit CLI'],
-    [$services, 'Lp\\MatterhornImport\\Command\\ImagesCommand:', 'image worker service registration'],
-    [$services, 'Lp\\MatterhornImport\\Command\\ImagesReconcileCommand:', 'image reconcile service registration'],
+    [$services, 'autoconfigure: true', 'Symfony command autoconfiguration'],
+    [$services, "resource: '../src/'", 'PSR-4 service discovery'],
 ];
 
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!is_string($haystack) || !str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
+}
+if (str_contains((string) $services, 'Lp\\MatterhornImport\\Command\\ImagesCommand:') || str_contains((string) $services, 'Lp\\MatterhornImport\\Command\\ImagesReconcileCommand:')) {
+    fwrite(STDERR, "FAIL: image commands should rely on Symfony autoconfiguration\n");
+    exit(1);
 }
 if (!is_string($downloader) || strpos($downloader, 'strlen($url) > self::MAX_URL_BYTES') > strpos($downloader, 'parse_url($url)')) {
     fwrite(STDERR, "FAIL: image URL length guard must run before URL/network resolution\n");
