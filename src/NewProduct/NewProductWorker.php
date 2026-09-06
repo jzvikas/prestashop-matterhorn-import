@@ -152,18 +152,20 @@ final class NewProductWorker
                         $this->writer->update($idProduct, $product, $jobShop);
                         $stats['existing_updated']++;
                     } else {
-                        if ((int) ($lockedJob['attempts'] ?? 0) > 1) {
-                            $runStartedAt = (string) ($run['started_at'] ?? '');
-                            if ($runStartedAt === '') {
-                                throw new \RuntimeException('New-product recovery cannot resolve source run start time');
-                            }
-                            $idProduct = $this->createRecovery->findRecoverable(
-                                $jobShop,
-                                $source,
-                                $product,
-                                $runStartedAt
-                            );
+                        // Recovery must not depend on the queue attempt counter. Operator retry resets
+                        // attempts to zero to grant a fresh retry budget; a prior hook-triggered commit
+                        // may nevertheless have left an unmapped product behind. Skipping recovery on
+                        // the resulting first re-claim would create a duplicate deterministic reference.
+                        $runStartedAt = (string) ($run['started_at'] ?? '');
+                        if ($runStartedAt === '') {
+                            throw new \RuntimeException('New-product recovery cannot resolve source run start time');
                         }
+                        $idProduct = $this->createRecovery->findRecoverable(
+                            $jobShop,
+                            $source,
+                            $product,
+                            $runStartedAt
+                        );
 
                         if ($idProduct > 0) {
                             $this->writer->update($idProduct, $product, $jobShop);
