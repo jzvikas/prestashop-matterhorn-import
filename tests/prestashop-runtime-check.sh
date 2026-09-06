@@ -144,7 +144,7 @@ stage multishop_lifecycle
 docker exec "$PS_CONTAINER" php -d memory_limit=512M -r '
   chdir("/var/www/html");
   require "config/config.inc.php";
-  require_once "modules/matterhornimport/autoload.php";
+  require_once "modules/matterhornimport/vendor/autoload.php";
   $db = Db::getInstance();
   $shop1 = new Shop(1);
   if (!Validate::isLoadedObject($shop1)) { throw new RuntimeException("Shop #1 missing"); }
