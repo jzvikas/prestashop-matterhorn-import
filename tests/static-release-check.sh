@@ -48,6 +48,7 @@ php tests/image-out-of-feed-active-owner-fence-check.php
 php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
 php tests/new-product-worker-contract-check.php
+php tests/worker-runtime-budget-contract-check.php
 php tests/retry-shop-isolation-contract-check.php
 php tests/error-observability-contract-check.php
 php tests/operations-contract-check.php

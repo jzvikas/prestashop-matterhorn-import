@@ -43,7 +43,12 @@ final class ImagesCommand extends Command
             $result = $this->worker->tick($worker, $limit, $shopId);
             foreach (array_keys($total) as $key) { $total[$key] += (int) ($result[$key] ?? 0); }
             if ($maxRuntime === 0) { break; }
-            if ((int) ($result['processed'] ?? 0) === 0) { usleep($idleSleepMs * 1000); }
+            if ((int) ($result['processed'] ?? 0) === 0) {
+                $remainingMs = (int) floor(max(0.0, $maxRuntime - (microtime(true) - $started)) * 1000);
+                if ($remainingMs <= 0) { break; }
+                $sleepMs = min($idleSleepMs, $remainingMs);
+                if ($sleepMs > 0) { usleep($sleepMs * 1000); }
+            }
         } while ((microtime(true) - $started) < $maxRuntime);
         $output->writeln((string) json_encode($total, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
         return $total['failed'] > 0 ? Command::FAILURE : Command::SUCCESS;
