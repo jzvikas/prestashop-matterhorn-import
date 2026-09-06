@@ -2,8 +2,10 @@
 namespace Lp\MatterhornImport\Import;
 
 use Lp\MatterhornImport\Config\MatterhornPolicy;
+use Lp\MatterhornImport\Contract\ByteCheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\CheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\ProductMapperInterface;
+use Lp\MatterhornImport\Contract\RunScopedSourceInterface;
 use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\Repository\ErrorRepository;
 use Lp\MatterhornImport\Repository\RunRepository;
@@ -50,9 +52,15 @@ final class ReadStage
         $policyHash = $this->policy->hash($policySnapshot);
         $checkpoint = (int) ($run['read_checkpoint'] ?? 0);
         $checkpointSource = $this->source instanceof CheckpointableSourceInterface ? $this->source : null;
+        $byteSource = $this->source instanceof ByteCheckpointableSourceInterface ? $this->source : null;
+        $runScopedSource = $this->source instanceof RunScopedSourceInterface ? $this->source : null;
         $this->budget->start($maxItems, $timeLimitSeconds);
 
         try {
+            // A run-scoped source freezes the exact XML before fingerprint validation.
+            // Resume requests therefore never re-download/re-hash a mutable supplier file.
+            $runScopedSource?->activateRun($runId, $checkpoint > 0);
+
             $fingerprint = $checkpointSource?->fingerprint();
             $storedFingerprint = (string) ($run['source_fingerprint'] ?? '');
             $storedPolicyHash = (string) ($run['source_policy_hash'] ?? '');
@@ -72,6 +80,7 @@ final class ReadStage
             $this->runs->stage($runId, 'read', 'running');
             $stream = $checkpointSource !== null ? $checkpointSource->rowsFrom($checkpoint) : $this->source->rows();
             $absoluteCheckpoint = $checkpoint;
+            $lastProcessedByteCheckpoint = 0;
             $products = [];
             $batchErrors = [];
             $batchWarnings = [];
@@ -89,6 +98,12 @@ final class ReadStage
                     }
                     if ($batchTotal > 0 && ($batchTotal >= self::WRITE_BATCH || $batchPayloadBytes + $payloadBytes > self::MAX_BATCH_PAYLOAD_BYTES)) {
                         $this->flushBatch($runId, $absoluteCheckpoint - 1, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                        $this->persistRunCheckpointBestEffort(
+                            $runScopedSource,
+                            $runId,
+                            $absoluteCheckpoint - 1,
+                            $lastProcessedByteCheckpoint
+                        );
                         $products = []; $batchErrors = []; $batchWarnings = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
                     }
                     $products[] = $product;
@@ -102,10 +117,23 @@ final class ReadStage
                     $batchInvalid++;
                     $batchErrors[] = ['source_key' => (string) ($row['id'] ?? $row['reference'] ?? ''), 'error' => $e];
                 }
+
+                // The byte source advances only when a complete product fragment was
+                // yielded. Keep that offset paired with the same DB record checkpoint.
+                if ($byteSource !== null) {
+                    $lastProcessedByteCheckpoint = $byteSource->byteCheckpoint();
+                }
+
                 $batchTotal++;
                 $this->budget->markItem();
                 if ($batchTotal >= self::WRITE_BATCH) {
                     $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                    $this->persistRunCheckpointBestEffort(
+                        $runScopedSource,
+                        $runId,
+                        $absoluteCheckpoint,
+                        $lastProcessedByteCheckpoint
+                    );
                     $products = []; $batchErrors = []; $batchWarnings = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
                 }
                 if ($this->budget->shouldStop()) { $paused = true; break; }
@@ -113,6 +141,12 @@ final class ReadStage
 
             if ($batchTotal > 0) {
                 $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                $this->persistRunCheckpointBestEffort(
+                    $runScopedSource,
+                    $runId,
+                    $absoluteCheckpoint,
+                    $lastProcessedByteCheckpoint
+                );
             }
             if ($checkpointSource !== null && !hash_equals((string) $fingerprint, $checkpointSource->fingerprint())) {
                 throw new \RuntimeException('Source XML changed while READ was running; downstream stages blocked');
@@ -143,9 +177,11 @@ final class ReadStage
                 throw new \RuntimeException('Source sanity guard: valid row count dropped below 80% of previous completed run');
             }
             $this->runs->stage($runId, 'read', 'completed');
+            $this->releaseRunSourceBestEffort($runScopedSource, $runId);
             return true;
         } catch (\Throwable $e) {
             $this->failureRecorder->record($runId, 'read', $e);
+            $this->releaseRunSourceBestEffort($runScopedSource, $runId);
             throw $e;
         }
     }
@@ -183,6 +219,46 @@ final class ReadStage
         } catch (\Throwable $e) {
             $db->execute('ROLLBACK');
             throw $e;
+        }
+    }
+
+    private function persistRunCheckpointBestEffort(
+        ?RunScopedSourceInterface $source,
+        int $runId,
+        int $recordCheckpoint,
+        int $byteCheckpoint
+    ): void {
+        if ($source === null || $recordCheckpoint <= 0 || $byteCheckpoint <= 0) {
+            return;
+        }
+
+        try {
+            // Persist only after the DB transaction committed. If this sidecar write
+            // fails, correctness is preserved: the next request raw-scans to the DB
+            // record checkpoint once and recreates the byte checkpoint.
+            $source->persistRunCheckpoint($runId, $recordCheckpoint, $byteCheckpoint);
+        } catch (\Throwable $exception) {
+            error_log(sprintf(
+                '[matterhornimport] could not persist READ byte checkpoint for run %d: %s',
+                $runId,
+                $exception->getMessage()
+            ));
+        }
+    }
+
+    private function releaseRunSourceBestEffort(?RunScopedSourceInterface $source, int $runId): void
+    {
+        if ($source === null) {
+            return;
+        }
+        try {
+            $source->releaseRun($runId);
+        } catch (\Throwable $exception) {
+            error_log(sprintf(
+                '[matterhornimport] could not release frozen source for run %d: %s',
+                $runId,
+                $exception->getMessage()
+            ));
         }
     }
 }
