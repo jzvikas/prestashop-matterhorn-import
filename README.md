@@ -9,6 +9,7 @@ The production implementation is now assembled across the supplier adapter and r
 - streaming `XMLReader` Matterhorn source with checkpoint resume, source fingerprinting and READ semantic-policy fencing;
 - semantic mapper with isolated domain hashes and single-pass combination structure/stock hashing to avoid duplicate READ projection work;
 - category path mapping, manufacturer resolution, Color/Type features and sanitized descriptions;
+- explicit Back Office category synchronization/mapping with exact-path auto-map and an intentional create-and-map action; normal product import never creates categories implicitly;
 - pure READ-time Size descriptors resolved to PrestaShop attributes only during persistence, with shop-scoped configurable Size group policy;
 - Size combinations with option reference, stock and validated EAN13;
 - guarded `READ -> IMPORT -> UPDATE -> REMOVE` orchestration with bounded resume and REMOVE safety;
@@ -59,7 +60,7 @@ Primary build specification: [`MATTERHORN_IMPORT_BUILD_PROMPT.md`](MATTERHORN_IM
 
 ## Streaming model
 
-Matterhorn XML is read with `XMLReader` and `LIBXML_NONET`; only one `<product>` payload is materialized at a time. The adapter supports record checkpoint resume and a source fingerprint. The source language, category/feature auto-create policy and Size group are snapshotted into the run policy hash, so a paused READ cannot resume after those semantics change. READ never downloads images or writes catalog attributes.
+Matterhorn XML is read with `XMLReader` and `LIBXML_NONET`; only one `<product>` payload is materialized at a time. The adapter supports record checkpoint resume and a source fingerprint. The source language, feature auto-create policy and Size group are snapshotted into the run policy hash, so a paused READ cannot resume after those semantics change. Category mapping is managed separately through the Back Office mapping page and is not a READ auto-create policy. READ never downloads images or writes catalog attributes.
 
 Supplier normalization warnings remain part of the snapshot payload and operational observability but do not dirty catalog domain hashes. This includes malformed optional EAN13, negative stock normalization and rejected optional image URLs.
 
@@ -84,7 +85,7 @@ matterhornimport:status
 matterhornimport:gc
 ```
 
-For normal operation prefer `matterhornimport:run --shop=<id>` and separate image workers. After the latest image manifest is reconciled, use bounded periodic `matterhornimport:images:revalidate` scheduling to detect same-URL supplier image changes without rechecking every image on every import. For large new-product snapshots, `matterhornimport:new-products:enqueue` is queue-aware and bounded by both row and time budgets. See `docs/PRODUCTION.md` for the scalable lanes, the `0.1.7` ownership-upgrade procedure and cron examples.
+For normal operation prefer `matterhornimport:run --shop=<id>` and separate image workers. After the latest image manifest is reconciled, use bounded periodic `matterhornimport:images:revalidate` scheduling to detect same-URL supplier image changes without rechecking every image on every import. For large new-product snapshots, `matterhornimport:new-products:enqueue` is queue-aware and bounded by both row and time budgets. See `docs/PRODUCTION.md` for the scalable lanes, upgrade procedures and cron examples.
 
 ## Release checks
 
