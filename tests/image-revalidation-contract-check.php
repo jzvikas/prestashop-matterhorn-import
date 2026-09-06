@@ -53,13 +53,18 @@ $checks = [
     [$command, "parent::__construct('matterhornimport:images:revalidate')", 'image revalidate command name'],
     [$command, "'age-hours'", 'image revalidate age option'],
     [$command, "'limit'", 'image revalidate product limit'],
-    [$services, 'Lp\\MatterhornImport\\Command\\ImagesRevalidateCommand:', 'image revalidate service registration'],
+    [$services, 'autoconfigure: true', 'Symfony command autoconfiguration'],
+    [$services, "Lp\\MatterhornImport\\:\n", 'PSR-4 service discovery for module classes'],
     [$installer, "'idx_revalidate' => '(`id_shop`,`source`,`updated_at`,`source_key`)'", 'revalidation performance index ensure'],
     [$install, 'KEY `idx_revalidate` (`id_shop`,`source`,`updated_at`,`source_key`)', 'fresh revalidation performance index'],
 ];
 
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!str_contains($haystack, $needle)) { fwrite(STDERR, "FAIL: {$label}\n"); exit(1); }
+}
+if (str_contains($services, 'Lp\\MatterhornImport\\Command\\ImagesRevalidateCommand:')) {
+    fwrite(STDERR, "FAIL: image revalidate command must rely on Symfony autoconfiguration, not a manual service entry\n");
+    exit(1);
 }
 $availabilityPos = strpos($scheduler, '$this->snapshots->imageManifestSourceKeysForSourceKeys');
 $payloadPos = strpos($scheduler, '$this->snapshots->imageManifestRowsForSourceKeys');
