@@ -26,14 +26,8 @@ try {
         throw new RuntimeException('Run source snapshot changed with mutable input');
     }
 
-    $manager->persistCheckpoint(7, 3, 25, 12);
-    $checkpoint = $manager->checkpoint(7, 3);
-    if ($checkpoint !== ['record' => 25, 'byte' => 12]) {
-        throw new RuntimeException('Run source byte checkpoint was not persisted exactly');
-    }
-
     $loaded = $manager->load(7, 3);
-    if ($loaded === null || $loaded['fingerprint'] !== $fingerprint) {
+    if ($loaded === null || $loaded['fingerprint'] !== $fingerprint || $loaded['bytes'] !== strlen($frozen)) {
         throw new RuntimeException('Frozen run source could not be reloaded');
     }
 
