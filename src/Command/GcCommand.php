@@ -22,8 +22,8 @@ final class GcCommand extends Command
             ->addOption('image-days', null, InputOption::VALUE_REQUIRED, 'Keep completed image jobs days', '2')
             ->addOption('new-product-days', null, InputOption::VALUE_REQUIRED, 'Keep completed mapped new-product jobs days', '7')
             ->addOption('chunk', null, InputOption::VALUE_REQUIRED, 'Rows per bounded maintenance chunk', '2000')
-            ->addOption('max-rows', null, InputOption::VALUE_REQUIRED, 'Max rows processed per invocation; 0 unlimited', '50000')
-            ->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Soft seconds limit; 0 unlimited', '30')
+            ->addOption('max-rows', null, InputOption::VALUE_REQUIRED, 'Max rows processed per invocation; 0 disables only this bound', '50000')
+            ->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Soft seconds limit; 0 disables only this bound; at least one execution bound must stay positive', '30')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Emit JSON');
     }
 
