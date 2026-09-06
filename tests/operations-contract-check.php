@@ -86,6 +86,8 @@ $checks = [
     [$gc, 'SourceInterface', 'GC must resolve active supplier source'],
     [$gc, 'RunRepository', 'GC retention boundary must validate a persisted run'],
     [$gc, '$source = trim($this->sourceAdapter->name())', 'GC must resolve concrete source once'],
+    [$gc, 'GC requires a positive --max-rows or --time-limit bound', 'GC must reject fully unbounded maintenance runs'],
+    [$gc, '$maxRows === 0 && $timeLimitSeconds === 0', 'GC must explicitly detect both disabled execution budgets'],
     [$gc, 'GC --keep-run requires a concrete --shop', 'GC keep-run must not use an ambiguous cross-shop boundary'],
     [$gc, '$this->runs->assertContext($keepRunId, $shopId, $source)', 'GC keep-run must match exact shop/source context'],
     [$gc, 'Snapshot GC requires a concrete shop retention context', 'snapshot deletion must fail closed without shop context'],
