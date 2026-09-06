@@ -61,7 +61,6 @@ $checks = [
     [$status, "AND source='\" . \$sourceSql . \"'", 'BO run state source scope'],
     [$status, 'GROUP BY status', 'BO queue status aggregation'],
     [$status, 'true,', 'BO mutable queue query cache argument'],
-    [$policy, 'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', 'category policy source'],
     [$policy, 'MATTERHORNIMPORT_FEATURE_AUTO_CREATE', 'feature policy source'],
     [$policy, 'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID', 'source-language policy source'],
     [$mapper, '$policy = ($this->policy ?? new MatterhornPolicy())->current()', 'mapper reads stable Matterhorn policy snapshot'],
@@ -77,6 +76,15 @@ $checks = [
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!str_contains($haystack, $needle)) {
         fwrite(STDERR, "FAIL: {$label}\n");
+        exit(1);
+    }
+}
+
+foreach ([$formType, $formProvider, $policy, $mapper] as $deprecatedSurface) {
+    if (str_contains($deprecatedSurface, 'CATEGORY_AUTO_CREATE')
+        || str_contains($deprecatedSurface, 'category_auto_create')
+        || str_contains($deprecatedSurface, 'Auto-create missing categories')) {
+        fwrite(STDERR, "FAIL: retired category auto-create setting leaked into active BO/runtime code\n");
         exit(1);
     }
 }
