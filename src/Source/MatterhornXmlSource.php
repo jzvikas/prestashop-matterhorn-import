@@ -1,19 +1,25 @@
 <?php
 namespace Lp\MatterhornImport\Source;
 
+use Lp\MatterhornImport\Contract\ByteCheckpointableSourceInterface;
 use Prewk\XmlStringStreamer;
+use Prewk\XmlStringStreamer\Parser\UniqueNode;
+use Prewk\XmlStringStreamer\Stream\File as FileStream;
 use SimpleXMLElement;
 
-final class MatterhornXmlSource implements \Lp\MatterhornImport\Contract\CheckpointableSourceInterface
+final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
 {
     private const FINGERPRINT_WINDOW = 65536;
     private const TAIL_WINDOW = 131072;
+    private const STREAM_CHUNK_BYTES = 65536;
     private const MAX_SOURCE_RECORD_BYTES = 4194304;
     private const MAX_SOURCE_FIELD_BYTES = 2097152;
     private const MAX_SOURCE_ATTRIBUTE_BYTES = 191;
     private const MAX_IMAGE_URL_BYTES = 16384;
     private const MAX_IMAGES_PER_PRODUCT = 1000;
     private const MAX_OPTIONS_PER_PRODUCT = 5000;
+
+    private int $byteCheckpoint = 0;
 
     public function __construct(private readonly ?string $explicitPath = null)
     {
@@ -26,7 +32,7 @@ final class MatterhornXmlSource implements \Lp\MatterhornImport\Contract\Checkpo
 
     public function rows(): iterable
     {
-        yield from $this->rowsFrom(0);
+        yield from $this->rowsFromByte(0, 0);
     }
 
     public function fingerprint(): string
@@ -76,20 +82,71 @@ final class MatterhornXmlSource implements \Lp\MatterhornImport\Contract\Checkpo
             throw new \InvalidArgumentException('Matterhorn XML row offset cannot be negative');
         }
 
+        // Compatibility/recovery path only. Normal AJAX resumes use rowsFromByte().
+        // If the tiny checkpoint sidecar is ever lost after a successful DB commit,
+        // this scans the already committed records once and reconstructs a byte cursor.
+        yield from $this->stream(0, $offset, $offset);
+    }
+
+    public function rowsFromByte(int $byteOffset, int $recordOffset = 0): iterable
+    {
+        if ($byteOffset < 0 || $recordOffset < 0) {
+            throw new \InvalidArgumentException('Matterhorn XML byte/record checkpoint cannot be negative');
+        }
+
+        yield from $this->stream($byteOffset, 0, $recordOffset);
+    }
+
+    public function byteCheckpoint(): int
+    {
+        return $this->byteCheckpoint;
+    }
+
+    private function stream(int $byteOffset, int $skipRecords, int $recordOffset): iterable
+    {
         $path = $this->path();
-        $this->assertRoot($path);
+        $this->assertByteOffset($path, $byteOffset);
+        if ($byteOffset === 0) {
+            $this->assertRoot($path);
+        }
 
-        $streamer = XmlStringStreamer::createUniqueNodeParser($path, [
-            'uniqueNode' => 'product',
-        ]);
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            throw new \RuntimeException('Cannot open Matterhorn XML: ' . $path);
+        }
+        if ($byteOffset > 0 && fseek($handle, $byteOffset, SEEK_SET) !== 0) {
+            fclose($handle);
+            throw new \RuntimeException('Cannot seek Matterhorn XML to byte ' . $byteOffset);
+        }
 
-        $record = 0;
+        $readBytes = 0;
+        $parser = new UniqueNode(['uniqueNode' => 'product']);
+        $stream = new FileStream(
+            $handle,
+            self::STREAM_CHUNK_BYTES,
+            static function (string $chunk, int $totalBytes) use (&$readBytes): void {
+                unset($chunk);
+                $readBytes = $totalBytes;
+            }
+        );
+        $streamer = new XmlStringStreamer($parser, $stream);
+        $skipped = 0;
+        $record = $recordOffset;
+
         while (($node = $streamer->getNode()) !== false) {
-            ++$record;
-            if ($record <= $offset) {
+            $workingBlob = $parser->getCurrentWorkingBlob();
+            $nextByte = $byteOffset + $readBytes - strlen($workingBlob);
+            if ($nextByte < $byteOffset) {
+                throw new \RuntimeException('Prewk Matterhorn stream produced an invalid byte checkpoint');
+            }
+            $this->byteCheckpoint = $nextByte;
+
+            if ($skipped < $skipRecords) {
+                ++$skipped;
                 continue;
             }
 
+            ++$record;
             if (strlen($node) > self::MAX_SOURCE_RECORD_BYTES) {
                 throw new \RuntimeException(
                     'Matterhorn source record exceeds limit of ' . self::MAX_SOURCE_RECORD_BYTES .
@@ -98,6 +155,13 @@ final class MatterhornXmlSource implements \Lp\MatterhornImport\Contract\Checkpo
             }
 
             yield $this->parseProduct($node, $record);
+        }
+
+        if ($skipped !== $skipRecords) {
+            throw new \RuntimeException(sprintf(
+                'Matterhorn READ checkpoint %d exceeds available source records',
+                $skipRecords
+            ));
         }
 
         $this->assertCompleteTail($path, $record);
@@ -118,7 +182,10 @@ final class MatterhornXmlSource implements \Lp\MatterhornImport\Contract\Checkpo
                 $message = 'invalid product XML';
                 $errors = libxml_get_errors();
                 if ($errors !== []) {
-                    $message = trim((string) end($errors)->message);
+                    $lastError = end($errors);
+                    if ($lastError !== false) {
+                        $message = trim((string) $lastError->message);
+                    }
                 }
                 throw new \RuntimeException(
                     'Matterhorn product XML parse error at source record ' . $record . ': ' . $message
@@ -287,11 +354,9 @@ final class MatterhornXmlSource implements \Lp\MatterhornImport\Contract\Checkpo
 
     private function scalar(SimpleXMLElement $node, int $record, string $field): string
     {
-        if (count($node->children()) > 0) {
-            $first = $node->children()[0] ?? null;
-            $nested = $first instanceof SimpleXMLElement ? $first->getName() : 'unknown';
+        foreach ($node->children() as $nested) {
             throw new \RuntimeException(
-                'Matterhorn scalar field ' . $field . ' contains nested element <' . $nested .
+                'Matterhorn scalar field ' . $field . ' contains nested element <' . $nested->getName() .
                 '> at source record ' . $record
             );
         }
@@ -335,6 +400,22 @@ final class MatterhornXmlSource implements \Lp\MatterhornImport\Contract\Checkpo
             );
         }
         $seenFields[$field] = true;
+    }
+
+    private function assertByteOffset(string $path, int $byteOffset): void
+    {
+        clearstatcache(true, $path);
+        $size = filesize($path);
+        if ($size === false) {
+            throw new \RuntimeException('Cannot stat Matterhorn XML: ' . $path);
+        }
+        if ($byteOffset > (int) $size) {
+            throw new \RuntimeException(sprintf(
+                'Matterhorn byte checkpoint %d exceeds source size %d',
+                $byteOffset,
+                (int) $size
+            ));
+        }
     }
 
     private function assertRoot(string $path): void
