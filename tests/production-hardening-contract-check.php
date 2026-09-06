@@ -14,6 +14,7 @@ $manufacturer = (string) file_get_contents($root . '/src/Manufacturer/Manufactur
 $attributeResolver = (string) file_get_contents($root . '/src/Attribute/AttributeResolver.php');
 $attributeMapping = (string) file_get_contents($root . '/src/Repository/AttributeMappingRepository.php');
 $categoryAuto = (string) file_get_contents($root . '/src/Category/CategoryAutoMapper.php');
+$categoryPathReader = (string) file_get_contents($root . '/src/Category/CategoryPathReader.php');
 $categoryMapping = (string) file_get_contents($root . '/src/Repository/CategoryMappingRepository.php');
 $snapshots = (string) file_get_contents($root . '/src/Repository/SnapshotRepository.php');
 $newWorker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
@@ -28,12 +29,19 @@ $fail = static function (string $message): never {
     exit(1);
 };
 
+if (!str_contains($services, 'autoconfigure: true') || !str_contains($services, "Lp\\MatterhornImport\\:\n")) {
+    $fail('module command/services must be discovered through Symfony PSR-4 autoconfiguration');
+}
 $commands = [
     'RunCommand','ReadCommand','ImportCommand','UpdateCommand','RemoveCommand','ImagesCommand','ImagesReconcileCommand','ImagesRevalidateCommand',
     'NewProductsEnqueueCommand','NewProductsCommand','RetryCommand','DoctorCommand','StatusCommand','GcCommand',
 ];
 foreach ($commands as $command) {
-    if (!str_contains($services, 'Lp\\MatterhornImport\\Command\\' . $command . ':')) { $fail('missing service registration for ' . $command); }
+    $file = $root . '/src/Command/' . $command . '.php';
+    if (!is_file($file)) { $fail('missing command class ' . $command); }
+    if (str_contains($services, 'Lp\\MatterhornImport\\Command\\' . $command . ':')) {
+        $fail('manual command service registration is forbidden for ' . $command);
+    }
 }
 
 foreach ([
@@ -96,8 +104,14 @@ if (!str_contains($categoryAuto, "'lpimp:cat:'")) {
 if (!str_contains($categoryAuto, 'unset($this->childMap[$shopId][$lockedParentId])')) {
     $fail('category auto-create must invalidate child cache and recheck under lock');
 }
-if (substr_count($categoryAuto, '), true, false)') < 2) {
-    $fail('category path/child reads must bypass Db query cache');
+if (!str_contains($categoryPathReader, '), true, false);')) {
+    $fail('category path reads must bypass Db query cache');
+}
+if (!str_contains($categoryAuto, '), true, false) ?: []')) {
+    $fail('category child reads must bypass Db query cache');
+}
+if (str_contains($categoryAuto, 'GROUP_CONCAT') || str_contains($categoryPathReader, 'GROUP_CONCAT')) {
+    $fail('category path resolution must not depend on GROUP_CONCAT');
 }
 if (!str_contains($categoryAuto, 'RELEASE_LOCK') || !str_contains($categoryAuto, "')\", false);")) {
     $fail('category resolver lock release must bypass Db query cache');
