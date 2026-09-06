@@ -2,6 +2,7 @@
 namespace Lp\MatterhornImport\Import;
 
 use Lp\MatterhornImport\Config\MatterhornPolicy;
+use Lp\MatterhornImport\Contract\ByteCheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\CheckpointableSourceInterface;
 use Lp\MatterhornImport\Contract\ProductMapperInterface;
 use Lp\MatterhornImport\Contract\RunScopedSourceInterface;
@@ -9,6 +10,7 @@ use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\Repository\ErrorRepository;
 use Lp\MatterhornImport\Repository\RunRepository;
 use Lp\MatterhornImport\Repository\SnapshotRepository;
+use Lp\MatterhornImport\Util\ExecutionBudget;
 use Lp\MatterhornImport\Util\RunFailureRecorder;
 use Lp\MatterhornImport\Util\ShopContextManager;
 
@@ -26,29 +28,21 @@ final class ReadStage
         private ErrorRepository $errors,
         private ShopContextManager $shopContext,
         private RunFailureRecorder $failureRecorder,
+        private ExecutionBudget $budget,
         private MatterhornPolicy $policy
     ) {}
 
     public function run(int $runId, int $maxItems = 0, int $timeLimitSeconds = 0): bool
     {
-        // READ intentionally performs one complete, linear supplier pass. The AJAX
-        // item/time limits apply to DB-driven IMPORT/UPDATE/REMOVE stages, not to
-        // supplier XML streaming. This mirrors the proven Laravel CRM flow while
-        // keeping DB writes bounded and committed throughout the scan.
-        unset($maxItems, $timeLimitSeconds);
-
         $run = $this->runs->get($runId);
-        if ($run === null) {
-            throw new \RuntimeException('Matterhorn import run not found: ' . $runId);
-        }
-
+        if ($run === null) { throw new \RuntimeException('Matterhorn import run not found: ' . $runId); }
         $shopId = (int) $run['id_shop'];
         $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, (string) $run['source']);
         $this->shopContext->activate($shopId);
         if ((string) $run['read_status'] === 'completed') {
             throw new \RuntimeException('READ is already completed for run #' . $runId);
         }
-        foreach (['import_status', 'update_status', 'remove_status'] as $downstream) {
+        foreach (['import_status','update_status','remove_status'] as $downstream) {
             if ((string) $run[$downstream] !== 'pending') {
                 throw new \RuntimeException('READ resume blocked because downstream stages already started');
             }
@@ -56,25 +50,23 @@ final class ReadStage
 
         $policySnapshot = $this->policy->snapshot($shopId, true);
         $policyHash = $this->policy->hash($policySnapshot);
-        $previousCheckpoint = (int) ($run['read_checkpoint'] ?? 0);
+        $checkpoint = (int) ($run['read_checkpoint'] ?? 0);
         $checkpointSource = $this->source instanceof CheckpointableSourceInterface ? $this->source : null;
+        $byteSource = $this->source instanceof ByteCheckpointableSourceInterface ? $this->source : null;
         $runScopedSource = $this->source instanceof RunScopedSourceInterface ? $this->source : null;
+        $this->budget->start($maxItems, $timeLimitSeconds);
 
         try {
-            // Freeze/download the supplier XML once for this run. If a previous READ
-            // request was interrupted, reuse that frozen file but restart the linear
-            // staging pass from record zero. Partial staging is purged below, so the
-            // DB snapshot remains the authoritative resumability boundary.
-            $runScopedSource?->activateRun($runId, $previousCheckpoint > 0);
+            // Freeze/download the supplier file once per import run. On every normal
+            // AJAX resume ConfiguredMatterhornXmlSource seeks its frozen Prewk stream
+            // to the byte cursor paired with the DB record checkpoint.
+            $runScopedSource?->activateRun($runId, $checkpoint > 0);
 
             $fingerprint = $checkpointSource?->fingerprint();
             $storedFingerprint = (string) ($run['source_fingerprint'] ?? '');
             $storedPolicyHash = (string) ($run['source_policy_hash'] ?? '');
-
-            if ($previousCheckpoint > 0) {
-                if ($checkpointSource === null) {
-                    throw new \RuntimeException('Source does not support READ restart; start a new run');
-                }
+            if ($checkpoint > 0) {
+                if ($checkpointSource === null) { throw new \RuntimeException('Source does not support READ checkpoint resume; start a new run'); }
                 if ($storedFingerprint === '' || !hash_equals($storedFingerprint, (string) $fingerprint)) {
                     throw new \RuntimeException('Source changed since READ checkpoint; start a new run');
                 }
@@ -82,175 +74,132 @@ final class ReadStage
                     throw new \RuntimeException('Matterhorn semantic configuration changed since READ checkpoint; start a new run');
                 }
                 $this->runs->resume($runId);
+            } else {
+                $this->prepareFreshRead($runId, $fingerprint, $policyHash);
             }
 
-            // Always restart the supplier stream from the beginning. Unlike the old
-            // AJAX checkpoint design this does not happen on every normal batch: READ
-            // is one O(n) pass. Restart is only the crash/interruption recovery path.
-            $this->prepareFreshRead($runId, $fingerprint, $policyHash);
             $this->runs->stage($runId, 'read', 'running');
-
+            $stream = $checkpointSource !== null ? $checkpointSource->rowsFrom($checkpoint) : $this->source->rows();
+            $absoluteCheckpoint = $checkpoint;
+            $lastProcessedByteCheckpoint = 0;
             $products = [];
             $batchErrors = [];
             $batchWarnings = [];
-            $batchTotal = 0;
-            $batchValid = 0;
-            $batchInvalid = 0;
-            $batchPayloadBytes = 0;
-            $checkpoint = 0;
+            $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
+            $paused = false;
 
-            foreach ($this->source->rows() as $row) {
-                ++$checkpoint;
+            foreach ($stream as $row) {
+                if ($this->budget->shouldStop()) { $paused = true; break; }
+                ++$absoluteCheckpoint;
                 try {
                     $product = $this->mapper->map($row);
                     $payloadBytes = strlen($product->toJson());
                     if ($payloadBytes > self::MAX_PRODUCT_PAYLOAD_BYTES) {
-                        throw new \RuntimeException(
-                            'Normalized product payload exceeds READ limit of ' .
-                            self::MAX_PRODUCT_PAYLOAD_BYTES . ' bytes (' . $payloadBytes . ' bytes)'
-                        );
+                        throw new \RuntimeException('Normalized product payload exceeds READ limit of ' . self::MAX_PRODUCT_PAYLOAD_BYTES . ' bytes (' . $payloadBytes . ' bytes)');
                     }
-
-                    if (
-                        $batchTotal > 0
-                        && ($batchTotal >= self::WRITE_BATCH
-                            || $batchPayloadBytes + $payloadBytes > self::MAX_BATCH_PAYLOAD_BYTES)
-                    ) {
-                        $this->flushBatch(
+                    if ($batchTotal > 0 && ($batchTotal >= self::WRITE_BATCH || $batchPayloadBytes + $payloadBytes > self::MAX_BATCH_PAYLOAD_BYTES)) {
+                        $this->flushBatch($runId, $absoluteCheckpoint - 1, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                        $this->persistRunCheckpointBestEffort(
+                            $runScopedSource,
                             $runId,
-                            $checkpoint - 1,
-                            $products,
-                            $batchErrors,
-                            $batchWarnings,
-                            $batchTotal,
-                            $batchValid,
-                            $batchInvalid
+                            $absoluteCheckpoint - 1,
+                            $lastProcessedByteCheckpoint
                         );
-                        $products = [];
-                        $batchErrors = [];
-                        $batchWarnings = [];
-                        $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
+                        $products = []; $batchErrors = []; $batchWarnings = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
                     }
-
                     $products[] = $product;
                     foreach ((array) ($product->extra['supplier_warnings'] ?? []) as $warning) {
                         $message = trim((string) $warning);
-                        if ($message !== '') {
-                            $batchWarnings[] = [
-                                'source_key' => $product->sourceKey,
-                                'message' => $message,
-                            ];
-                        }
+                        if ($message !== '') { $batchWarnings[] = ['source_key' => $product->sourceKey, 'message' => $message]; }
                     }
                     $batchPayloadBytes += $payloadBytes;
                     ++$batchValid;
-                } catch (\Throwable $exception) {
+                } catch (\Throwable $e) {
                     ++$batchInvalid;
-                    $batchErrors[] = [
-                        'source_key' => (string) ($row['id'] ?? $row['reference'] ?? ''),
-                        'error' => $exception,
-                    ];
+                    $batchErrors[] = ['source_key' => (string) ($row['id'] ?? $row['reference'] ?? ''), 'error' => $e];
+                }
+
+                // This cursor is produced by Prewk's own parser/stream buffering:
+                // bytes read minus the parser's unread working blob. No custom XML
+                // tag scanner is involved.
+                if ($byteSource !== null) {
+                    $lastProcessedByteCheckpoint = $byteSource->byteCheckpoint();
                 }
 
                 ++$batchTotal;
+                $this->budget->markItem();
                 if ($batchTotal >= self::WRITE_BATCH) {
-                    $this->flushBatch(
+                    $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                    $this->persistRunCheckpointBestEffort(
+                        $runScopedSource,
                         $runId,
-                        $checkpoint,
-                        $products,
-                        $batchErrors,
-                        $batchWarnings,
-                        $batchTotal,
-                        $batchValid,
-                        $batchInvalid
+                        $absoluteCheckpoint,
+                        $lastProcessedByteCheckpoint
                     );
-                    $products = [];
-                    $batchErrors = [];
-                    $batchWarnings = [];
-                    $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
+                    $products = []; $batchErrors = []; $batchWarnings = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
                 }
+                if ($this->budget->shouldStop()) { $paused = true; break; }
             }
 
             if ($batchTotal > 0) {
-                $this->flushBatch(
+                $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                $this->persistRunCheckpointBestEffort(
+                    $runScopedSource,
                     $runId,
-                    $checkpoint,
-                    $products,
-                    $batchErrors,
-                    $batchWarnings,
-                    $batchTotal,
-                    $batchValid,
-                    $batchInvalid
+                    $absoluteCheckpoint,
+                    $lastProcessedByteCheckpoint
                 );
             }
-
             if ($checkpointSource !== null && !hash_equals((string) $fingerprint, $checkpointSource->fingerprint())) {
                 throw new \RuntimeException('Source XML changed while READ was running; downstream stages blocked');
             }
+            if ($paused || $this->budget->shouldStop()) {
+                if ($checkpointSource === null) { throw new \RuntimeException('READ stop requested but source is not checkpointable; start a new run'); }
+                $this->runs->stage($runId, 'read', 'paused');
+                $this->runs->finish($runId, 'paused');
+                return false;
+            }
 
             $run = $this->runs->get($runId);
-            if ($run === null) {
-                throw new \RuntimeException('Matterhorn run disappeared during READ');
-            }
+            if ($run === null) { throw new \RuntimeException('Matterhorn run disappeared during READ'); }
             $distinct = $this->snapshots->countRun($runId);
             $duplicates = max(0, (int) $run['source_valid'] - $distinct);
             $this->runs->setReadDuplicate($runId, $duplicates);
-
             if ((int) $run['source_invalid'] > 0) {
-                throw new \RuntimeException(
-                    'READ contains ' . (int) $run['source_invalid'] . ' invalid rows; downstream stages blocked'
-                );
+                throw new \RuntimeException('READ contains ' . (int) $run['source_invalid'] . ' invalid rows; downstream stages blocked');
             }
             if ($duplicates > 0) {
-                throw new \RuntimeException(
-                    'READ contains ' . $duplicates . ' duplicate source keys; downstream stages blocked'
-                );
+                throw new \RuntimeException('READ contains ' . $duplicates . ' duplicate source keys; downstream stages blocked');
             }
             if ((int) $run['source_valid'] === 0) {
                 throw new \RuntimeException('READ produced zero valid products; destructive stages blocked');
             }
-
-            $previous = $this->runs->previousCompleted(
-                $runId,
-                (int) $run['id_shop'],
-                (string) $run['source']
-            );
-            if (
-                $previous
-                && (int) $previous['source_valid'] >= 1000
-                && (int) $run['source_valid'] < (int) floor((int) $previous['source_valid'] * 0.80)
-            ) {
-                throw new \RuntimeException(
-                    'Source sanity guard: valid row count dropped below 80% of previous completed run'
-                );
+            $previous = $this->runs->previousCompleted($runId, (int) $run['id_shop'], (string) $run['source']);
+            if ($previous && (int) $previous['source_valid'] >= 1000 && (int) $run['source_valid'] < (int) floor((int) $previous['source_valid'] * 0.80)) {
+                throw new \RuntimeException('Source sanity guard: valid row count dropped below 80% of previous completed run');
             }
-
             $this->runs->stage($runId, 'read', 'completed');
             $this->releaseRunSourceBestEffort($runScopedSource, $runId);
             return true;
-        } catch (\Throwable $exception) {
-            $this->failureRecorder->record($runId, 'read', $exception);
+        } catch (\Throwable $e) {
+            $this->failureRecorder->record($runId, 'read', $e);
             $this->releaseRunSourceBestEffort($runScopedSource, $runId);
-            throw $exception;
+            throw $e;
         }
     }
 
     private function prepareFreshRead(int $runId, ?string $fingerprint, string $policyHash): void
     {
         $db = \Db::getInstance();
-        if (!$db->execute('START TRANSACTION')) {
-            throw new \RuntimeException('Could not start READ reset transaction');
-        }
+        if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start READ reset transaction'); }
         try {
             $this->snapshots->purgeRun($runId);
             $this->errors->purgeStage($runId, 'read');
             $this->runs->resetRead($runId, $fingerprint, $policyHash);
-            if (!$db->execute('COMMIT')) {
-                throw new \RuntimeException('Could not commit READ reset');
-            }
-        } catch (\Throwable $exception) {
+            if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit READ reset'); }
+        } catch (\Throwable $e) {
             $db->execute('ROLLBACK');
-            throw $exception;
+            throw $e;
         }
     }
 
@@ -259,40 +208,43 @@ final class ReadStage
      * @param list<array{source_key:string,error:\Throwable}> $batchErrors
      * @param list<array{source_key:string,message:string}> $batchWarnings
      */
-    private function flushBatch(
-        int $runId,
-        int $checkpoint,
-        array $products,
-        array $batchErrors,
-        array $batchWarnings,
-        int $total,
-        int $valid,
-        int $invalid
-    ): void {
+    private function flushBatch(int $runId, int $checkpoint, array $products, array $batchErrors, array $batchWarnings, int $total, int $valid, int $invalid): void
+    {
         $db = \Db::getInstance();
-        if (!$db->execute('START TRANSACTION')) {
-            throw new \RuntimeException('Could not start READ batch transaction');
-        }
+        if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start READ batch transaction'); }
         try {
             $this->snapshots->upsertBatch($runId, $products);
-            foreach ($batchErrors as $item) {
-                $this->errors->add($runId, 'read', $item['source_key'], $item['error']);
-            }
-            foreach ($batchWarnings as $item) {
-                $this->errors->add(
-                    $runId,
-                    'read',
-                    $item['source_key'],
-                    'WARNING: ' . $item['message']
-                );
-            }
+            foreach ($batchErrors as $item) { $this->errors->add($runId, 'read', $item['source_key'], $item['error']); }
+            foreach ($batchWarnings as $item) { $this->errors->add($runId, 'read', $item['source_key'], 'WARNING: ' . $item['message']); }
             $this->runs->commitReadProgress($runId, $checkpoint, $total, $valid, $invalid);
-            if (!$db->execute('COMMIT')) {
-                throw new \RuntimeException('Could not commit READ batch');
-            }
-        } catch (\Throwable $exception) {
+            if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit READ batch'); }
+        } catch (\Throwable $e) {
             $db->execute('ROLLBACK');
-            throw $exception;
+            throw $e;
+        }
+    }
+
+    private function persistRunCheckpointBestEffort(
+        ?RunScopedSourceInterface $source,
+        int $runId,
+        int $recordCheckpoint,
+        int $byteCheckpoint
+    ): void {
+        if ($source === null || $recordCheckpoint <= 0 || $byteCheckpoint <= 0) {
+            return;
+        }
+
+        try {
+            // Write only after the DB transaction committed. If this tiny sidecar
+            // write fails, the DB checkpoint remains correct and the next request
+            // performs one recovery scan before recreating the byte cursor.
+            $source->persistRunCheckpoint($runId, $recordCheckpoint, $byteCheckpoint);
+        } catch (\Throwable $exception) {
+            error_log(sprintf(
+                '[matterhornimport] could not persist READ Prewk checkpoint for run %d: %s',
+                $runId,
+                $exception->getMessage()
+            ));
         }
     }
 
