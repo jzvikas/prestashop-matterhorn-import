@@ -10,6 +10,7 @@ $product = (string) file_get_contents($root . '/src/DTO/ProductData.php');
 $attributeMapping = (string) file_get_contents($root . '/src/Repository/AttributeMappingRepository.php');
 $attributeResolver = (string) file_get_contents($root . '/src/Combination/CombinationAttributeResolver.php');
 $categoryAuto = (string) file_get_contents($root . '/src/Category/CategoryAutoMapper.php');
+$categoryPathReader = (string) file_get_contents($root . '/src/Category/CategoryPathReader.php');
 $categoryMapping = (string) file_get_contents($root . '/src/Repository/CategoryMappingRepository.php');
 $categorySync = (string) file_get_contents($root . '/src/Category/CategorySynchronizer.php');
 $featureMapping = (string) file_get_contents($root . '/src/Repository/FeatureMappingRepository.php');
@@ -75,7 +76,9 @@ $check(str_contains($categoryAuto, 'private array $availabilityCache'), 'categor
 $check(str_contains($categoryAuto, 'private array $childMap'), 'category child lookup process cache missing');
 $check(str_contains($categoryAuto, 'MAX_PATH_DEPTH = 32'), 'category path-depth bound missing');
 $check(str_contains($categoryAuto, "'lpimp:cat:'"), 'category auto-create must use shared cross-import advisory lock namespace');
-$check(substr_count($categoryAuto, '), true, false)') >= 2, 'category live path/child reads must bypass Db query cache');
+$check(str_contains($categoryPathReader, '), true, false);'), 'category live path read must bypass Db query cache');
+$check(str_contains($categoryAuto, '), true, false) ?: []'), 'category live child read must bypass Db query cache');
+$check(!str_contains($categoryAuto, 'GROUP_CONCAT') && !str_contains($categoryPathReader, 'GROUP_CONCAT'), 'category path resolution must not depend on GROUP_CONCAT');
 $check(str_contains($categoryMapping, '), true, false)'), 'category mapping preload must bypass Db query cache');
 $check(str_contains($categorySync, 'private array $hierarchyCache'), 'category ancestor hierarchy cache missing');
 $check(str_contains($categorySync, 'private function liveHierarchy'), 'category hierarchy cache must have a fresh topology fence');
