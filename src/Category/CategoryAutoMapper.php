@@ -23,7 +23,8 @@ final class CategoryAutoMapper
     public function __construct(
         private CategoryMappingRepository $mapping,
         private ShopContextManager $shopContext,
-        private ItemTransactionGuard $transactionGuard
+        private ItemTransactionGuard $transactionGuard,
+        private CategoryPathReader $pathReader
     ) {}
 
     public function prepare(ProductData $data, int $shopId): void
@@ -74,25 +75,16 @@ final class CategoryAutoMapper
     private function pathMap(int $shopId): array
     {
         if (isset($this->pathMap[$shopId])) { return $this->pathMap[$shopId]; }
-        $langId = $this->languageId($shopId);
-        $rootId = $this->rootCategoryId($shopId);
-        $homeId = $this->homeCategoryId($shopId);
-        $rows = \Db::getInstance()->executeS(sprintf(
-            "SELECT leaf.id_category,GROUP_CONCAT(parent_lang.name ORDER BY parent.nleft SEPARATOR ' > ') AS category_path " .
-            "FROM `%scategory` leaf INNER JOIN `%scategory_shop` leaf_shop ON leaf_shop.id_category=leaf.id_category AND leaf_shop.id_shop=%d " .
-            "INNER JOIN `%scategory` parent ON leaf.nleft BETWEEN parent.nleft AND parent.nright " .
-            "INNER JOIN `%scategory_lang` parent_lang ON parent_lang.id_category=parent.id_category AND parent_lang.id_lang=%d AND parent_lang.id_shop=%d " .
-            "WHERE parent.id_category NOT IN (%d,%d) GROUP BY leaf.id_category",
-            _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, _DB_PREFIX_, $langId, $shopId, $rootId, $homeId
-        ), true, false) ?: [];
         $map = [];
-        foreach ($rows as $row) {
-            $path = $this->normalizePath((string) ($row['category_path'] ?? ''));
-            $id = (int) ($row['id_category'] ?? 0);
-            if ($path !== '' && $id > 0 && !isset($map[$path])) {
-                $map[$path] = $id;
-                $this->availabilityCache[$this->availabilityKey($shopId, $id)] = true;
+        foreach ($this->pathReader->paths($shopId, $this->languageId($shopId)) as $id => $rawPath) {
+            $path = $this->normalizePath($rawPath);
+            if ($path === '' || $id <= 0) { continue; }
+            if (isset($map[$path]) && $map[$path] !== $id) {
+                $map[$path] = -1;
+                continue;
             }
+            $map[$path] = $id;
+            $this->availabilityCache[$this->availabilityKey($shopId, $id)] = true;
         }
         return $this->pathMap[$shopId] = $map;
     }
@@ -108,6 +100,7 @@ final class CategoryAutoMapper
             $built[] = $part;
             $normalized = $this->normalizePath(implode(' > ', $built));
             $existing = $this->pathMap($shopId)[$normalized] ?? 0;
+            if ($existing < 0) { throw new \RuntimeException('Ambiguous exact category path: ' . implode(' > ', $built)); }
             if ($existing > 0) { $parentId = $existing; continue; }
             $existing = $this->findChildCategoryId($parentId, $part, $shopId);
             if ($existing > 0) {
@@ -193,14 +186,6 @@ final class CategoryAutoMapper
     }
 
     private function availabilityKey(int $shopId, int $categoryId): string { return $shopId . ':' . $categoryId; }
-
-    private function rootCategoryId(int $shopId): int
-    {
-        $shop = \Shop::getShop($shopId);
-        $id = is_array($shop) ? (int) ($shop['id_category'] ?? 0) : 0;
-        if ($id <= 0) { $id = (int) \Configuration::get('PS_ROOT_CATEGORY', null, null, $shopId); }
-        return max(0, $id);
-    }
 
     private function homeCategoryId(int $shopId): int
     {
