@@ -24,7 +24,7 @@ final class RetryCommand extends Command
 
     protected function configure(): void
     {
-        $this->addOption('shop', null, InputOption::VALUE_OPTIONAL, 'Only this shop')
+        $this->addOption('shop', null, InputOption::VALUE_REQUIRED, 'Target shop ID')
             ->addOption('domain', null, InputOption::VALUE_REQUIRED, 'image, new-product or all', 'all')
             ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Max failed jobs per domain; omitted = shop setting')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Emit JSON');
@@ -32,8 +32,8 @@ final class RetryCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $shopId = CommandInput::optionalPositiveInt($input->getOption('shop'), '--shop');
-        $limit = $input->getOption('limit') === null ? ($shopId === null ? 1000 : $this->settings->retryLimit($shopId)) : CommandInput::positiveInt($input->getOption('limit'), '--limit', 100000);
+        $shopId = CommandInput::positiveInt($input->getOption('shop'), '--shop');
+        $limit = $input->getOption('limit') === null ? $this->settings->retryLimit($shopId) : CommandInput::positiveInt($input->getOption('limit'), '--limit', 100000);
         $domain = strtolower(trim((string) $input->getOption('domain')));
         if (!in_array($domain, ['image','new-product','all'], true)) { throw new \InvalidArgumentException('--domain must be image, new-product or all'); }
         $source = trim($this->sourceAdapter->name());
