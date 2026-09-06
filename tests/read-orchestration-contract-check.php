@@ -33,8 +33,9 @@ $checks = [
     [$snapshot, 'ON DUPLICATE KEY UPDATE'],
     [$command, "matterhornimport:read"],
     [$command, "--run"],
-    [$services, "Lp\\MatterhornImport\\Command\\ReadCommand"],
-    [$services, "console.command"],
+    [$services, 'autoconfigure: true'],
+    [$services, "Lp\\MatterhornImport\\:"],
+    [$services, "resource: '../src/'"],
 ];
 foreach ($checks as [$haystack,$needle]) {
     if (!str_contains($haystack, $needle)) { throw new RuntimeException('READ contract missing: ' . $needle); }
