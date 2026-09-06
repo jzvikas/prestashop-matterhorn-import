@@ -19,6 +19,7 @@
     let cancelRequested = false;
     let transientBatchFailures = 0;
     const startAllowed = !startButton.disabled;
+    const maxTransientBatchRetries = 3;
 
     class MatterhornHttpError extends Error {
         constructor(message, status = 0, retryable = false) {
@@ -29,25 +30,47 @@
         }
     }
 
+    const isTransientDatabaseDisconnect = (status, raw, payload = null) => {
+        if (status !== 500) {
+            return false;
+        }
+
+        const details = [
+            payload && payload.detail,
+            payload && payload.message,
+            payload && payload.class,
+            raw,
+        ].filter((value) => typeof value === 'string' && value !== '').join('\n');
+
+        return /MySQL server has gone away|Lost connection to MySQL server|Doctrine\\DBAL\\Exception\\ConnectionLost|SQLSTATE\[HY000\].*(?:2006|2013)/i.test(details);
+    };
+
     const parseResponse = async (response) => {
         const raw = await response.text();
         let payload;
         try {
             payload = JSON.parse(raw);
         } catch (error) {
-            const retryable = response.status >= 502 && response.status <= 504;
+            const retryable = (response.status >= 502 && response.status <= 504)
+                || isTransientDatabaseDisconnect(response.status, raw);
             throw new MatterhornHttpError(
-                `Server returned a non-JSON response (${response.status}). ${retryable ? 'The same crash-safe batch will be retried automatically.' : 'Reload the page before continuing.'}`,
+                retryable
+                    ? `Temporary server/database connection failure (${response.status}). The same crash-safe batch will be retried automatically.`
+                    : `Server returned a non-JSON response (${response.status}). Reload the page before continuing.`,
                 response.status,
                 retryable
             );
         }
 
         if (!response.ok || !payload.success) {
+            const retryable = (response.status >= 502 && response.status <= 504)
+                || isTransientDatabaseDisconnect(response.status, raw, payload);
             throw new MatterhornHttpError(
-                payload.message || `Request failed (${response.status}).`,
+                retryable
+                    ? `Temporary server/database connection failure (${response.status}). The same crash-safe batch will be retried automatically.`
+                    : (payload.message || payload.detail || `Request failed (${response.status}).`),
                 response.status,
-                response.status >= 502 && response.status <= 504
+                retryable
             );
         }
 
@@ -198,6 +221,7 @@
             });
 
             transientBatchFailures = 0;
+            clearError();
             const active = updateJob(payload.job);
             batchInFlight = false;
 
@@ -224,10 +248,10 @@
             if (running
                 && error instanceof MatterhornHttpError
                 && error.retryable
-                && transientBatchFailures < 2
+                && transientBatchFailures < maxTransientBatchRetries
             ) {
                 ++transientBatchFailures;
-                showError(`${error.message} Retry ${transientBatchFailures}/2...`);
+                showError(`${error.message} Retry ${transientBatchFailures}/${maxTransientBatchRetries}...`);
                 window.setTimeout(runNextBatch, 1500 * transientBatchFailures);
                 return;
             }
