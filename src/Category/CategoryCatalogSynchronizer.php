@@ -35,7 +35,8 @@ final class CategoryCatalogSynchronizer
             $name = trim((string) ($category['name'] ?? ''));
             $path = $this->normalizer->normalize((string) ($row['category_path'] ?? ''));
             if ($name === '') {
-                $name = $path !== '' ? (string) end($this->pathParts($path)) : $supplierId;
+                $parts = $this->pathParts($path);
+                $name = $parts !== [] ? $parts[array_key_last($parts)] : $supplierId;
             }
             if ($path === '') { $path = $name; }
 
