@@ -28,9 +28,13 @@ $checks = [
     ['repository', 'ON DUPLICATE KEY UPDATE `supplier_parent_key`=VALUES(`supplier_parent_key`)'],
     ['auto_mapper', 'CategoryPathReader'],
     ['auto_mapper', 'Ambiguous exact category path'],
+    ['auto_mapper', '$stored = $this->mapping->findOne($shopId, $key)'],
+    ['auto_mapper', "if ((int) (\$stored['active'] ?? 0) !== 1)"],
     ['sync', 'SourceInterface'],
     ['sync', 'synchronize(int $shopId)'],
-    ['sync', 'Conflicting Matterhorn category metadata'],
+    ['sync', 'canonicalVariant('],
+    ['sync', "'partial_source' => \$partialSource"],
+    ['sync', 'isTrailingMatterhornEof('],
     ['manager', 'autoMapExisting('],
     ['manager', 'createAndMapMissing('],
     ['controller', 'CategoryMappingFormType::class'],
@@ -67,6 +71,12 @@ if (str_contains($files['repository'], '`active`=VALUES(`active`)')) {
 }
 if (!str_contains($files['repository'], '), true, false)')) {
     throw new RuntimeException('Category admin mapping live reads must bypass PrestaShop Db query cache');
+}
+if (str_contains($files['sync'], 'throw new \\RuntimeException(\'Conflicting Matterhorn category metadata')) {
+    throw new RuntimeException('Category catalog synchronization must resolve duplicate supplier metadata deterministically');
+}
+if (str_contains($files['auto_mapper'], 'Conflicting Matterhorn category metadata for supplier key')) {
+    throw new RuntimeException('Runtime category mapping must not fail on descriptive supplier metadata variants');
 }
 
 echo "Category admin mapping contract: OK\n";
