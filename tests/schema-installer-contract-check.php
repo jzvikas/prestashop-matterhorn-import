@@ -20,6 +20,7 @@ $upgrade014 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.4.php');
 $upgrade015 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.5.php');
 $upgrade016 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.6.php');
 $upgrade017 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.7.php');
+$upgrade018 = (string) file_get_contents($root . '/upgrade/upgrade-0.1.8.php');
 $main = (string) file_get_contents($root . '/matterhornimport.php');
 $genericPrefix = 'PREFIX_' . 'lp_' . 'import_';
 
@@ -79,6 +80,7 @@ schemaCheck(str_contains($installer, "'idx_revalidate' => '(`id_shop`,`source`,`
 schemaCheck(str_contains($installer, 'INFORMATION_SCHEMA.STATISTICS'), 'index detection must be idempotent');
 schemaCheck(str_contains($installer, 'ensurePerformanceIndexes()'), 'fresh install must ensure high-volume indexes idempotently');
 schemaCheck(str_contains($installer, 'MATTERHORNIMPORT_RETAIN_DATA_ON_UNINSTALL'), 'installer must expose retention policy');
+schemaCheck(!str_contains($installer, 'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE'), 'fresh install/runtime installer must not recreate retired category auto-create configuration');
 schemaCheck(str_contains($databaseSafety, "INDEX_NAME='uq_shop_product_owner'"), 'runtime database safety must require exclusive product ownership index');
 schemaCheck(str_contains($databaseSafety, "['id_shop', 'id_product']"), 'runtime ownership safety must validate exact index column order');
 schemaCheck(str_contains($databaseSafety, 'li_matterhornim_99dfbf_image_orphan'), 'database safety must include image orphan table');
@@ -94,7 +96,9 @@ schemaCheck(str_contains($upgrade016, 'upgrade_module_0_1_6'), '0.1.6 upgrade en
 schemaCheck(str_contains($upgrade016, 'ensurePerformanceIndexes()'), '0.1.6 upgrade must reuse idempotent performance index ensure');
 schemaCheck(str_contains($upgrade017, 'upgrade_module_0_1_7'), '0.1.7 upgrade entrypoint must exist');
 schemaCheck(str_contains($upgrade017, 'ensureExclusiveProductOwnership()'), '0.1.7 upgrade must reuse idempotent ownership migration');
-schemaCheck(str_contains($main, "\$this->version = '0.1.7'"), 'module version must match 0.1.7 ownership schema upgrade');
+schemaCheck(str_contains($upgrade018, 'upgrade_module_0_1_8'), '0.1.8 upgrade entrypoint must exist');
+schemaCheck(str_contains($upgrade018, "Configuration::deleteByName('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE')"), '0.1.8 upgrade must remove retired category configuration from DB');
+schemaCheck(str_contains($main, "\$this->version = '0.1.8'"), 'module version must match 0.1.8 category policy migration');
 schemaCheck(str_contains($main, '(new Installer())->install()'), 'module install hook must invoke schema installer');
 schemaCheck(str_contains($main, '(new Installer())->uninstall()'), 'module uninstall hook must invoke schema installer');
 
