@@ -19,7 +19,8 @@ $checks = [
     ['snapshot','MAX_FETCH_PAYLOAD_BYTES'], ['snapshot','newRows'], ['mapping','last_seen_run_id'],
     ['recovery','date_add'], ['recovery','li_matterhornim_99dfbf_mapping'], ['queue','url_hash'],
     ['queue',"status='processing'"], ['safety','INNODB'], ['safety','attribute_group'], ['safety','manufacturer_shop'],
-    ['command','matterhornimport:import'], ['command','--batch'], ['services','Lp\\MatterhornImport\\Command\\ImportCommand'],
+    ['command','matterhornimport:import'], ['command','--batch'], ['services','autoconfigure: true'],
+    ['services','Lp\\MatterhornImport\\:'], ['services',"resource: '../src/'"],
 ];
 foreach ($checks as [$file,$needle]) { if (!str_contains($files[$file], $needle)) { throw new RuntimeException('IMPORT contract missing ' . $needle . ' in ' . $file); } }
 echo "IMPORT orchestration contract: OK\n";
