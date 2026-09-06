@@ -13,6 +13,7 @@ while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find . -pa
 bash tests/prestashop-db-single-row-limit-check.sh
 php tests/source-location-contract-check.php
 php tests/matterhorn-parser-mapper-check.php
+php tests/matterhorn-byte-checkpoint-check.php
 php tests/matterhorn-domain-hash-isolation-check.php
 php tests/matterhorn-xml-streaming-bounds-check.php
 php tests/matterhorn-feed-structure-check.php
