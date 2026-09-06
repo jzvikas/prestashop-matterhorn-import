@@ -107,8 +107,8 @@ $checks = [
     [$command, "'generation_adopted'=>0", 'CLI generation adoption visibility'],
     [$command, "'stale_superseded'=>0", 'CLI stale suppression visibility'],
     [$command, "'existing_updated'=>0", 'CLI latest-payload update visibility'],
-    [$services, 'Lp\\MatterhornImport\\Command\\NewProductsEnqueueCommand:', 'enqueue command service registration'],
-    [$services, 'Lp\\MatterhornImport\\Command\\NewProductsCommand:', 'worker command service registration'],
+    [$services, 'autoconfigure: true', 'Symfony command autoconfiguration'],
+    [$services, "Lp\\MatterhornImport\\:\n", 'PSR-4 service discovery for module classes'],
 ];
 
 foreach ($checks as [$haystack, $needle, $label]) {
@@ -116,6 +116,10 @@ foreach ($checks as [$haystack, $needle, $label]) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+if (str_contains($services, 'Lp\\MatterhornImport\\Command\\NewProductsEnqueueCommand:') || str_contains($services, 'Lp\\MatterhornImport\\Command\\NewProductsCommand:')) {
+    fwrite(STDERR, "FAIL: new-product commands must rely on Symfony autoconfiguration, not manual service entries\n");
+    exit(1);
 }
 
 if (str_contains($enqueue, 'SnapshotRepository')) {
