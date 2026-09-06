@@ -35,13 +35,18 @@ $checks = [
     [$command, "->addOption('run'", 'run resume option'],
     [$command, "->addOption('max-items'", 'global item budget option'],
     [$command, "->addOption('time-limit'", 'global time budget option'],
-    [$services, 'Lp\\MatterhornImport\\Command\\RunCommand:', 'run service registration'],
+    [$services, 'autoconfigure: true', 'Symfony autoconfiguration'],
+    [$services, "resource: '../src/'", 'PSR-4 service discovery'],
 ];
 foreach ($checks as [$haystack, $needle, $label]) {
     if (!is_string($haystack) || !str_contains($haystack, $needle)) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+if (str_contains((string) $services, 'Lp\\MatterhornImport\\Command\\RunCommand:')) {
+    fwrite(STDERR, "FAIL: RUN command should rely on Symfony autoconfiguration\n");
+    exit(1);
 }
 
 $readPos = strpos($runner, '$this->read->run(');
