@@ -50,7 +50,8 @@ if (!str_contains($upgrade, "Configuration::deleteByName('{$deprecatedKey}')")) 
 if (!str_contains($manager, 'createAndMapMissing')) {
     $fail('explicit Category mapping create-and-map action must remain available');
 }
-if (!str_contains($manager, "'auto_create' => true")) {
+if (!str_contains($manager, '$this->productFor($row, true)')
+    || !str_contains($manager, "'auto_create' => \$autoCreate")) {
     $fail('explicit Category mapping action must retain internal category creation intent');
 }
 
