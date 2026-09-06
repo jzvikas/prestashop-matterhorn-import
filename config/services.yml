@@ -1,49 +1,27 @@
-imports:
-  - { resource: 'services_bootstrap.php' }
-
 services:
   _defaults:
     public: false
     autowire: true
-    autoconfigure: false
+    autoconfigure: true
+
   Lp\MatterhornImport\:
-    resource: '../src/*'
-    exclude: ['../src/DTO/','../src/Installer.php']
+    resource: '../src/'
+    exclude:
+      - '../src/Contract/'
+      - '../src/DTO/'
+      - '../src/Installer.php'
+
   Lp\MatterhornImport\Contract\SourceInterface:
     alias: Lp\MatterhornImport\Source\MatterhornXmlSource
+
   Lp\MatterhornImport\Contract\ProductMapperInterface:
     alias: Lp\MatterhornImport\Mapper\MatterhornProductMapper
+
   Lp\MatterhornImport\Contract\SizeResolverInterface:
     alias: Lp\MatterhornImport\Matterhorn\MatterhornSizeResolver
+
   Lp\MatterhornImport\Contract\ProductWriterInterface:
     alias: Lp\MatterhornImport\Product\MatterhornProductWriter
+
   Lp\MatterhornImport\Contract\OutOfFeedPolicyInterface:
     alias: Lp\MatterhornImport\Product\DeactivateOutOfFeedPolicy
-  Lp\MatterhornImport\Command\RunCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\ReadCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\ImportCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\UpdateCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\RemoveCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\ImagesCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\ImagesReconcileCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\ImagesRevalidateCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\NewProductsEnqueueCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\NewProductsCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\RetryCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\DoctorCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\StatusCommand:
-    tags: ['console.command']
-  Lp\MatterhornImport\Command\GcCommand:
-    tags: ['console.command']
