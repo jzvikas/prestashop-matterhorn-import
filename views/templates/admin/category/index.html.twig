@@ -1,0 +1,108 @@
+{% extends '@PrestaShop/Admin/layout.html.twig' %}
+
+{% block content %}
+  <div class="alert alert-info">
+    <strong>{{ 'Category mappings for:'|trans({}, 'Modules.Matterhornimport.Admin') }}</strong>
+    {{ shopName }} (#{{ shopId }}).
+    {{ 'Mappings are shop-specific and use exact full category paths.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+  </div>
+
+  <div class="card mb-3">
+    <h3 class="card-header">
+      <i class="material-icons">account_tree</i>
+      {{ 'Matterhorn category synchronization and mapping'|trans({}, 'Modules.Matterhornimport.Admin') }}
+    </h3>
+    <div class="card-body">
+      <p class="mb-3">
+        {{ 'Synchronize unique supplier categories from the configured XML feed, map exact existing PrestaShop paths, or create missing hierarchy levels under the shop home category.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+      </p>
+
+      <div class="d-flex flex-wrap align-items-center" style="gap:.5rem">
+        <form method="post" action="{{ path('matterhorn_import_categories_sync') }}">
+          <input type="hidden" name="_token" value="{{ csrf_token('matterhorn_category_sync') }}">
+          <button class="btn btn-primary">
+            <i class="material-icons">sync</i>
+            {{ 'Synchronize categories from XML'|trans({}, 'Modules.Matterhornimport.Admin') }}
+          </button>
+        </form>
+
+        <form method="post" action="{{ path('matterhorn_import_categories_auto_map') }}">
+          <input type="hidden" name="_token" value="{{ csrf_token('matterhorn_category_auto_map') }}">
+          <button class="btn btn-info" {% if totalCategories == 0 or unmappedCategories == 0 %}disabled{% endif %}>
+            <i class="material-icons">auto_fix_high</i>
+            {{ 'Auto-map existing full paths'|trans({}, 'Modules.Matterhornimport.Admin') }}
+          </button>
+        </form>
+
+        <form method="post" action="{{ path('matterhorn_import_categories_auto_create') }}"
+              onsubmit="return confirm('{{ 'Create all missing PrestaShop category levels and map active supplier categories?'|trans({}, 'Modules.Matterhornimport.Admin')|e('js') }}');">
+          <input type="hidden" name="_token" value="{{ csrf_token('matterhorn_category_auto_create') }}">
+          <button class="btn btn-success" {% if totalCategories == 0 or unmappedCategories == 0 %}disabled{% endif %}>
+            <i class="material-icons">create_new_folder</i>
+            {{ 'Create and map missing categories'|trans({}, 'Modules.Matterhornimport.Admin') }}
+          </button>
+        </form>
+
+        <a class="btn btn-outline-secondary" href="{{ path('matterhorn_import_configuration') }}">
+          <i class="material-icons">settings</i>
+          {{ 'Settings'|trans({}, 'Admin.Global') }}
+        </a>
+      </div>
+
+      <div class="mt-3">
+        {{ 'Total supplier categories:'|trans({}, 'Modules.Matterhornimport.Admin') }} <strong>{{ totalCategories }}</strong>,
+        {{ 'unmapped:'|trans({}, 'Modules.Matterhornimport.Admin') }} <strong>{{ unmappedCategories }}</strong>.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table mb-0">
+        <thead>
+          <tr>
+            <th>{{ 'Supplier key'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
+            <th>{{ 'Supplier category path'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
+            <th>{{ 'PrestaShop category'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
+            <th>{{ 'Enabled'|trans({}, 'Admin.Global') }}</th>
+            <th class="text-right">{{ 'Actions'|trans({}, 'Admin.Global') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for category in categories %}
+          <tr>
+            <td><code>{{ category.supplier_key }}</code></td>
+            <td><strong>{{ category.supplier_path ?: category.supplier_name }}</strong></td>
+            <td>
+              {% if category.id_category %}
+                {{ category.id_category }} - {{ category.prestashop_category_path ?: category.prestashop_category_name ?: 'Unknown category' }}
+              {% else %}
+                <span class="badge badge-warning">{{ 'Not mapped'|trans({}, 'Modules.Matterhornimport.Admin') }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if category.active %}
+                <span class="badge badge-success">{{ 'Yes'|trans({}, 'Admin.Global') }}</span>
+              {% else %}
+                <span class="badge badge-secondary">{{ 'No'|trans({}, 'Admin.Global') }}</span>
+              {% endif %}
+            </td>
+            <td class="text-right">
+              <a class="btn btn-sm btn-outline-primary" href="{{ path('matterhorn_import_category_edit', {supplierKey: category.supplier_key}) }}">
+                <i class="material-icons">edit</i>
+                {{ 'Edit'|trans({}, 'Admin.Actions') }}
+              </a>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="5" class="text-center text-muted py-4">
+              {{ 'No Matterhorn supplier categories synchronized yet. Click "Synchronize categories from XML" first.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
