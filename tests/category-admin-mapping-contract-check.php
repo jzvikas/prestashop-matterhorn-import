@@ -1,7 +1,9 @@
 <?php
 $root = dirname(__DIR__);
 $files = [
+    'reader' => file_get_contents($root . '/src/Category/CategoryPathReader.php'),
     'repository' => file_get_contents($root . '/src/Repository/CategoryMappingRepository.php'),
+    'auto_mapper' => file_get_contents($root . '/src/Category/CategoryAutoMapper.php'),
     'sync' => file_get_contents($root . '/src/Category/CategoryCatalogSynchronizer.php'),
     'manager' => file_get_contents($root . '/src/Category/CategoryMappingManager.php'),
     'controller' => file_get_contents($root . '/src/Controller/CategoryController.php'),
@@ -16,11 +18,16 @@ foreach ($files as $name => $content) {
 }
 
 $checks = [
+    ['reader', 'ORDER BY leaf.id_category,parent.nleft,parent.id_category'],
+    ['reader', "implode(' > ', \$parts)"],
     ['repository', 'findAll('],
     ['repository', 'findUnmapped('],
     ['repository', 'updateMapping('],
     ['repository', 'assertCategoryInShop('],
+    ['repository', 'CategoryPathReader'],
     ['repository', 'ON DUPLICATE KEY UPDATE `supplier_parent_key`=VALUES(`supplier_parent_key`)'],
+    ['auto_mapper', 'CategoryPathReader'],
+    ['auto_mapper', 'Ambiguous exact category path'],
     ['sync', 'SourceInterface'],
     ['sync', 'synchronize(int $shopId)'],
     ['sync', 'Conflicting Matterhorn category metadata'],
@@ -30,6 +37,7 @@ $checks = [
     ['controller', 'matterhorn_category_sync'],
     ['controller', 'matterhorn_category_auto_map'],
     ['controller', 'matterhorn_category_auto_create'],
+    ['form', 'CategoryPathReader'],
     ['form', 'form_theme'],
     ['form', 'PrestaShop category'],
     ['routes', 'matterhorn_import_categories:'],
@@ -46,6 +54,11 @@ foreach ($checks as [$file, $needle]) {
     }
 }
 
+foreach (['reader', 'repository', 'auto_mapper', 'form'] as $file) {
+    if (stripos($files[$file], 'GROUP_CONCAT') !== false) {
+        throw new RuntimeException('Category path logic must not depend on GROUP_CONCAT: ' . $file);
+    }
+}
 if (str_contains($files['repository'], '`active`=VALUES(`active`)')) {
     throw new RuntimeException('Supplier metadata refresh must not re-enable a manually disabled category mapping');
 }
