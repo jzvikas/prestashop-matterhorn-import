@@ -5,6 +5,16 @@ chdir('/var/www/html');
 require 'config/config.inc.php';
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
+use Lp\MatterhornImport\Category\CategoryAutoMapper;
+use Lp\MatterhornImport\Category\CategoryCatalogSynchronizer;
+use Lp\MatterhornImport\Category\CategoryMappingManager;
+use Lp\MatterhornImport\Category\CategoryPathReader;
+use Lp\MatterhornImport\Matterhorn\MatterhornCategoryPathNormalizer;
+use Lp\MatterhornImport\Repository\CategoryMappingRepository;
+use Lp\MatterhornImport\Source\MatterhornXmlSource;
+use Lp\MatterhornImport\Util\ItemTransactionGuard;
+use Lp\MatterhornImport\Util\ShopContextManager;
+
 function domainAssert(bool $condition, string $message): void
 {
     if (!$condition) { throw new RuntimeException($message); }
@@ -65,6 +75,26 @@ function copyRuntimeFeed(string $fixture): void
     }
 }
 
+function prepareRuntimeCategoryMappings(int $shopId): void
+{
+    $pathReader = new CategoryPathReader();
+    $repository = new CategoryMappingRepository($pathReader);
+    $normalizer = new MatterhornCategoryPathNormalizer();
+    $source = new MatterhornXmlSource('/tmp/matterhorn-domain.xml');
+    $synchronizer = new CategoryCatalogSynchronizer($source, $normalizer, $repository);
+    $synchronizer->synchronize($shopId);
+
+    $autoMapper = new CategoryAutoMapper(
+        $repository,
+        new ShopContextManager(),
+        new ItemTransactionGuard(),
+        $pathReader
+    );
+    $manager = new CategoryMappingManager($repository, $autoMapper);
+    $result = $manager->createAndMapMissing($shopId);
+    domainAssert(($result['mapped'] ?? 0) > 0, 'Explicit Category mapping setup did not create/map supplier categories');
+}
+
 function freshStockQuantity(int $productId, int $attributeId, int $shopId): int
 {
     // The lifecycle invokes Matterhorn through separate bin/console processes. PrestaShop's
@@ -88,7 +118,6 @@ $groupId = (int) $shop->id_shop_group;
 foreach ([
     'MATTERHORNIMPORT_SOURCE_FILE' => '/tmp/matterhorn-domain.xml',
     'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID' => (string) $languageId,
-    'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE' => '1',
     'MATTERHORNIMPORT_FEATURE_AUTO_CREATE' => '1',
     'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME' => 'Runtime Size',
     'MATTERHORNIMPORT_MAX_REMOVE_PERCENT' => '100',
@@ -98,6 +127,7 @@ foreach ([
 
 $table = _DB_PREFIX_ . 'li_matterhornim_99dfbf_';
 copyRuntimeFeed('matterhorn-sample.xml');
+prepareRuntimeCategoryMappings(1);
 $createOutput = runMatterhornConsole(['matterhornimport:run','--shop=1','--batch=10','--max-items=100','--time-limit=120','--json']);
 $createRun = (int) $db->getValue("SELECT id_run FROM `{$table}run` WHERE id_shop=1 AND source='matterhorn' ORDER BY id_run DESC", false);
 domainAssert($createRun > 0, 'CREATE run missing');
