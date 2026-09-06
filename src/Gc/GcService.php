@@ -25,6 +25,9 @@ final class GcService
         if ($keepRunId < 0 || $imageDays < 0 || $newProductDays < 0 || $chunk < 1 || $maxRows < 0 || $timeLimitSeconds < 0) {
             throw new \InvalidArgumentException('Invalid GC execution limits');
         }
+        if ($maxRows === 0 && $timeLimitSeconds === 0) {
+            throw new \InvalidArgumentException('GC requires a positive --max-rows or --time-limit bound');
+        }
         if ($shopId !== null && $shopId <= 0) { throw new \InvalidArgumentException('GC shop ID must be positive'); }
         $source = trim($this->sourceAdapter->name());
         if ($source === '') { throw new \RuntimeException('GC source name is empty'); }
