@@ -9,7 +9,6 @@ final class ConfigurationFormDataProvider implements FormDataProviderInterface
 {
     public const SOURCE_LOCATION = 'source_location';
     public const SOURCE_LANGUAGE_ID = 'source_language_id';
-    public const CATEGORY_AUTO_CREATE = 'category_auto_create';
     public const FEATURE_AUTO_CREATE = 'feature_auto_create';
     public const SIZE_ATTRIBUTE_GROUP = 'size_attribute_group';
     public const MAX_REMOVE_PERCENT = 'max_remove_percent';
@@ -41,7 +40,6 @@ final class ConfigurationFormDataProvider implements FormDataProviderInterface
         $data = [
             self::SOURCE_LOCATION => (string) \Configuration::get('MATTERHORNIMPORT_SOURCE_FILE', null, $shopGroupId, $shopId),
             self::SOURCE_LANGUAGE_ID => $sourceLanguageId,
-            self::CATEGORY_AUTO_CREATE => $this->boolConfig('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', $shopGroupId, $shopId, true),
             self::FEATURE_AUTO_CREATE => $this->boolConfig('MATTERHORNIMPORT_FEATURE_AUTO_CREATE', $shopGroupId, $shopId, true),
             self::SIZE_ATTRIBUTE_GROUP => (string) \Configuration::get('MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME', null, $shopGroupId, $shopId),
             self::MAX_REMOVE_PERCENT => (int) \Configuration::get('MATTERHORNIMPORT_MAX_REMOVE_PERCENT', null, $shopGroupId, $shopId),
@@ -80,7 +78,6 @@ final class ConfigurationFormDataProvider implements FormDataProviderInterface
                 throw new \InvalidArgumentException('Source language must belong to the selected shop.');
             }
 
-            $categoryAutoCreate = !empty($data[self::CATEGORY_AUTO_CREATE]);
             $featureAutoCreate = !empty($data[self::FEATURE_AUTO_CREATE]);
             $sizeGroup = trim((string) ($data[self::SIZE_ATTRIBUTE_GROUP] ?? ''));
             if ($sizeGroup === '' || strlen($sizeGroup) > 64) {
@@ -105,7 +102,6 @@ final class ConfigurationFormDataProvider implements FormDataProviderInterface
             $writes = [
                 'MATTERHORNIMPORT_SOURCE_FILE' => $source,
                 'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID' => (string) $sourceLanguageId,
-                'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE' => $categoryAutoCreate ? '1' : '0',
                 'MATTERHORNIMPORT_FEATURE_AUTO_CREATE' => $featureAutoCreate ? '1' : '0',
                 'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME' => $sizeGroup,
                 'MATTERHORNIMPORT_MAX_REMOVE_PERCENT' => (string) $maxRemove,
