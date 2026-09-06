@@ -30,8 +30,8 @@ final class NewProductsEnqueueCommand extends Command
         $this->addOption('run', null, InputOption::VALUE_REQUIRED)
             ->addOption('shop', null, InputOption::VALUE_REQUIRED)
             ->addOption('batch', null, InputOption::VALUE_REQUIRED, 'Snapshot page size', '500')
-            ->addOption('max-items', null, InputOption::VALUE_REQUIRED, 'Maximum rows enqueued this invocation; 0 = unlimited', (string) self::DEFAULT_MAX_ITEMS)
-            ->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Soft execution limit in seconds; 0 = unlimited', (string) self::DEFAULT_TIME_LIMIT);
+            ->addOption('max-items', null, InputOption::VALUE_REQUIRED, 'Maximum rows enqueued this invocation; 0 disables only this bound', (string) self::DEFAULT_MAX_ITEMS)
+            ->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'Soft execution limit in seconds; 0 disables only this bound; at least one execution bound must stay positive', (string) self::DEFAULT_TIME_LIMIT);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -41,6 +41,9 @@ final class NewProductsEnqueueCommand extends Command
         $batch = CommandInput::positiveInt($input->getOption('batch'), '--batch', 2000);
         $maxItems = CommandInput::nonNegativeInt($input->getOption('max-items'), '--max-items', 1000000000);
         $timeLimit = CommandInput::nonNegativeInt($input->getOption('time-limit'), '--time-limit', 86400);
+        if ($maxItems === 0 && $timeLimit === 0) {
+            throw new \InvalidArgumentException('New-product enqueue requires a positive --max-items or --time-limit bound');
+        }
         $source = $this->source->name();
         $run = $this->runs->assertContext($runId, $shopId, $source);
         $this->runs->assertLatestCompletedReadGeneration($runId, $shopId, $source);
