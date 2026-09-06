@@ -15,8 +15,6 @@ final class CategoryAutoMapper
     private array $pathMap = [];
     /** @var array<int,array<int,array<string,int>>> */
     private array $childMap = [];
-    /** @var array<int,array<string,string>> */
-    private array $preparedMetadata = [];
     /** @var array<string,bool> */
     private array $availabilityCache = [];
 
@@ -31,13 +29,16 @@ final class CategoryAutoMapper
     {
         if (!array_key_exists('categories', $data->extra)) { return; }
         $this->shopContext->activate($shopId);
+
         foreach ((array) $data->extra['categories'] as $raw) {
             if (!is_array($raw)) { continue; }
+
             $key = trim((string) ($raw['key'] ?? ''));
             $name = trim((string) ($raw['name'] ?? ''));
             $parentKey = isset($raw['parent_key']) ? trim((string) $raw['parent_key']) : null;
             $path = trim((string) ($raw['path'] ?? ''));
             if ($key === '') { continue; }
+
             if ($name === '' && $path !== '') {
                 $parts = $this->splitPath($path);
                 $name = $parts === [] ? $key : (string) end($parts);
@@ -45,25 +46,52 @@ final class CategoryAutoMapper
             if ($name === '') { $name = $key; }
             if ($path === '') { $path = $name; }
 
-            $metadataFingerprint = hash('xxh3', json_encode([
-                'name' => $name,
-                'parent_key' => $parentKey ?: null,
-                'path' => $path,
-            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            $previousFingerprint = $this->preparedMetadata[$shopId][$key] ?? null;
-            if ($previousFingerprint !== null && !hash_equals($previousFingerprint, $metadataFingerprint)) {
-                throw new \RuntimeException('Conflicting Matterhorn category metadata for supplier key ' . $key);
+            /*
+             * Category id/key is the supplier identity. Matterhorn can emit
+             * different descriptive name/path metadata for that same key.
+             * Never fail product import because descriptive metadata differs.
+             *
+             * CategoryCatalogSynchronizer chooses the canonical feed metadata.
+             * During import we preserve that stored canonical metadata instead
+             * of letting later product rows overwrite or contradict it.
+             */
+            $stored = $this->mapping->findOne($shopId, $key);
+            if ($stored === null) {
+                $this->mapping->upsertMetadata(
+                    $shopId,
+                    $key,
+                    $name,
+                    $parentKey ?: null,
+                    $path,
+                    true
+                );
+                $stored = $this->mapping->findOne($shopId, $key);
             }
-            if ($previousFingerprint === null) {
-                $this->mapping->upsertMetadata($shopId, $key, $name, $parentKey ?: null, $path, true);
-                $this->preparedMetadata[$shopId][$key] = $metadataFingerprint;
+
+            if (is_array($stored)) {
+                // A manually disabled category must never be silently re-enabled.
+                if ((int) ($stored['active'] ?? 0) !== 1) {
+                    continue;
+                }
+
+                $storedName = trim((string) ($stored['supplier_name'] ?? ''));
+                $storedPath = trim((string) ($stored['supplier_path'] ?? ''));
+                if ($storedName !== '') { $name = $storedName; }
+                if ($storedPath !== '') { $path = $storedPath; }
             }
 
             $current = $this->mapping->resolveActiveCategoryIds([$key], $shopId)[$key] ?? 0;
-            if ($current > 0 && $this->categoryExistsInShop($current, $shopId)) { continue; }
+            if ($current > 0 && $this->categoryExistsInShop($current, $shopId)) {
+                continue;
+            }
+
             $normalizedPath = $this->normalizePath($path);
             $categoryId = $this->pathMap($shopId)[$normalizedPath] ?? 0;
-            if ($categoryId <= 0 && !empty($raw['auto_create'])) { $categoryId = $this->createPath($path, $shopId); }
+
+            if ($categoryId <= 0 && !empty($raw['auto_create'])) {
+                $categoryId = $this->createPath($path, $shopId);
+            }
+
             if ($categoryId > 0) {
                 $this->availabilityCache[$this->availabilityKey($shopId, $categoryId)] = true;
                 $this->mapping->assign($shopId, $key, $categoryId, true);
@@ -76,16 +104,20 @@ final class CategoryAutoMapper
     {
         if (isset($this->pathMap[$shopId])) { return $this->pathMap[$shopId]; }
         $map = [];
+
         foreach ($this->pathReader->paths($shopId, $this->languageId($shopId)) as $id => $rawPath) {
             $path = $this->normalizePath($rawPath);
             if ($path === '' || $id <= 0) { continue; }
+
             if (isset($map[$path]) && $map[$path] !== $id) {
                 $map[$path] = -1;
                 continue;
             }
+
             $map[$path] = $id;
             $this->availabilityCache[$this->availabilityKey($shopId, $id)] = true;
         }
+
         return $this->pathMap[$shopId] = $map;
     }
 
@@ -93,15 +125,24 @@ final class CategoryAutoMapper
     {
         $parts = $this->splitPath($path);
         if ($parts === []) { return 0; }
+
         $db = \Db::getInstance();
         $parentId = $this->homeCategoryId($shopId);
         $built = [];
+
         foreach ($parts as $part) {
             $built[] = $part;
             $normalized = $this->normalizePath(implode(' > ', $built));
             $existing = $this->pathMap($shopId)[$normalized] ?? 0;
-            if ($existing < 0) { throw new \RuntimeException('Ambiguous exact category path: ' . implode(' > ', $built)); }
-            if ($existing > 0) { $parentId = $existing; continue; }
+
+            if ($existing < 0) {
+                throw new \RuntimeException('Ambiguous exact category path: ' . implode(' > ', $built));
+            }
+            if ($existing > 0) {
+                $parentId = $existing;
+                continue;
+            }
+
             $existing = $this->findChildCategoryId($parentId, $part, $shopId);
             if ($existing > 0) {
                 $parentId = $existing;
@@ -112,8 +153,10 @@ final class CategoryAutoMapper
 
             $lockedParentId = $parentId;
             $lock = $this->acquireLock($db, $shopId, $lockedParentId, $part);
+
             try {
                 unset($this->childMap[$shopId][$lockedParentId]);
+
                 $existing = $this->findChildCategoryId($lockedParentId, $part, $shopId);
                 if ($existing > 0) {
                     $parentId = $existing;
@@ -128,15 +171,24 @@ final class CategoryAutoMapper
                 $category->id_shop_list = [$shopId];
                 $category->active = true;
                 $category->is_root_category = false;
+
                 $rewrite = trim((string) \Tools::str2url($part));
-                if ($rewrite === '') { $rewrite = 'category-' . substr(hash('sha256', $lockedParentId . '|' . $part), 0, 12); }
+                if ($rewrite === '') {
+                    $rewrite = 'category-' . substr(hash('sha256', $lockedParentId . '|' . $part), 0, 12);
+                }
+
                 foreach (\Language::getLanguages(false, $shopId) as $language) {
                     $idLang = (int) ($language['id_lang'] ?? 0);
                     if ($idLang <= 0) { continue; }
+
                     $category->name[$idLang] = mb_substr($part, 0, 128, 'UTF-8');
                     $category->link_rewrite[$idLang] = $rewrite;
                 }
-                if (!$category->add() || (int) $category->id <= 0) { throw new \RuntimeException('Could not create category path segment: ' . $part); }
+
+                if (!$category->add() || (int) $category->id <= 0) {
+                    throw new \RuntimeException('Could not create category path segment: ' . $part);
+                }
+
                 $this->transactionGuard->restoreAfterExternalCommit();
                 $parentId = (int) $category->id;
                 $this->pathMap[$shopId][$normalized] = $parentId;
@@ -146,6 +198,7 @@ final class CategoryAutoMapper
                 $this->releaseLock($db, $lock);
             }
         }
+
         return $parentId;
     }
 
@@ -153,45 +206,73 @@ final class CategoryAutoMapper
     {
         $normalized = $this->normalizeSegment($name);
         if ($normalized === '') { return 0; }
+
         if (!isset($this->childMap[$shopId][$parentId])) {
             $rows = \Db::getInstance()->executeS(sprintf(
                 "SELECT c.id_category,cl.name FROM `%scategory` c INNER JOIN `%scategory_shop` cs ON cs.id_category=c.id_category AND cs.id_shop=%d " .
                 "INNER JOIN `%scategory_lang` cl ON cl.id_category=c.id_category AND cl.id_lang=%d AND cl.id_shop=%d WHERE c.id_parent=%d ORDER BY c.id_category",
-                _DB_PREFIX_, _DB_PREFIX_, $shopId, _DB_PREFIX_, $this->languageId($shopId), $shopId, $parentId
+                _DB_PREFIX_,
+                _DB_PREFIX_,
+                $shopId,
+                _DB_PREFIX_,
+                $this->languageId($shopId),
+                $shopId,
+                $parentId
             ), true, false) ?: [];
+
             $children = [];
             foreach ($rows as $row) {
                 $childName = $this->normalizeSegment((string) ($row['name'] ?? ''));
                 $childId = (int) ($row['id_category'] ?? 0);
                 if ($childName === '' || $childId <= 0) { continue; }
+
                 if (isset($children[$childName]) && $children[$childName] !== $childId) {
                     $children[$childName] = -1;
                     continue;
                 }
+
                 $children[$childName] = $childId;
             }
+
             $this->childMap[$shopId][$parentId] = $children;
         }
+
         $id = $this->childMap[$shopId][$parentId][$normalized] ?? 0;
-        if ($id < 0) { throw new \RuntimeException('Ambiguous exact category child name under parent #' . $parentId . ': ' . $name); }
+        if ($id < 0) {
+            throw new \RuntimeException(
+                'Ambiguous exact category child name under parent #' . $parentId . ': ' . $name
+            );
+        }
+
         return $id;
     }
 
     private function categoryExistsInShop(int $categoryId, int $shopId): bool
     {
         $cacheKey = $this->availabilityKey($shopId, $categoryId);
-        if (array_key_exists($cacheKey, $this->availabilityCache)) { return $this->availabilityCache[$cacheKey]; }
+        if (array_key_exists($cacheKey, $this->availabilityCache)) {
+            return $this->availabilityCache[$cacheKey];
+        }
+
         $category = new \Category($categoryId, $this->languageId($shopId), $shopId);
-        return $this->availabilityCache[$cacheKey] = \Validate::isLoadedObject($category) && $category->existsInShop($shopId);
+
+        return $this->availabilityCache[$cacheKey] =
+            \Validate::isLoadedObject($category) && $category->existsInShop($shopId);
     }
 
-    private function availabilityKey(int $shopId, int $categoryId): string { return $shopId . ':' . $categoryId; }
+    private function availabilityKey(int $shopId, int $categoryId): string
+    {
+        return $shopId . ':' . $categoryId;
+    }
 
     private function homeCategoryId(int $shopId): int
     {
         $id = (int) \Configuration::get('PS_HOME_CATEGORY', null, null, $shopId);
         if ($id <= 0) { $id = (int) \Configuration::get('PS_HOME_CATEGORY'); }
-        if ($id <= 0 || !\Category::categoryExists($id)) { throw new \RuntimeException('Could not resolve target-shop home category'); }
+        if ($id <= 0 || !\Category::categoryExists($id)) {
+            throw new \RuntimeException('Could not resolve target-shop home category');
+        }
+
         return $id;
     }
 
@@ -199,7 +280,10 @@ final class CategoryAutoMapper
     {
         $id = (int) \Configuration::get('PS_LANG_DEFAULT', null, null, $shopId);
         if ($id <= 0) { $id = (int) \Configuration::get('PS_LANG_DEFAULT'); }
-        if ($id <= 0) { throw new \RuntimeException('Could not resolve target-shop language for category mapping'); }
+        if ($id <= 0) {
+            throw new \RuntimeException('Could not resolve target-shop language for category mapping');
+        }
+
         return $id;
     }
 
@@ -207,30 +291,62 @@ final class CategoryAutoMapper
     {
         $scope = $shopId . ':' . $parentId . ':' . $this->normalizeSegment($name);
         $lock = 'lpimp:cat:' . substr(hash('sha256', $scope), 0, 40);
-        if ((int) $db->getValue("SELECT GET_LOCK('" . pSQL($lock) . "'," . self::LOCK_TIMEOUT_SECONDS . ')', false) !== 1) {
+
+        if ((int) $db->getValue(
+            "SELECT GET_LOCK('" . pSQL($lock) . "'," . self::LOCK_TIMEOUT_SECONDS . ')',
+            false
+        ) !== 1) {
             throw new \RuntimeException('Could not acquire category path resolver lock');
         }
+
         return $lock;
     }
 
     private function releaseLock(\Db $db, string $lock): void
     {
-        try { $db->getValue("SELECT RELEASE_LOCK('" . pSQL($lock) . "')", false); } catch (\Throwable) {}
+        try {
+            $db->getValue("SELECT RELEASE_LOCK('" . pSQL($lock) . "')", false);
+        } catch (\Throwable) {
+        }
     }
 
     /** @return list<string> */
     private function splitPath(string $path): array
     {
         $parts = preg_split('/\s*>\s*/u', trim($path)) ?: [];
-        $parts = array_values(array_filter(array_map(static fn(string $part): string => trim(ltrim(trim($part), '@')), $parts), static fn(string $part): bool => $part !== ''));
-        if (count($parts) > self::MAX_PATH_DEPTH) { throw new \InvalidArgumentException('Category path depth exceeds operational limit of ' . self::MAX_PATH_DEPTH); }
+        $parts = array_values(array_filter(
+            array_map(
+                static fn(string $part): string => trim(ltrim(trim($part), '@')),
+                $parts
+            ),
+            static fn(string $part): bool => $part !== ''
+        ));
+
+        if (count($parts) > self::MAX_PATH_DEPTH) {
+            throw new \InvalidArgumentException(
+                'Category path depth exceeds operational limit of ' . self::MAX_PATH_DEPTH
+            );
+        }
+
         return $parts;
     }
-    private function normalizePath(string $path): string { return implode(' > ', array_map(fn(string $part): string => $this->normalizeSegment($part), $this->splitPath($path))); }
+
+    private function normalizePath(string $path): string
+    {
+        return implode(
+            ' > ',
+            array_map(
+                fn(string $part): string => $this->normalizeSegment($part),
+                $this->splitPath($path)
+            )
+        );
+    }
+
     private function normalizeSegment(string $value): string
     {
         $value = mb_strtolower(trim(ltrim(trim($value), '@')), 'UTF-8');
         $value = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value) ?? $value;
+
         return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
     }
 }
