@@ -97,6 +97,32 @@ final class SnapshotRepository
         return \Db::getInstance()->executeS('SELECT s.source_key,s.payload,m.id_product' . $where . " AND s.source_key<='" . pSQL((string) $window['last']) . "' ORDER BY s.source_key LIMIT " . (int) $window['count'], true, false) ?: [];
     }
 
+    /** @param list<string> $sourceKeys @return list<string> */
+    public function imageManifestSourceKeysForSourceKeys(int $runId, int $shopId, string $source, array $sourceKeys): array
+    {
+        $keys = array_values(array_unique(array_filter(
+            array_map(static fn(mixed $key): string => trim((string) $key), $sourceKeys),
+            static fn(string $key): bool => $key !== ''
+        )));
+        if ($keys === []) { return []; }
+        if (count($keys) > 5000) { throw new \InvalidArgumentException('Image manifest availability lookup exceeds bounded key limit'); }
+
+        $found = [];
+        foreach (array_chunk($keys, 500) as $chunk) {
+            $quoted = implode(',', array_map(static fn(string $key): string => "'" . pSQL($key) . "'", $chunk));
+            $rows = \Db::getInstance()->executeS(sprintf(
+                "SELECT s.source_key FROM `%s%s` s INNER JOIN `%s%s` m ON m.id_shop=%d AND m.source='%s' AND m.source_key=s.source_key WHERE s.id_run=%d AND s.source_key IN (%s) ORDER BY s.source_key",
+                _DB_PREFIX_, self::TABLE, _DB_PREFIX_, self::MAPPING_TABLE, $shopId, pSQL($source), $runId, $quoted
+            ), true, false) ?: [];
+            foreach ($rows as $row) {
+                $key = trim((string) ($row['source_key'] ?? ''));
+                if ($key !== '') { $found[$key] = $key; }
+            }
+        }
+        ksort($found, SORT_STRING);
+        return array_values($found);
+    }
+
     /** @param list<string> $sourceKeys @return list<array<string,mixed>> */
     public function imageManifestRowsForSourceKeys(int $runId, int $shopId, string $source, array $sourceKeys, int $limit = 500): array
     {
