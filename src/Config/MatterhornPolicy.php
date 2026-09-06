@@ -5,10 +5,10 @@ final class MatterhornPolicy
 {
     private const PRESTASHOP_GENERIC_TEXT_PATTERN = '/^[^<>{}]*$/u';
 
-    /** @var array<int,array{source_language_id:int,category_auto_create:bool,feature_auto_create:bool,size_attribute_group_name:string}> */
+    /** @var array<int,array{source_language_id:int,feature_auto_create:bool,size_attribute_group_name:string}> */
     private array $cache = [];
 
-    /** @return array{source_language_id:int,category_auto_create:bool,feature_auto_create:bool,size_attribute_group_name:string} */
+    /** @return array{source_language_id:int,feature_auto_create:bool,size_attribute_group_name:string} */
     public function current(): array
     {
         if (!class_exists('Context', false) || !class_exists('Configuration', false) || !class_exists('Shop', false)) {
@@ -25,7 +25,7 @@ final class MatterhornPolicy
         }
     }
 
-    /** @return array{source_language_id:int,category_auto_create:bool,feature_auto_create:bool,size_attribute_group_name:string} */
+    /** @return array{source_language_id:int,feature_auto_create:bool,size_attribute_group_name:string} */
     public function snapshot(int $shopId, bool $refresh = false): array
     {
         if ($shopId <= 0) { throw new \InvalidArgumentException('Matterhorn policy requires a positive shop ID'); }
@@ -55,7 +55,6 @@ final class MatterhornPolicy
 
         return $this->cache[$shopId] = [
             'source_language_id' => $languageId,
-            'category_auto_create' => $this->boolConfig('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE', $groupId, $shopId, true),
             'feature_auto_create' => $this->boolConfig('MATTERHORNIMPORT_FEATURE_AUTO_CREATE', $groupId, $shopId, true),
             'size_attribute_group_name' => $sizeGroup,
         ];
@@ -95,12 +94,11 @@ final class MatterhornPolicy
         return (int) $raw !== 0;
     }
 
-    /** @return array{source_language_id:int,category_auto_create:bool,feature_auto_create:bool,size_attribute_group_name:string} */
+    /** @return array{source_language_id:int,feature_auto_create:bool,size_attribute_group_name:string} */
     private function defaults(): array
     {
         return [
             'source_language_id' => 0,
-            'category_auto_create' => true,
             'feature_auto_create' => true,
             'size_attribute_group_name' => 'Size',
         ];
