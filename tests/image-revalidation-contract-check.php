@@ -46,7 +46,7 @@ $checks = [
     [$state, "q.status<>'done'", 'revalidation avoids unresolved image work for the same source owner'],
     [$state, 'ORDER BY s.updated_at ASC,s.source_key ASC LIMIT %d', 'stale scan must stop on ordered index range'],
     [$snapshots, 'function imageManifestSourceKeysForSourceKeys', 'bounded manifest availability lookup'],
-    [$snapshots, "if (count($keys) > 5000)", 'availability lookup hard key cap'],
+    [$snapshots, 'if (count($keys) > 5000)', 'availability lookup hard key cap'],
     [$snapshots, 'array_chunk($keys, 500)', 'availability lookup must chunk SQL IN lists'],
     [$snapshots, 'function imageManifestRowsForSourceKeys', 'bounded keyed manifest lookup'],
     [$snapshots, 'MAX_FETCH_PAYLOAD_BYTES', 'manifest payload memory bound'],
