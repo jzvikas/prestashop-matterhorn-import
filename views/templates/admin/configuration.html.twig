@@ -13,10 +13,16 @@
             <i class="material-icons">settings</i>
             {{ 'Matterhorn Wholesale Import settings'|trans({}, 'Modules.Matterhornimport.Admin') }}
           </span>
-          <a class="btn btn-outline-primary btn-sm" href="{{ path('matterhorn_import_categories') }}">
-            <i class="material-icons">account_tree</i>
-            {{ 'Category mapping'|trans({}, 'Modules.Matterhornimport.Admin') }}
-          </a>
+          <span>
+            <a class="btn btn-outline-success btn-sm" href="{{ path('matterhorn_import_ajax') }}">
+              <i class="material-icons">sync</i>
+              {{ 'AJAX import'|trans({}, 'Modules.Matterhornimport.Admin') }}
+            </a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ path('matterhorn_import_categories') }}">
+              <i class="material-icons">account_tree</i>
+              {{ 'Category mapping'|trans({}, 'Modules.Matterhornimport.Admin') }}
+            </a>
+          </span>
         </h3>
         <div class="card-body">
           {{ form_row(configurationForm.source_location) }}
