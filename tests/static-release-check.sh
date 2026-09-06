@@ -2,6 +2,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 php -r 'if (PHP_VERSION_ID < 80400) { fwrite(STDERR, "PHP 8.4+ required\n"); exit(1); }'
+
+legacy_autoload_refs="$(grep -RIl --include='*.php' "dirname(__DIR__) . '/autoload.php'" tests || true)"
+if [[ -n "$legacy_autoload_refs" ]]; then
+  printf 'Legacy root autoload references are forbidden; use vendor/autoload.php:\n%s\n' "$legacy_autoload_refs" >&2
+  exit 1
+fi
+
 while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find . -path './vendor' -prune -o -name '*.php' -print0)
 bash tests/prestashop-db-single-row-limit-check.sh
 php tests/matterhorn-parser-mapper-check.php
