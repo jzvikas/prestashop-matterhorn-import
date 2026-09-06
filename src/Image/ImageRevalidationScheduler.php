@@ -54,14 +54,24 @@ final class ImageRevalidationScheduler
                 ];
             }
 
+            // Prove every stale owner still has a latest-run snapshot+mapping row before applying
+            // the payload window. Otherwise a missing key that sorts after the last returned payload
+            // row is indistinguishable from a legitimate payload-window deferral and can defer forever.
+            $availableKeys = $this->snapshots->imageManifestSourceKeysForSourceKeys($runId, $shopId, $source, $keys);
+            $available = array_fill_keys($availableKeys, true);
+            foreach ($keys as $key) {
+                if (!isset($available[$key])) {
+                    throw new \RuntimeException('Stale image state is missing from latest-run snapshot manifest: ' . $key);
+                }
+            }
+
             $rows = $this->snapshots->imageManifestRowsForSourceKeys($runId, $shopId, $source, $keys, $limit);
             if ($rows === []) {
                 throw new \RuntimeException('Stale image states have no matching latest-run snapshot manifest');
             }
 
-            // imageManifestRowsForSourceKeys is source-key ordered and can stop early only because
-            // of the bounded payload window. Missing requested keys at or before the returned cursor
-            // are therefore integrity errors, while greater keys are legitimately deferred.
+            // imageManifestRowsForSourceKeys is source-key ordered and, after the availability
+            // preflight above, can stop early only because of the bounded payload window.
             $returnedKeys = [];
             $lastReturnedKey = '';
             foreach ($rows as $row) {
