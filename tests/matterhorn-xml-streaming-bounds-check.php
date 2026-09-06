@@ -39,7 +39,9 @@ function expectStreamFailure(string $body, string $needle): void
 }
 
 $sourceCode = (string) file_get_contents(dirname(__DIR__) . '/src/Source/MatterhornXmlSource.php');
-streamingCheck(str_contains($sourceCode, 'XmlStringStreamer::createUniqueNodeParser'), 'Matterhorn source must use prewk unique-node streaming');
+streamingCheck(str_contains($sourceCode, 'new UniqueNode('), 'Matterhorn source must use the Prewk UniqueNode parser');
+streamingCheck(str_contains($sourceCode, 'new XmlStringStreamer('), 'Matterhorn source must use the Prewk XmlStringStreamer runtime');
+streamingCheck(str_contains($sourceCode, 'new FileStream('), 'Matterhorn source must use the Prewk file stream');
 streamingCheck(str_contains($sourceCode, "'uniqueNode' => 'product'"), 'prewk streamer must target product nodes');
 streamingCheck(str_contains($sourceCode, 'simplexml_load_string'), 'each complete product fragment must be parsed independently with SimpleXML');
 streamingCheck(!str_contains($sourceCode, 'new \\XMLReader()'), 'main Matterhorn product parser must not use XMLReader');
