@@ -24,6 +24,7 @@ php tests/category-path-read-bound-check.php
 php tests/category-hierarchy-live-fence-check.php
 php tests/category-admin-mapping-contract-check.php
 php tests/category-trailing-eof-hotfix-check.php
+php tests/admin-ajax-import-contract-check.php
 php tests/category-auto-create-retirement-contract-check.php
 php tests/matterhorn-stock-bound-check.php
 php tests/matterhorn-price-bound-check.php
@@ -55,7 +56,7 @@ php tests/image-pipeline-worker-contract-check.php
 php tests/image-curl-options-fail-closed-check.php
 php tests/image-failure-classifier-check.php
 php tests/image-queue-batch-lease-contract-check.php
-php tests/image-authoritative-manifest-queue-fence-check.php
+php tests/image-authoritative-manifest-queue-fence-contract-check.php
 php tests/image-out-of-feed-active-owner-fence-check.php
 php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
