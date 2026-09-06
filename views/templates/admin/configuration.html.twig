@@ -6,9 +6,15 @@
       {{ form_start(configurationForm) }}
 
       <div class="card mb-3">
-        <h3 class="card-header">
-          <i class="material-icons">settings</i>
-          {{ 'Matterhorn Wholesale Import settings'|trans({}, 'Modules.Matterhornimport.Admin') }}
+        <h3 class="card-header d-flex justify-content-between align-items-center">
+          <span>
+            <i class="material-icons">settings</i>
+            {{ 'Matterhorn Wholesale Import settings'|trans({}, 'Modules.Matterhornimport.Admin') }}
+          </span>
+          <a class="btn btn-outline-primary btn-sm" href="{{ path('matterhorn_import_categories') }}">
+            <i class="material-icons">account_tree</i>
+            {{ 'Category mapping'|trans({}, 'Modules.Matterhornimport.Admin') }}
+          </a>
         </h3>
         <div class="card-body">
           {{ form_row(configurationForm.source_location) }}
