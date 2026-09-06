@@ -1,6 +1,7 @@
 <?php
 namespace Lp\MatterhornImport\Form;
 
+use Lp\MatterhornImport\Category\CategoryPathReader;
 use PrestaShopBundle\Form\Admin\Type\SwitchType;
 use PrestaShopBundle\Form\Admin\Type\TranslatorAwareType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
@@ -45,25 +46,12 @@ final class CategoryMappingFormType extends TranslatorAwareType
         $langId = (int) ($context->language->id ?? 0);
         if ($shopId <= 0 || $langId <= 0) { return []; }
 
-        $shop = \Shop::getShop($shopId);
-        $rootId = is_array($shop) ? (int) ($shop['id_category'] ?? 0) : 0;
-        if ($rootId <= 0) { $rootId = (int) \Configuration::get('PS_ROOT_CATEGORY', null, null, $shopId); }
-        $homeId = (int) \Configuration::get('PS_HOME_CATEGORY', null, null, $shopId);
-        if ($homeId <= 0) { $homeId = (int) \Configuration::get('PS_HOME_CATEGORY'); }
-
-        $rows = \Db::getInstance()->executeS(sprintf(
-            "SELECT leaf.id_category,GROUP_CONCAT(pl.name ORDER BY parent.nleft SEPARATOR ' > ') AS category_path FROM `%1\$scategory` leaf INNER JOIN `%1\$scategory_shop` cs ON cs.id_category=leaf.id_category AND cs.id_shop=%2\$d INNER JOIN `%1\$scategory` parent ON leaf.nleft BETWEEN parent.nleft AND parent.nright INNER JOIN `%1\$scategory_lang` pl ON pl.id_category=parent.id_category AND pl.id_lang=%3\$d AND pl.id_shop=%2\$d WHERE parent.id_category NOT IN (%4\$d,%5\$d) GROUP BY leaf.id_category ORDER BY category_path,leaf.id_category",
-            _DB_PREFIX_, $shopId, $langId, max(0, $rootId), max(0, $homeId)
-        ), true, false);
-        if (!is_array($rows)) { return []; }
-
         $choices = [];
-        foreach ($rows as $row) {
-            $id = (int) ($row['id_category'] ?? 0);
-            $path = trim((string) ($row['category_path'] ?? ''));
+        foreach ((new CategoryPathReader())->paths($shopId, $langId) as $id => $path) {
             if ($id <= 0 || $path === '') { continue; }
             $choices[sprintf('%d - %s', $id, $path)] = $id;
         }
+        asort($choices, SORT_NATURAL | SORT_FLAG_CASE);
         return $choices;
     }
 }
