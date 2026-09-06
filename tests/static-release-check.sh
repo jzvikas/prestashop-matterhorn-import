@@ -50,6 +50,7 @@ php tests/image-not-modified-race-contract-check.php
 php tests/image-revalidation-contract-check.php
 php tests/image-reconciliation-execution-bound-check.php
 php tests/new-product-worker-contract-check.php
+php tests/new-product-retry-recovery-contract-check.php
 php tests/new-product-enqueue-execution-bound-check.php
 php tests/worker-runtime-budget-contract-check.php
 php tests/retry-shop-isolation-contract-check.php
