@@ -39,7 +39,7 @@ final class Language
     }
 }
 
-require_once dirname(__DIR__) . '/autoload.php';
+require_once dirname(__DIR__) . '/vendor/autoload.php';
 
 use Lp\MatterhornImport\Config\MatterhornPolicy;
 use Lp\MatterhornImport\Mapper\MatterhornProductMapper;
