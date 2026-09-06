@@ -14,7 +14,7 @@ final class CategoryCatalogSynchronizer
     ) {
     }
 
-    /** @return array{scanned:int,categories:int,conflicts:int} */
+    /** @return array{scanned:int,categories:int,conflicts:int,partial_source:bool} */
     public function synchronize(int $shopId): array
     {
         if ($shopId <= 0) {
@@ -22,47 +22,63 @@ final class CategoryCatalogSynchronizer
         }
 
         $scanned = 0;
+        $partialSource = false;
 
         /**
          * Matterhorn may emit the same supplier category id with more than one
          * name/path variant. Supplier category id is the identity; descriptive
-         * metadata is not allowed to abort the whole synchronization.
+         * metadata must not abort category synchronization.
          *
          * @var array<string,array<string,array{name:string,path:string,count:int}>>
          */
         $variants = [];
 
-        foreach ($this->source->rows() as $row) {
-            ++$scanned;
-            if (!is_array($row)) { continue; }
+        try {
+            foreach ($this->source->rows() as $row) {
+                ++$scanned;
+                if (!is_array($row)) { continue; }
 
-            $category = is_array($row['category'] ?? null) ? $row['category'] : [];
-            $supplierId = trim((string) ($category['id'] ?? ''));
-            if ($supplierId === '') { continue; }
+                $category = is_array($row['category'] ?? null) ? $row['category'] : [];
+                $supplierId = trim((string) ($category['id'] ?? ''));
+                if ($supplierId === '') { continue; }
 
-            $key = $this->normalizer->key($supplierId);
-            $name = trim((string) ($category['name'] ?? ''));
-            $path = $this->normalizer->normalize((string) ($row['category_path'] ?? ''));
+                $key = $this->normalizer->key($supplierId);
+                $name = trim((string) ($category['name'] ?? ''));
+                $path = $this->normalizer->normalize((string) ($row['category_path'] ?? ''));
 
-            if ($name === '') {
-                $parts = $this->pathParts($path);
-                $name = $parts !== [] ? $parts[array_key_last($parts)] : $supplierId;
+                if ($name === '') {
+                    $parts = $this->pathParts($path);
+                    $name = $parts !== [] ? $parts[array_key_last($parts)] : $supplierId;
+                }
+                if ($path === '') { $path = $name; }
+
+                $fingerprint = hash('sha256', $name . "\0" . $path);
+
+                if (!isset($variants[$key][$fingerprint])) {
+                    $variants[$key][$fingerprint] = [
+                        'name' => $name,
+                        'path' => $path,
+                        'count' => 0,
+                    ];
+                }
+                ++$variants[$key][$fingerprint]['count'];
             }
-            if ($path === '') { $path = $name; }
-
-            $fingerprint = hash(
-                'sha256',
-                $name . "\0" . $path
-            );
-
-            if (!isset($variants[$key][$fingerprint])) {
-                $variants[$key][$fingerprint] = [
-                    'name' => $name,
-                    'path' => $path,
-                    'count' => 0,
-                ];
+        } catch (\RuntimeException $e) {
+            /*
+             * The working Laravel importer uses a unique-node streamer: complete
+             * <product> fragments are consumed and an unfinished trailing product
+             * is effectively ignored. Mirror that behaviour ONLY for category
+             * discovery. Core READ/import remains strict, because accepting a
+             * partial feed there could incorrectly mark products as removed.
+             */
+            if ($variants === [] || !$this->isTrailingMatterhornEof($e)) {
+                throw $e;
             }
-            ++$variants[$key][$fingerprint]['count'];
+            $partialSource = true;
+        }
+
+        if ($variants === []) {
+            throw new \RuntimeException('No Matterhorn supplier categories were found');
         }
 
         $conflicts = 0;
@@ -86,7 +102,16 @@ final class CategoryCatalogSynchronizer
             'scanned' => $scanned,
             'categories' => count($variants),
             'conflicts' => $conflicts,
+            'partial_source' => $partialSource,
         ];
+    }
+
+    private function isTrailingMatterhornEof(\RuntimeException $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_starts_with($message, 'Unexpected EOF inside Matterhorn <')
+            && str_contains($message, ' at source record ');
     }
 
     /**
