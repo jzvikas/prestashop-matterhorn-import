@@ -48,7 +48,7 @@
               <label for="matterhorn-batch-size">{{ 'Batch size'|trans({}, 'Modules.Matterhornimport.Admin') }}</label>
               <input id="matterhorn-batch-size" class="form-control" type="number" min="1" max="1000" value="{{ batchSize }}">
               <small class="form-text text-muted">
-                {{ 'Each AJAX request processes at most this many products and has a soft 20-second execution budget. Recommended: 100-250.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+                {{ 'Each AJAX request processes at most this many products and has a soft 10-second execution budget for shared-hosting safety. Recommended: 100-250.'|trans({}, 'Modules.Matterhornimport.Admin') }}
               </small>
             </div>
             <div class="col-md-8 text-md-right mt-3 mt-md-0">
