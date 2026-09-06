@@ -39,7 +39,6 @@ $checks = [
     [$controller, 'StatusProvider $statusProvider', 'status separated from controller rendering'],
     [$formType, 'extends TranslatorAwareType', 'PrestaShop translator-aware form type'],
     [$formType, 'SwitchType::class', 'PrestaShop switch fields'],
-    [$formType, 'prestashop_ui_kit.html.twig', 'PrestaShop UI Kit form theme'],
     [$formProvider, 'implements FormDataProviderInterface', 'native form data provider contract'],
     [$formProvider, '$this->sourceLocation->validate', 'source location validation before persistence'],
     [$formProvider, "Configuration::updateValue(\$key, \$value, false, \$shopGroupId, \$shopId)", 'shop-scoped configuration persistence'],
@@ -54,6 +53,7 @@ $checks = [
     [$services, 'alias: Lp\\MatterhornImport\\Source\\ConfiguredMatterhornXmlSource', 'remote-aware source DI alias'],
     [$services, 'matterhornimport.form.configuration_handler:', 'native form handler service'],
     [$template, 'form_start(configurationForm)', 'Symfony form rendering'],
+    [$template, "form_theme configurationForm '@PrestaShop/Admin/TwigTemplateForm/prestashop_ui_kit.html.twig'", 'PrestaShop UI Kit theme applied in Twig'],
     [$template, 'form_row(configurationForm.source_location)', 'source location rendered by Symfony form'],
     [$template, 'Current shop status', 'BO status panel'],
     [$template, 'matterhornimport:doctor --shop=', 'BO CLI diagnostics documentation'],
@@ -80,7 +80,7 @@ foreach ($checks as [$haystack, $needle, $label]) {
     }
 }
 
-foreach ([$formType, $formProvider, $policy, $mapper] as $deprecatedSurface) {
+foreach ([$formType, $formProvider, $policy, $mapper, $template] as $deprecatedSurface) {
     if (str_contains($deprecatedSurface, 'CATEGORY_AUTO_CREATE')
         || str_contains($deprecatedSurface, 'category_auto_create')
         || str_contains($deprecatedSurface, 'Auto-create missing categories')) {
@@ -89,6 +89,10 @@ foreach ([$formType, $formProvider, $policy, $mapper] as $deprecatedSurface) {
     }
 }
 
+if (str_contains($formType, "'form_theme' =>")) {
+    fwrite(STDERR, "FAIL: form_theme must be applied by Twig, not as a Symfony form option\n");
+    exit(1);
+}
 if (str_contains($module, '<form') || str_contains($module, 'displayConfirmation(')) {
     fwrite(STDERR, "FAIL: main module must not hand-render configuration HTML\n");
     exit(1);
