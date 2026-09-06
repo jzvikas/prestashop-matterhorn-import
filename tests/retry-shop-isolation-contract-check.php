@@ -7,7 +7,7 @@ $command = file_get_contents($root . '/src/Command/RetryCommand.php');
 
 $checks = [
     [$command, "addOption('shop', null, InputOption::VALUE_REQUIRED, 'Target shop ID')", 'retry must require an explicit target shop'],
-    [$command, "CommandInput::positiveInt($input->getOption('shop'), '--shop')", 'retry must reject missing/non-positive shop IDs'],
+    [$command, 'CommandInput::positiveInt($input->getOption(\'shop\'), \'--shop\')', 'retry must reject missing/non-positive shop IDs'],
     [$command, '$this->settings->retryLimit($shopId)', 'retry default limit must come from the selected shop settings'],
     [$command, '$this->images->retryFailed($source, $shopId, $limit)', 'image retry reset must remain shop-scoped'],
     [$command, '$this->newProducts->retryFailed($source, $shopId, $limit)', 'new-product retry reset must remain shop-scoped'],
@@ -20,7 +20,7 @@ foreach ($checks as [$haystack, $needle, $label]) {
     }
 }
 
-if (str_contains((string) $command, "optionalPositiveInt($input->getOption('shop')")) {
+if (str_contains((string) $command, 'optionalPositiveInt($input->getOption(\'shop\')')) {
     fwrite(STDERR, "FAIL: retry must not retain an implicit all-shop write mode\n");
     exit(1);
 }
