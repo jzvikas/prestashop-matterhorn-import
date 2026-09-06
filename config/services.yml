@@ -10,9 +10,17 @@ services:
       - '../src/Contract/'
       - '../src/DTO/'
       - '../src/Form/ConfigurationFormType.php'
+      - '../src/Form/CategoryMappingFormType.php'
       - '../src/Installer.php'
 
   Lp\MatterhornImport\Form\ConfigurationFormType:
+    parent: 'form.type.translatable.aware'
+    autowire: false
+    autoconfigure: false
+    tags:
+      - { name: form.type }
+
+  Lp\MatterhornImport\Form\CategoryMappingFormType:
     parent: 'form.type.translatable.aware'
     autowire: false
     autoconfigure: false
