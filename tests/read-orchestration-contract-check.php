@@ -26,7 +26,6 @@ $checks = [
     [$run, 'source_fingerprint'],
     [$run, 'source_policy_hash'],
     [$policy, 'MATTERHORNIMPORT_SOURCE_LANGUAGE_ID'],
-    [$policy, 'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE'],
     [$policy, 'MATTERHORNIMPORT_FEATURE_AUTO_CREATE'],
     [$policy, 'MATTERHORNIMPORT_SIZE_ATTRIBUTE_GROUP_NAME'],
     [$snapshot, 'li_matterhornim_99dfbf_snapshot'],
@@ -39,6 +38,9 @@ $checks = [
 ];
 foreach ($checks as [$haystack,$needle]) {
     if (!str_contains($haystack, $needle)) { throw new RuntimeException('READ contract missing: ' . $needle); }
+}
+if (str_contains($policy, 'MATTERHORNIMPORT_CATEGORY_AUTO_CREATE')) {
+    throw new RuntimeException('READ policy must not retain retired category auto-create setting');
 }
 if (str_contains($read, '$batchInvalid++') && substr_count($read, '$batchInvalid++') !== 1) {
     throw new RuntimeException('READ warnings must not increment invalid-row counters');
