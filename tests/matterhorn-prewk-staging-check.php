@@ -58,7 +58,7 @@ if (str_contains($read, 'rowsFrom($checkpoint)') || str_contains($read, 'shouldS
 if (!str_contains($runner, '$this->read->run($runId, 0, 0)')) {
     $fail('runner must execute XML staging as one complete action');
 }
-if (!str_contains($runner, "pauseBetweenStages($runId, 'import')")) {
+if (!str_contains($runner, "pauseBetweenStages(\$runId, 'import')")) {
     $fail('bounded AJAX flow must return after XML staging before DB import stage');
 }
 
