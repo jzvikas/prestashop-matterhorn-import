@@ -9,10 +9,27 @@ services:
     exclude:
       - '../src/Contract/'
       - '../src/DTO/'
+      - '../src/Form/ConfigurationFormType.php'
       - '../src/Installer.php'
 
+  Lp\MatterhornImport\Form\ConfigurationFormType:
+    parent: 'form.type.translatable.aware'
+    autowire: false
+    autoconfigure: false
+    tags:
+      - { name: form.type }
+
+  matterhornimport.form.configuration_handler:
+    class: PrestaShop\PrestaShop\Core\Form\Handler
+    arguments:
+      - '@form.factory'
+      - '@prestashop.core.hook.dispatcher'
+      - '@Lp\MatterhornImport\Form\ConfigurationFormDataProvider'
+      - 'Lp\MatterhornImport\Form\ConfigurationFormType'
+      - 'MatterhornImportConfiguration'
+
   Lp\MatterhornImport\Contract\SourceInterface:
-    alias: Lp\MatterhornImport\Source\MatterhornXmlSource
+    alias: Lp\MatterhornImport\Source\ConfiguredMatterhornXmlSource
 
   Lp\MatterhornImport\Contract\ProductMapperInterface:
     alias: Lp\MatterhornImport\Mapper\MatterhornProductMapper
