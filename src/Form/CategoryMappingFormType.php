@@ -51,7 +51,7 @@ final class CategoryMappingFormType extends TranslatorAwareType
             if ($id <= 0 || $path === '') { continue; }
             $choices[sprintf('%d - %s', $id, $path)] = $id;
         }
-        asort($choices, SORT_NATURAL | SORT_FLAG_CASE);
+        ksort($choices, SORT_NATURAL | SORT_FLAG_CASE);
         return $choices;
     }
 }
