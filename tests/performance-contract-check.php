@@ -35,7 +35,8 @@ $check(!str_contains($source, 'file_get_contents($path)'), 'source must never re
 $check(!str_contains($source, 'simplexml_load_file'), 'source must never build whole-feed SimpleXML tree');
 $check(str_contains($source, 'STREAM_CHUNK_BYTES = 65536'), 'Prewk file stream chunk size missing');
 $check(str_contains($source, '$parser->getCurrentWorkingBlob()'), 'Prewk unread-buffer resume cursor missing');
-$check(str_contains($source, '$nextByte = $byteOffset + $readBytes - strlen($workingBlob)'), 'exact Prewk resume byte calculation missing');
+$check(str_contains($source, '$nextByte = $currentByte + $readBytes - strlen($workingBlob)'), 'exact Prewk UniqueNode resume byte calculation missing');
+$check(str_contains($source, '$nextByte = $startByte + $readBytes - $parser->unreadBytes()'), 'exact Prewk CDATA-recovery resume byte calculation missing');
 $check(str_contains($configuredSource, "rowsFromByte(\$checkpoint['byte'], \$offset)"), 'normal AJAX READ resume must seek directly instead of rescanning old records');
 $check(str_contains($source, 'MAX_SOURCE_RECORD_BYTES = 4194304'), 'source per-product raw fragment bound missing');
 $check(str_contains($source, 'MAX_SOURCE_FIELD_BYTES = 2097152'), 'source per-field decoded-text bound missing');
