@@ -1,19 +1,25 @@
 <?php
 namespace Lp\MatterhornImport\Repository;
 
+use Lp\MatterhornImport\Util\DiagnosticMessageSanitizer;
+
 final class ErrorRepository
 {
     private const TABLE = 'li_matterhornim_99dfbf_error';
     private const WARNING_PREFIX = 'WARNING: ';
 
+    public function __construct(private DiagnosticMessageSanitizer $sanitizer)
+    {
+    }
+
     public function add(int $runId, string $stage, ?string $sourceKey, \Throwable|string $error): void
     {
-        $message = $error instanceof \Throwable ? get_class($error) . ': ' . $error->getMessage() : (string) $error;
+        $message = $this->sanitizer->sanitize($error, 8000);
         $ok = \Db::getInstance()->insert(self::TABLE, [
             'id_run' => $runId,
             'stage' => pSQL($stage),
             'source_key' => $sourceKey === null || $sourceKey === '' ? null : pSQL(mb_substr($sourceKey, 0, 191)),
-            'message' => pSQL(mb_substr($message, 0, 8000), true),
+            'message' => pSQL($message, true),
             'created_at' => date('Y-m-d H:i:s'),
         ], true);
         if ($error instanceof \Throwable) {
@@ -22,7 +28,7 @@ final class ErrorRepository
                 $runId,
                 $stage,
                 $sourceKey ?? '-',
-                mb_substr($message, 0, 1000)
+                $this->sanitizer->sanitize($error, 1000)
             ));
         }
         if (!$ok) {
@@ -35,8 +41,8 @@ final class ErrorRepository
             error_log(sprintf(
                 '[matterhornimport] %s message=%s db_error=%s',
                 $persistenceError,
-                mb_substr($message, 0, 1000),
-                mb_substr((string) \Db::getInstance()->getMsgError(), 0, 1000)
+                $this->sanitizer->sanitize($error, 1000),
+                $this->sanitizer->sanitize((string) \Db::getInstance()->getMsgError(), 1000)
             ));
             throw new \RuntimeException($persistenceError);
         }
