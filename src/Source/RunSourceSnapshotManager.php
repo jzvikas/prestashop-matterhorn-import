@@ -45,7 +45,14 @@ final class RunSourceSnapshotManager
                 throw new \RuntimeException('Could not publish frozen Matterhorn run source');
             }
             $published = true;
-            @chmod($target, 0640);
+
+            // A run source is immutable desired input. Keeping owner-write permission
+            // here allowed an accidental in-place write to alter the bytes while the
+            // persisted fingerprint still described the original supplier snapshot.
+            // The importer only ever reads/unlinks this file, so remove write bits.
+            if (!@chmod($target, 0440)) {
+                throw new \RuntimeException('Could not make frozen Matterhorn run source read-only');
+            }
 
             clearstatcache(true, $target);
             $bytes = filesize($target);
