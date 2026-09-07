@@ -22,14 +22,14 @@ if (!class_exists(Prewk\XmlStringStreamer::class)) {
 if (!str_contains($composer, 'prewk/xml-string-streamer')) {
     $fail('composer runtime does not require prewk/xml-string-streamer');
 }
-if (!str_contains($source, 'new UniqueNode([') || !str_contains($source, "'uniqueNode' => 'product'")) {
-    $fail('Matterhorn XML source must keep Prewk UniqueNode as the normal fast path');
+if (!str_contains($source, 'new PrewkCheckpointStringWalker([')) {
+    $fail('Matterhorn XML source must use Prewk StringWalker for product streaming');
 }
-if (!str_contains($source, 'recoverCdataProduct') || !str_contains($source, 'new PrewkCheckpointStringWalker([')) {
-    $fail('Matterhorn XML source is missing its CDATA-safe Prewk recovery path');
+if (!str_contains($source, "'captureDepth' => \$byteOffset === 0 ? 2 : 1")) {
+    $fail('Prewk StringWalker must distinguish document-start and byte-resume capture depth');
 }
 if (!str_contains($source, "'expectGT' => true")) {
-    $fail('CDATA recovery must use Prewk StringWalker expectGT parsing');
+    $fail('Matterhorn XML streaming must enable CDATA/comment-safe Prewk parsing');
 }
 if (!str_contains($walker, 'extends StringWalker') || !str_contains($walker, 'return strlen($this->chunk);')) {
     $fail('Prewk StringWalker instrumentation does not expose the unread cursor buffer');
@@ -40,20 +40,17 @@ if (!str_contains($source, 'new XmlStringStreamer($parser, $stream)')) {
 if (!str_contains($source, 'simplexml_load_string')) {
     $fail('Matterhorn product fragment is not parsed independently with SimpleXML');
 }
+if (str_contains($source, 'new UniqueNode(') || str_contains($source, 'recoverCdataProduct')) {
+    $fail('literal-closing-tag UniqueNode fallback architecture must be removed');
+}
 if (str_contains($source, 'new \\XMLReader()')) {
     $fail('legacy XMLReader product scanner is still active');
 }
 if (is_file($root . '/src/Source/MatterhornByteStreamSource.php')) {
     $fail('custom Matterhorn byte XML parser must be removed');
 }
-if (!str_contains($source, '$parser->getCurrentWorkingBlob()')) {
-    $fail('UniqueNode unread buffer is not used to derive the normal resume cursor');
-}
-if (!str_contains($source, '$nextByte = $currentByte + $readBytes - strlen($workingBlob)')) {
-    $fail('normal Prewk byte cursor calculation is missing');
-}
-if (!str_contains($source, '$nextByte = $startByte + $readBytes - $parser->unreadBytes()')) {
-    $fail('CDATA recovery byte cursor calculation is missing');
+if (!str_contains($source, '$nextByte = $byteOffset + $readBytes - $parser->unreadBytes()')) {
+    $fail('Prewk StringWalker byte cursor calculation is missing');
 }
 if (!str_contains($configured, "rowsFromByte(\$checkpoint['byte'], \$offset)")) {
     $fail('normal frozen-source resume does not seek directly to the Prewk byte cursor');
