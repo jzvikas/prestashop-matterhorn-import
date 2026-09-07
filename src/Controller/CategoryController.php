@@ -1,6 +1,7 @@
 <?php
 namespace Lp\MatterhornImport\Controller;
 
+use Lp\MatterhornImport\Admin\AdminErrorReporter;
 use Lp\MatterhornImport\Category\CategoryCatalogSynchronizer;
 use Lp\MatterhornImport\Category\CategoryMappingManager;
 use Lp\MatterhornImport\Form\CategoryMappingFormType;
@@ -31,7 +32,8 @@ final class CategoryController extends PrestaShopAdminController
     #[AdminSecurity("is_granted('update', request.get('_legacy_controller'))")]
     public function synchronize(
         Request $request,
-        CategoryCatalogSynchronizer $synchronizer
+        CategoryCatalogSynchronizer $synchronizer,
+        AdminErrorReporter $errors
     ): RedirectResponse {
         $this->assertPostToken($request, 'matterhorn_category_sync');
         [$shopId] = $this->shopContext();
@@ -43,7 +45,7 @@ final class CategoryController extends PrestaShopAdminController
                 'Modules.Matterhornimport.Admin'
             ));
         } catch (\Throwable $e) {
-            $this->reportFailure('category-sync', $e);
+            $this->reportFailure('category-sync', $e, $errors);
         }
         return $this->redirectToRoute('matterhorn_import_categories');
     }
@@ -51,7 +53,8 @@ final class CategoryController extends PrestaShopAdminController
     #[AdminSecurity("is_granted('update', request.get('_legacy_controller'))")]
     public function autoMap(
         Request $request,
-        CategoryMappingManager $manager
+        CategoryMappingManager $manager,
+        AdminErrorReporter $errors
     ): RedirectResponse {
         $this->assertPostToken($request, 'matterhorn_category_auto_map');
         [$shopId] = $this->shopContext();
@@ -63,7 +66,7 @@ final class CategoryController extends PrestaShopAdminController
                 'Modules.Matterhornimport.Admin'
             ));
         } catch (\Throwable $e) {
-            $this->reportFailure('category-auto-map', $e);
+            $this->reportFailure('category-auto-map', $e, $errors);
         }
         return $this->redirectToRoute('matterhorn_import_categories');
     }
@@ -71,7 +74,8 @@ final class CategoryController extends PrestaShopAdminController
     #[AdminSecurity("is_granted('update', request.get('_legacy_controller'))")]
     public function autoCreate(
         Request $request,
-        CategoryMappingManager $manager
+        CategoryMappingManager $manager,
+        AdminErrorReporter $errors
     ): RedirectResponse {
         $this->assertPostToken($request, 'matterhorn_category_auto_create');
         [$shopId] = $this->shopContext();
@@ -83,7 +87,7 @@ final class CategoryController extends PrestaShopAdminController
                 'Modules.Matterhornimport.Admin'
             ));
         } catch (\Throwable $e) {
-            $this->reportFailure('category-auto-create', $e);
+            $this->reportFailure('category-auto-create', $e, $errors);
         }
         return $this->redirectToRoute('matterhorn_import_categories');
     }
@@ -92,7 +96,8 @@ final class CategoryController extends PrestaShopAdminController
     public function edit(
         string $supplierKey,
         Request $request,
-        CategoryMappingRepository $repository
+        CategoryMappingRepository $repository,
+        AdminErrorReporter $errors
     ): Response {
         [$shopId] = $this->shopContext();
         $row = $repository->findOne($shopId, $supplierKey);
@@ -118,7 +123,7 @@ final class CategoryController extends PrestaShopAdminController
                 $this->addFlash('success', $this->trans('Category mapping saved.', [], 'Admin.Notifications.Success'));
                 return $this->redirectToRoute('matterhorn_import_categories');
             } catch (\Throwable $e) {
-                $this->reportFailure('category-edit', $e);
+                $this->reportFailure('category-edit', $e, $errors);
             }
         }
 
@@ -154,13 +159,9 @@ final class CategoryController extends PrestaShopAdminController
         }
     }
 
-    private function reportFailure(string $operation, \Throwable $e): void
+    private function reportFailure(string $operation, \Throwable $e, AdminErrorReporter $errors): void
     {
-        $reference = strtoupper(substr(hash('sha256', $operation . '|' . microtime(true) . '|' . $e->getMessage()), 0, 12));
-        \PrestaShopLogger::addLog(
-            sprintf('[MatterhornImport][%s][%s] %s', $operation, $reference, $e->getMessage()),
-            3
-        );
+        $reference = $errors->report($operation, $e);
         $this->addFlash('error', $this->trans(
             'Operation failed. Reference: %reference%',
             ['%reference%' => $reference],
