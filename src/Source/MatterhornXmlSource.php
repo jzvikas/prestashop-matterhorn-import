@@ -3,7 +3,6 @@ namespace Lp\MatterhornImport\Source;
 
 use Lp\MatterhornImport\Contract\ByteCheckpointableSourceInterface;
 use Prewk\XmlStringStreamer;
-use Prewk\XmlStringStreamer\Parser\UniqueNode;
 use Prewk\XmlStringStreamer\Stream\File as FileStream;
 use SimpleXMLElement;
 
@@ -120,7 +119,17 @@ final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
         }
 
         $readBytes = 0;
-        $parser = new UniqueNode(['uniqueNode' => 'product']);
+        $parser = new PrewkCheckpointStringWalker([
+            // A full document has <products> at depth 1 and <product> at depth 2.
+            // A byte-resumed stream starts exactly after the previous </product>,
+            // therefore the next <product> is depth 1 in that fragment stream.
+            'captureDepth' => $byteOffset === 0 ? 2 : 1,
+            // Matterhorn descriptions are commonly CDATA/HTML-heavy. Prewk's
+            // StringWalker with expectGT enabled treats CDATA/comments atomically,
+            // so literal strings such as </product> inside a description cannot
+            // prematurely terminate the supplier product node.
+            'expectGT' => true,
+        ]);
         $stream = new FileStream(
             $handle,
             self::STREAM_CHUNK_BYTES,
@@ -134,8 +143,7 @@ final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
         $record = $recordOffset;
 
         while (($node = $streamer->getNode()) !== false) {
-            $workingBlob = $parser->getCurrentWorkingBlob();
-            $nextByte = $byteOffset + $readBytes - strlen($workingBlob);
+            $nextByte = $byteOffset + $readBytes - $parser->unreadBytes();
             if ($nextByte < $byteOffset) {
                 throw new \RuntimeException('Prewk Matterhorn stream produced an invalid byte checkpoint');
             }
