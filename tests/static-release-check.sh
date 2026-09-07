@@ -15,6 +15,7 @@ php tests/source-location-contract-check.php
 php tests/matterhorn-parser-mapper-check.php
 php tests/matterhorn-prewk-staging-check.php
 php tests/matterhorn-prewk-checkpoint-check.php
+php tests/matterhorn-prewk-cdata-boundary-check.php
 php tests/run-source-snapshot-check.php
 php tests/matterhorn-domain-hash-isolation-check.php
 php tests/matterhorn-xml-streaming-bounds-check.php
