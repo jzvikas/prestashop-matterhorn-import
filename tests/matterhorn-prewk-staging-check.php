@@ -45,6 +45,12 @@ if (!str_contains($source, '$nextByte = $byteOffset + $readBytes - strlen($worki
 if (!str_contains($configured, "rowsFromByte(\$checkpoint['byte'], \$offset)")) {
     $fail('normal frozen-source resume does not seek directly to the Prewk byte cursor');
 }
+if (!str_contains($configured, '$snapshot = $this->runSnapshots->load($runId, $shopId);')) {
+    $fail('run activation must discover an existing frozen source even at record checkpoint zero');
+}
+if (str_contains($configured, '$snapshot = $resume ? $this->runSnapshots->load($runId, $shopId) : null;')) {
+    $fail('zero-checkpoint READ pause would re-download the frozen source on every AJAX request');
+}
 if (!str_contains($runSource, 'read.checkpoint.json') || !str_contains($runSource, 'persistCheckpoint')) {
     $fail('crash-safe Prewk cursor sidecar is missing');
 }
