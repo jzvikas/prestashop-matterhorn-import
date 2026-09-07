@@ -27,9 +27,14 @@ $check(!str_contains($public, 'user:password'), 'AJAX-safe message must not expo
 
 $source = (string) file_get_contents(dirname(__DIR__) . '/src/Admin/AdminErrorReporter.php');
 $controller = (string) file_get_contents(dirname(__DIR__) . '/src/Controller/ImportController.php');
+$categoryController = (string) file_get_contents(dirname(__DIR__) . '/src/Controller/CategoryController.php');
 $check(str_contains($controller, '$errors->safeMessage($exception)'), 'AJAX controller must route exception text through AdminErrorReporter');
 $check(str_contains($controller, "'Operation failed. Reference: '"), 'AJAX controller must expose a correlation reference when details are withheld');
 $check(str_contains($source, '$this->diagnosticMessage($exception)'), 'internal logger must retain a separately sanitized diagnostic message');
 $check(str_contains($source, 'api[_-]?key|token|secret'), 'diagnostic redaction must cover common token/secret names');
+$check(str_contains($categoryController, 'use Lp\\MatterhornImport\\Admin\\AdminErrorReporter;'), 'category admin controller must use the shared sanitized error reporter');
+$check(str_contains($categoryController, '$reference = $errors->report($operation, $e);'), 'category admin failures must be logged through AdminErrorReporter');
+$check(!str_contains($categoryController, '\\PrestaShopLogger::addLog('), 'category admin controller must not directly log raw exception text');
+$check(!str_contains($categoryController, '$e->getMessage()'), 'category admin controller must not bypass diagnostic redaction with raw exception text');
 
 echo "Admin error disclosure contract: OK\n";
