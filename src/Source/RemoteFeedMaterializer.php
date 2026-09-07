@@ -9,8 +9,10 @@ final class RemoteFeedMaterializer
     private const MAX_BYTES = 8589934592; // 8 GiB hard safety ceiling
     private const MAX_DOWNLOAD_ATTEMPTS = 2;
 
-    public function __construct(private SourceLocation $locations)
-    {
+    public function __construct(
+        private SourceLocation $locations,
+        private RemoteUrlGuard $urlGuard
+    ) {
     }
 
     public function materialize(string $url, int $shopId): string
@@ -83,10 +85,7 @@ final class RemoteFeedMaterializer
     ): string {
         $metadata = $this->readMetadata($metadataPath);
         $sameSource = (string) ($metadata['url'] ?? '') === $url;
-
-        $cacheUsable = $sameSource
-            && is_file($target)
-            && is_readable($target);
+        $cacheUsable = $sameSource && is_file($target) && is_readable($target);
 
         $temp = $target . '.tmp.' . bin2hex(random_bytes(8));
         $handle = @fopen($temp, 'xb');
@@ -94,108 +93,146 @@ final class RemoteFeedMaterializer
             throw new \RuntimeException('Could not create temporary Matterhorn source file.');
         }
 
+        $originHost = strtolower(trim((string) parse_url($url, PHP_URL_HOST), '[]'));
+        $originScheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        $currentUrl = $url;
         $responseHeaders = [];
         $downloaded = 0;
-        $curl = curl_init();
-        if ($curl === false) {
-            fclose($handle);
-            @unlink($temp);
-            throw new \RuntimeException('Could not initialize cURL for Matterhorn source.');
-        }
-
-        $requestHeaders = ['Accept: application/xml,text/xml;q=0.9,*/*;q=0.1'];
-        if ($allowConditional && $cacheUsable) {
-            if (!empty($metadata['etag'])) {
-                $requestHeaders[] = 'If-None-Match: ' . $metadata['etag'];
-            }
-            if (!empty($metadata['last_modified'])) {
-                $requestHeaders[] = 'If-Modified-Since: ' . $metadata['last_modified'];
-            }
-        }
-
-        $options = [
-            CURLOPT_URL => $url,
-            CURLOPT_FILE => $handle,
-            CURLOPT_HTTPHEADER => $requestHeaders,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => self::MAX_REDIRECTS,
-            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
-            CURLOPT_TIMEOUT => self::TRANSFER_TIMEOUT,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_USERAGENT => 'MatterhornImport/0.1.8 PrestaShop',
-            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            CURLOPT_HEADERFUNCTION => static function ($curlHandle, string $line) use (&$responseHeaders): int {
-                $length = strlen($line);
-                $trimmed = trim($line);
-
-                // New HTTP response (redirect/final response): do not retain stale headers.
-                if (preg_match('#^HTTP/\S+\s+\d{3}\b#i', $trimmed) === 1) {
-                    $responseHeaders = [];
-                    return $length;
-                }
-
-                if ($trimmed === '' || !str_contains($trimmed, ':')) {
-                    return $length;
-                }
-
-                [$name, $value] = array_map('trim', explode(':', $trimmed, 2));
-                $responseHeaders[strtolower($name)] = $value;
-
-                return $length;
-            },
-            CURLOPT_WRITEFUNCTION => static function ($curlHandle, string $chunk) use ($handle, &$downloaded): int {
-                $length = strlen($chunk);
-                if ($downloaded + $length > self::MAX_BYTES) {
-                    return 0;
-                }
-
-                $written = fwrite($handle, $chunk);
-                if ($written === false) {
-                    return 0;
-                }
-
-                $downloaded += $written;
-                return $written;
-            },
-        ];
-
-        if (defined('CURLOPT_MAXFILESIZE_LARGE')) {
-            $options[CURLOPT_MAXFILESIZE_LARGE] = self::MAX_BYTES;
-        }
+        $redirects = 0;
 
         try {
-            if (!curl_setopt_array($curl, $options)) {
-                throw new \RuntimeException('Could not configure Matterhorn source download.');
-            }
+            while (true) {
+                $prepared = $this->urlGuard->prepare($currentUrl);
+                $currentScheme = strtolower((string) parse_url($currentUrl, PHP_URL_SCHEME));
+                if ($originScheme === 'https' && $currentScheme !== 'https') {
+                    throw new \RuntimeException('Matterhorn source redirect attempted to downgrade HTTPS.');
+                }
 
-            $ok = curl_exec($curl);
-            $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-            $error = curl_error($curl);
+                if (!ftruncate($handle, 0) || rewind($handle) === false) {
+                    throw new \RuntimeException('Could not reset temporary Matterhorn source file.');
+                }
+                $responseHeaders = [];
+                $downloaded = 0;
 
-            fflush($handle);
-            fclose($handle);
+                $requestHeaders = ['Accept: application/xml,text/xml;q=0.9,*/*;q=0.1'];
+                $currentHost = strtolower(trim((string) parse_url($currentUrl, PHP_URL_HOST), '[]'));
+                if ($allowConditional && $cacheUsable && $currentHost === $originHost) {
+                    if (!empty($metadata['etag'])) {
+                        $requestHeaders[] = 'If-None-Match: ' . $metadata['etag'];
+                    }
+                    if (!empty($metadata['last_modified'])) {
+                        $requestHeaders[] = 'If-Modified-Since: ' . $metadata['last_modified'];
+                    }
+                }
 
-            if ($ok === false) {
-                throw new \RuntimeException(
-                    'Matterhorn source download failed: ' . ($error !== '' ? $error : 'unknown cURL error')
-                );
-            }
+                $curl = curl_init();
+                if ($curl === false) {
+                    throw new \RuntimeException('Could not initialize cURL for Matterhorn source.');
+                }
 
-            if ($status === 304) {
-                @unlink($temp);
-                if (!$cacheUsable) {
+                $options = [
+                    CURLOPT_URL => $prepared['url'],
+                    CURLOPT_FILE => $handle,
+                    CURLOPT_HTTPHEADER => $requestHeaders,
+                    // Redirects are handled manually so every hop is DNS/IP validated
+                    // and pinned before cURL can connect to it.
+                    CURLOPT_FOLLOWLOCATION => false,
+                    CURLOPT_MAXREDIRS => 0,
+                    CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
+                    CURLOPT_TIMEOUT => self::TRANSFER_TIMEOUT,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                    CURLOPT_SSL_VERIFYHOST => 2,
+                    CURLOPT_USERAGENT => 'MatterhornImport/0.1.8 PrestaShop',
+                    CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+                    // Ignore environment proxies: a proxy can resolve the hostname
+                    // itself and bypass CURLOPT_RESOLVE's SSRF/DNS-rebinding fence.
+                    CURLOPT_PROXY => '',
+                    CURLOPT_HEADERFUNCTION => static function ($curlHandle, string $line) use (&$responseHeaders): int {
+                        $length = strlen($line);
+                        $trimmed = trim($line);
+                        if (preg_match('#^HTTP/\S+\s+\d{3}\b#i', $trimmed) === 1) {
+                            $responseHeaders = [];
+                            return $length;
+                        }
+                        if ($trimmed === '' || !str_contains($trimmed, ':')) {
+                            return $length;
+                        }
+                        [$name, $value] = array_map('trim', explode(':', $trimmed, 2));
+                        $responseHeaders[strtolower($name)] = $value;
+                        return $length;
+                    },
+                    CURLOPT_WRITEFUNCTION => static function ($curlHandle, string $chunk) use ($handle, &$downloaded): int {
+                        $length = strlen($chunk);
+                        if ($downloaded + $length > self::MAX_BYTES) {
+                            return 0;
+                        }
+                        $written = fwrite($handle, $chunk);
+                        if ($written === false) {
+                            return 0;
+                        }
+                        $downloaded += $written;
+                        return $written;
+                    },
+                ];
+                if ($prepared['resolve'] !== []) {
+                    $options[CURLOPT_RESOLVE] = $prepared['resolve'];
+                }
+                if (defined('CURLOPT_MAXFILESIZE_LARGE')) {
+                    $options[CURLOPT_MAXFILESIZE_LARGE] = self::MAX_BYTES;
+                }
+
+                try {
+                    if (!curl_setopt_array($curl, $options)) {
+                        throw new \RuntimeException('Could not configure Matterhorn source download.');
+                    }
+
+                    $ok = curl_exec($curl);
+                    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+                    $redirectUrl = (string) curl_getinfo($curl, CURLINFO_REDIRECT_URL);
+                    $error = curl_error($curl);
+                } finally {
+                    curl_close($curl);
+                }
+
+                if ($ok === false) {
                     throw new \RuntimeException(
-                        'Matterhorn source download is incomplete: server returned 304 for an invalid local cache.'
+                        'Matterhorn source download failed: ' . ($error !== '' ? $error : 'unknown cURL error')
                     );
                 }
-                return $target;
+
+                if ($status === 304) {
+                    if (!$cacheUsable) {
+                        throw new \RuntimeException(
+                            'Matterhorn source download is incomplete: server returned 304 for an invalid local cache.'
+                        );
+                    }
+                    return $target;
+                }
+
+                if (in_array($status, [301, 302, 303, 307, 308], true)) {
+                    if ($redirectUrl === '') {
+                        throw new \RuntimeException('Matterhorn source redirect did not provide a valid target.');
+                    }
+                    ++$redirects;
+                    if ($redirects > self::MAX_REDIRECTS) {
+                        throw new \RuntimeException('Matterhorn source exceeded the redirect limit.');
+                    }
+                    $currentUrl = $redirectUrl;
+                    continue;
+                }
+
+                if ($status < 200 || $status >= 300) {
+                    throw new \RuntimeException('Matterhorn source returned HTTP ' . $status . '.');
+                }
+
+                break;
             }
 
-            if ($status < 200 || $status >= 300) {
-                throw new \RuntimeException('Matterhorn source returned HTTP ' . $status . '.');
+            if (!fflush($handle)) {
+                throw new \RuntimeException('Could not flush downloaded Matterhorn source.');
             }
+            fclose($handle);
+            $handle = null;
 
             clearstatcache(true, $temp);
             $fileBytes = is_file($temp) ? (int) filesize($temp) : 0;
@@ -242,7 +279,6 @@ final class RemoteFeedMaterializer
 
             return $target;
         } finally {
-            curl_close($curl);
             if (is_resource($handle)) {
                 fclose($handle);
             }
