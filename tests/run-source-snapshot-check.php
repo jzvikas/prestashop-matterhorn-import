@@ -20,6 +20,12 @@ try {
         throw new RuntimeException('Run source snapshot was not created');
     }
 
+    clearstatcache(true, $snapshot['path']);
+    $mode = fileperms($snapshot['path']);
+    if ($mode === false || (($mode & 0222) !== 0)) {
+        throw new RuntimeException('Frozen run source must not retain filesystem write bits');
+    }
+
     $frozen = (string) file_get_contents($snapshot['path']);
     file_put_contents($input, "<products><product id=\"2\"><name>B</name></product></products>\n");
     if ((string) file_get_contents($snapshot['path']) !== $frozen) {
