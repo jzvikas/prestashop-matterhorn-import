@@ -26,17 +26,18 @@ $check = static function (bool $condition, string $message) use ($fail): void {
     if (!$condition) { $fail($message); }
 };
 
-$check(str_contains($source, 'new UniqueNode(['), 'Matterhorn source must use Prewk UniqueNode parser');
-$check(str_contains($source, "'uniqueNode' => 'product'"), 'Matterhorn source must stream product nodes');
+$check(str_contains($source, 'new PrewkCheckpointStringWalker(['), 'Matterhorn source must use Prewk StringWalker parser');
+$check(str_contains($source, "'captureDepth' => \$byteOffset === 0 ? 2 : 1"), 'Matterhorn source must support direct product capture and byte resume');
+$check(str_contains($source, "'expectGT' => true"), 'Matterhorn source must preserve CDATA/comment token boundaries');
 $check(str_contains($source, 'new XmlStringStreamer($parser, $stream)'), 'Matterhorn source must stream through Prewk XmlStringStreamer');
 $check(str_contains($source, 'simplexml_load_string'), 'complete product fragments must be parsed independently');
+$check(!str_contains($source, 'new UniqueNode('), 'literal closing-tag UniqueNode parser must not drive product streaming');
 $check(!str_contains($source, 'new \\XMLReader()'), 'Matterhorn product streaming must not use the old XMLReader scanner');
 $check(!str_contains($source, 'file_get_contents($path)'), 'source must never read the entire XML into memory');
 $check(!str_contains($source, 'simplexml_load_file'), 'source must never build whole-feed SimpleXML tree');
 $check(str_contains($source, 'STREAM_CHUNK_BYTES = 65536'), 'Prewk file stream chunk size missing');
-$check(str_contains($source, '$parser->getCurrentWorkingBlob()'), 'Prewk unread-buffer resume cursor missing');
-$check(str_contains($source, '$nextByte = $currentByte + $readBytes - strlen($workingBlob)'), 'exact Prewk UniqueNode resume byte calculation missing');
-$check(str_contains($source, '$nextByte = $startByte + $readBytes - $parser->unreadBytes()'), 'exact Prewk CDATA-recovery resume byte calculation missing');
+$check(str_contains($source, '$parser->unreadBytes()'), 'Prewk unread-buffer resume cursor missing');
+$check(str_contains($source, '$nextByte = $byteOffset + $readBytes - $parser->unreadBytes()'), 'exact Prewk StringWalker resume byte calculation missing');
 $check(str_contains($configuredSource, "rowsFromByte(\$checkpoint['byte'], \$offset)"), 'normal AJAX READ resume must seek directly instead of rescanning old records');
 $check(str_contains($source, 'MAX_SOURCE_RECORD_BYTES = 4194304'), 'source per-product raw fragment bound missing');
 $check(str_contains($source, 'MAX_SOURCE_FIELD_BYTES = 2097152'), 'source per-field decoded-text bound missing');
