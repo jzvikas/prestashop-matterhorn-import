@@ -6,6 +6,7 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 $root = dirname(__DIR__);
 $composer = (string) file_get_contents($root . '/composer.json');
 $source = (string) file_get_contents($root . '/src/Source/MatterhornXmlSource.php');
+$walker = (string) file_get_contents($root . '/src/Source/PrewkCheckpointStringWalker.php');
 $configured = (string) file_get_contents($root . '/src/Source/ConfiguredMatterhornXmlSource.php');
 $read = (string) file_get_contents($root . '/src/Import/ReadStage.php');
 $runSource = (string) file_get_contents($root . '/src/Source/RunSourceSnapshotManager.php');
@@ -21,8 +22,17 @@ if (!class_exists(Prewk\XmlStringStreamer::class)) {
 if (!str_contains($composer, 'prewk/xml-string-streamer')) {
     $fail('composer runtime does not require prewk/xml-string-streamer');
 }
-if (!str_contains($source, 'new UniqueNode([') || !str_contains($source, "'uniqueNode' => 'product'")) {
-    $fail('Matterhorn XML source is not using Prewk UniqueNode for product streaming');
+if (!str_contains($source, 'new PrewkCheckpointStringWalker([')) {
+    $fail('Matterhorn XML source is not using the checkpointable Prewk StringWalker');
+}
+if (!str_contains($source, "'captureDepth' => \$byteOffset === 0 ? 2 : 1")) {
+    $fail('Prewk StringWalker does not adapt capture depth for byte-resumed product fragments');
+}
+if (!str_contains($source, "'expectGT' => true")) {
+    $fail('Prewk StringWalker must use CDATA/comment-safe expectGT parsing');
+}
+if (!str_contains($walker, 'extends StringWalker') || !str_contains($walker, 'return strlen($this->chunk);')) {
+    $fail('Prewk StringWalker instrumentation does not expose the unread cursor buffer');
 }
 if (!str_contains($source, 'new XmlStringStreamer($parser, $stream)')) {
     $fail('Matterhorn XML source is not driven by the Prewk streamer');
@@ -33,13 +43,13 @@ if (!str_contains($source, 'simplexml_load_string')) {
 if (str_contains($source, 'new \\XMLReader()')) {
     $fail('legacy XMLReader product scanner is still active');
 }
+if (str_contains($source, 'new UniqueNode([')) {
+    $fail('Prewk UniqueNode is unsafe for literal </product> markers inside CDATA descriptions');
+}
 if (is_file($root . '/src/Source/MatterhornByteStreamSource.php')) {
     $fail('custom Matterhorn byte XML parser must be removed');
 }
-if (!str_contains($source, '$parser->getCurrentWorkingBlob()')) {
-    $fail('Prewk unread buffer is not used to derive an exact safe resume cursor');
-}
-if (!str_contains($source, '$nextByte = $byteOffset + $readBytes - strlen($workingBlob)')) {
+if (!str_contains($source, '$nextByte = $byteOffset + $readBytes - $parser->unreadBytes()')) {
     $fail('Prewk byte cursor calculation is missing');
 }
 if (!str_contains($configured, "rowsFromByte(\$checkpoint['byte'], \$offset)")) {
