@@ -3,6 +3,7 @@ namespace Lp\MatterhornImport\Source;
 
 use Lp\MatterhornImport\Contract\ByteCheckpointableSourceInterface;
 use Prewk\XmlStringStreamer;
+use Prewk\XmlStringStreamer\Parser\UniqueNode;
 use Prewk\XmlStringStreamer\Stream\File as FileStream;
 use SimpleXMLElement;
 
@@ -109,25 +110,121 @@ final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
             $this->assertRoot($path);
         }
 
+        $currentByte = $byteOffset;
+        $skipped = 0;
+        $record = $recordOffset - $skipRecords;
+
+        while (true) {
+            $handle = fopen($path, 'rb');
+            if ($handle === false) {
+                throw new \RuntimeException('Cannot open Matterhorn XML: ' . $path);
+            }
+            if ($currentByte > 0 && fseek($handle, $currentByte, SEEK_SET) !== 0) {
+                fclose($handle);
+                throw new \RuntimeException('Cannot seek Matterhorn XML to byte ' . $currentByte);
+            }
+
+            $readBytes = 0;
+            $parser = new UniqueNode(['uniqueNode' => 'product']);
+            $stream = new FileStream(
+                $handle,
+                self::STREAM_CHUNK_BYTES,
+                static function (string $chunk, int $totalBytes) use (&$readBytes): void {
+                    unset($chunk);
+                    $readBytes = $totalBytes;
+                }
+            );
+            $streamer = new XmlStringStreamer($parser, $stream);
+            $restartAt = null;
+
+            while (($node = $streamer->getNode()) !== false) {
+                $workingBlob = $parser->getCurrentWorkingBlob();
+                $nextByte = $currentByte + $readBytes - strlen($workingBlob);
+                if ($nextByte < $currentByte) {
+                    throw new \RuntimeException('Prewk Matterhorn stream produced an invalid byte checkpoint');
+                }
+
+                ++$record;
+                if (strlen($node) > self::MAX_SOURCE_RECORD_BYTES) {
+                    throw new \RuntimeException(
+                        'Matterhorn source record exceeds limit of ' . self::MAX_SOURCE_RECORD_BYTES .
+                        ' bytes at source record ' . $record
+                    );
+                }
+
+                try {
+                    $row = $this->parseProduct($node, $record);
+                    $this->byteCheckpoint = $nextByte;
+                } catch (\UnexpectedValueException $parseError) {
+                    if (!$this->isPrematureFragmentError($parseError)) {
+                        throw $parseError;
+                    }
+
+                    // UniqueNode is the proven fast path used by the Laravel CRM
+                    // importer, but it deliberately searches for a literal closing
+                    // tag and cannot distinguish </product> text inside CDATA. When
+                    // libxml identifies that exact premature-fragment pattern, replay
+                    // this one product from its opening byte with Prewk StringWalker.
+                    // The normal path remains UniqueNode and the fallback is rare.
+                    $nodeStartByte = $nextByte - strlen($node);
+                    if ($nodeStartByte < $currentByte) {
+                        throw $parseError;
+                    }
+                    $recovered = $this->recoverCdataProduct($path, $nodeStartByte, $record);
+                    if ($recovered === null) {
+                        throw $parseError;
+                    }
+                    $row = $recovered['row'];
+                    $this->byteCheckpoint = $recovered['next_byte'];
+                    $restartAt = $recovered['next_byte'];
+                }
+
+                if ($skipped < $skipRecords) {
+                    ++$skipped;
+                } else {
+                    yield $row;
+                }
+
+                if ($restartAt !== null) {
+                    break;
+                }
+            }
+
+            unset($streamer, $stream, $parser);
+
+            if ($restartAt !== null) {
+                $currentByte = $restartAt;
+                continue;
+            }
+
+            break;
+        }
+
+        if ($skipped !== $skipRecords) {
+            throw new \RuntimeException(sprintf(
+                'Matterhorn READ checkpoint %d exceeds available source records',
+                $skipRecords
+            ));
+        }
+
+        $this->assertCompleteTail($path, $record);
+    }
+
+    /** @return array{row:array<string,mixed>,next_byte:int}|null */
+    private function recoverCdataProduct(string $path, int $startByte, int $record): ?array
+    {
         $handle = fopen($path, 'rb');
         if ($handle === false) {
-            throw new \RuntimeException('Cannot open Matterhorn XML: ' . $path);
+            throw new \RuntimeException('Cannot open Matterhorn XML for CDATA recovery: ' . $path);
         }
-        if ($byteOffset > 0 && fseek($handle, $byteOffset, SEEK_SET) !== 0) {
+        if ($startByte > 0 && fseek($handle, $startByte, SEEK_SET) !== 0) {
             fclose($handle);
-            throw new \RuntimeException('Cannot seek Matterhorn XML to byte ' . $byteOffset);
+            throw new \RuntimeException('Cannot seek Matterhorn XML for CDATA recovery to byte ' . $startByte);
         }
 
         $readBytes = 0;
         $parser = new PrewkCheckpointStringWalker([
-            // A full document has <products> at depth 1 and <product> at depth 2.
-            // A byte-resumed stream starts exactly after the previous </product>,
-            // therefore the next <product> is depth 1 in that fragment stream.
-            'captureDepth' => $byteOffset === 0 ? 2 : 1,
-            // Matterhorn descriptions are commonly CDATA/HTML-heavy. Prewk's
-            // StringWalker with expectGT enabled treats CDATA/comments atomically,
-            // so literal strings such as </product> inside a description cannot
-            // prematurely terminate the supplier product node.
+            'captureDepth' => 1,
             'expectGT' => true,
         ]);
         $stream = new FileStream(
@@ -139,40 +236,36 @@ final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
             }
         );
         $streamer = new XmlStringStreamer($parser, $stream);
-        $skipped = 0;
-        $record = $recordOffset;
-
-        while (($node = $streamer->getNode()) !== false) {
-            $nextByte = $byteOffset + $readBytes - $parser->unreadBytes();
-            if ($nextByte < $byteOffset) {
-                throw new \RuntimeException('Prewk Matterhorn stream produced an invalid byte checkpoint');
-            }
-            $this->byteCheckpoint = $nextByte;
-
-            if ($skipped < $skipRecords) {
-                ++$skipped;
-                continue;
-            }
-
-            ++$record;
-            if (strlen($node) > self::MAX_SOURCE_RECORD_BYTES) {
-                throw new \RuntimeException(
-                    'Matterhorn source record exceeds limit of ' . self::MAX_SOURCE_RECORD_BYTES .
-                    ' bytes at source record ' . $record
-                );
-            }
-
-            yield $this->parseProduct($node, $record);
+        $node = $streamer->getNode();
+        if (!is_string($node) || $node === '') {
+            return null;
+        }
+        if (strlen($node) > self::MAX_SOURCE_RECORD_BYTES) {
+            throw new \RuntimeException(
+                'Matterhorn source record exceeds limit of ' . self::MAX_SOURCE_RECORD_BYTES .
+                ' bytes at source record ' . $record
+            );
         }
 
-        if ($skipped !== $skipRecords) {
-            throw new \RuntimeException(sprintf(
-                'Matterhorn READ checkpoint %d exceeds available source records',
-                $skipRecords
-            ));
+        $nextByte = $startByte + $readBytes - $parser->unreadBytes();
+        if ($nextByte <= $startByte) {
+            throw new \RuntimeException('Prewk Matterhorn CDATA recovery produced an invalid byte checkpoint');
         }
 
-        $this->assertCompleteTail($path, $record);
+        try {
+            $row = $this->parseProduct($node, $record);
+        } catch (\UnexpectedValueException) {
+            return null;
+        }
+
+        return ['row' => $row, 'next_byte' => $nextByte];
+    }
+
+    private function isPrematureFragmentError(\UnexpectedValueException $error): bool
+    {
+        $message = $error->getMessage();
+        return str_contains($message, 'Premature end of data')
+            || str_contains($message, 'CData section not finished');
     }
 
     /** @return array<string,mixed> */
@@ -195,7 +288,7 @@ final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
                         $message = trim((string) $lastError->message);
                     }
                 }
-                throw new \RuntimeException(
+                throw new \UnexpectedValueException(
                     'Matterhorn product XML parse error at source record ' . $record . ': ' . $message
                 );
             }
@@ -276,7 +369,7 @@ final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
             if ($imageNumber > self::MAX_IMAGES_PER_PRODUCT) {
                 throw new \RuntimeException(
                     'Matterhorn product image count exceeds limit of ' . self::MAX_IMAGES_PER_PRODUCT .
-                    ' at source record ' . $record
+                    ' bytes at source record ' . $record
                 );
             }
             if (count($child->children()) > 0) {
