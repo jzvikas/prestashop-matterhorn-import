@@ -1,8 +1,14 @@
 <?php
 namespace Lp\MatterhornImport\Admin;
 
+use Lp\MatterhornImport\Util\DiagnosticMessageSanitizer;
+
 final class AdminErrorReporter
 {
+    public function __construct(private DiagnosticMessageSanitizer $sanitizer)
+    {
+    }
+
     public function report(string $operation, \Throwable $exception): string
     {
         try {
@@ -17,7 +23,7 @@ final class AdminErrorReporter
                     '[MatterhornImport][%s][%s] %s',
                     preg_replace('/[^A-Za-z0-9_.-]+/', '-', $operation) ?: 'operation',
                     $reference,
-                    $this->diagnosticMessage($exception)
+                    $this->sanitizer->sanitize($exception, 1200)
                 ),
                 3
             );
@@ -40,18 +46,5 @@ final class AdminErrorReporter
         unset($exception);
 
         return '';
-    }
-
-    private function diagnosticMessage(\Throwable $exception): string
-    {
-        $message = preg_replace('/\s+/', ' ', trim($exception->getMessage())) ?? trim($exception->getMessage());
-        $message = preg_replace('#(https?://)([^/@\s:]+):([^/@\s]+)@#i', '$1***:***@', $message) ?? $message;
-        $message = preg_replace(
-            '/(AccessKey|password|authorization|api[_-]?key|token|secret)\s*[:=]\s*[^\s,;]+/i',
-            '$1=***',
-            $message
-        ) ?? $message;
-
-        return mb_substr($message, 0, 1200, 'UTF-8');
     }
 }
