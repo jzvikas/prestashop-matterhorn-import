@@ -17,7 +17,7 @@ final class AdminErrorReporter
                     '[MatterhornImport][%s][%s] %s',
                     preg_replace('/[^A-Za-z0-9_.-]+/', '-', $operation) ?: 'operation',
                     $reference,
-                    $this->safeMessage($exception)
+                    $this->diagnosticMessage($exception)
                 ),
                 3
             );
@@ -28,11 +28,29 @@ final class AdminErrorReporter
         return $reference;
     }
 
+    /**
+     * Exception text is deliberately not returned to AJAX callers.
+     *
+     * Runtime exception messages can contain SQL, local filesystem paths, remote
+     * URLs, hostnames and other implementation details. The correlation reference
+     * returned by report() is the only diagnostic identifier exposed to the BO.
+     */
     public function safeMessage(\Throwable $exception): string
+    {
+        unset($exception);
+
+        return '';
+    }
+
+    private function diagnosticMessage(\Throwable $exception): string
     {
         $message = preg_replace('/\s+/', ' ', trim($exception->getMessage())) ?? trim($exception->getMessage());
         $message = preg_replace('#(https?://)([^/@\s:]+):([^/@\s]+)@#i', '$1***:***@', $message) ?? $message;
-        $message = preg_replace('/(AccessKey|password|authorization)\s*[:=]\s*[^\s,;]+/i', '$1=***', $message) ?? $message;
+        $message = preg_replace(
+            '/(AccessKey|password|authorization|api[_-]?key|token|secret)\s*[:=]\s*[^\s,;]+/i',
+            '$1=***',
+            $message
+        ) ?? $message;
 
         return mb_substr($message, 0, 1200, 'UTF-8');
     }
