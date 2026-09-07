@@ -31,6 +31,7 @@ php tests/category-admin-mapping-contract-check.php
 php tests/category-trailing-eof-hotfix-check.php
 php tests/admin-ajax-import-contract-check.php
 php tests/admin-error-disclosure-contract-check.php
+php tests/diagnostic-redaction-contract-check.php
 php tests/ajax-database-session-guard-contract-check.php
 php tests/category-auto-create-retirement-contract-check.php
 php tests/matterhorn-stock-bound-check.php
