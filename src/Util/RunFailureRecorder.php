@@ -6,7 +6,11 @@ use Lp\MatterhornImport\Repository\RunRepository;
 
 final class RunFailureRecorder
 {
-    public function __construct(private ErrorRepository $errors, private RunRepository $runs) {}
+    public function __construct(
+        private ErrorRepository $errors,
+        private RunRepository $runs,
+        private DiagnosticMessageSanitizer $sanitizer
+    ) {}
 
     public function record(int $runId, string $stage, \Throwable $error, ?string $sourceKey = null): void
     {
@@ -20,6 +24,12 @@ final class RunFailureRecorder
 
     private function fallback(int $runId, string $stage, string $operation, \Throwable $error): void
     {
-        error_log(sprintf('[matterhornimport] failure recording degraded run=%d stage=%s operation=%s error=%s', $runId, $stage, $operation, $error->getMessage()));
+        error_log(sprintf(
+            '[matterhornimport] failure recording degraded run=%d stage=%s operation=%s error=%s',
+            $runId,
+            $stage,
+            $operation,
+            $this->sanitizer->sanitize($error, 1000)
+        ));
     }
 }
