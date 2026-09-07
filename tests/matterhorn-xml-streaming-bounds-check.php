@@ -39,11 +39,12 @@ function expectStreamFailure(string $body, string $needle): void
 }
 
 $sourceCode = (string) file_get_contents(dirname(__DIR__) . '/src/Source/MatterhornXmlSource.php');
-streamingCheck(str_contains($sourceCode, 'new PrewkCheckpointStringWalker('), 'Matterhorn source must use the checkpointable Prewk StringWalker parser');
+streamingCheck(str_contains($sourceCode, 'new UniqueNode('), 'Matterhorn source must use the Prewk UniqueNode fast path');
+streamingCheck(str_contains($sourceCode, "'uniqueNode' => 'product'"), 'Prewk fast path must target product nodes');
+streamingCheck(str_contains($sourceCode, 'new PrewkCheckpointStringWalker('), 'Matterhorn source must provide a Prewk CDATA recovery path');
+streamingCheck(str_contains($sourceCode, "'expectGT' => true"), 'Prewk CDATA recovery must parse CDATA/comments atomically');
 streamingCheck(str_contains($sourceCode, 'new XmlStringStreamer('), 'Matterhorn source must use the Prewk XmlStringStreamer runtime');
 streamingCheck(str_contains($sourceCode, 'new FileStream('), 'Matterhorn source must use the Prewk file stream');
-streamingCheck(str_contains($sourceCode, "'expectGT' => true"), 'Prewk streamer must parse CDATA/comments atomically');
-streamingCheck(str_contains($sourceCode, "'captureDepth' => \$byteOffset === 0 ? 2 : 1"), 'Prewk streamer must preserve product capture across full and byte-resumed streams');
 streamingCheck(str_contains($sourceCode, 'simplexml_load_string'), 'each complete product fragment must be parsed independently with SimpleXML');
 streamingCheck(!str_contains($sourceCode, 'new \\XMLReader()'), 'main Matterhorn product parser must not use XMLReader');
 streamingCheck(!str_contains($sourceCode, 'file_get_contents($path)'), 'source must never read the entire XML into memory');
