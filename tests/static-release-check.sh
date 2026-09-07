@@ -12,6 +12,7 @@ fi
 while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find . -path './vendor' -prune -o -name '*.php' -print0)
 bash tests/prestashop-db-single-row-limit-check.sh
 php tests/source-location-contract-check.php
+php tests/remote-feed-ssrf-contract-check.php
 php tests/matterhorn-parser-mapper-check.php
 php tests/matterhorn-prewk-staging-check.php
 php tests/matterhorn-prewk-checkpoint-check.php
