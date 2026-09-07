@@ -88,7 +88,15 @@ final class ConfiguredMatterhornXmlSource implements ByteCheckpointableSourceInt
         }
 
         [$shopId] = $this->shopIdentity();
-        $snapshot = $resume ? $this->runSnapshots->load($runId, $shopId) : null;
+
+        // A run can legitimately pause with read_checkpoint=0 when the first AJAX
+        // request spends its whole soft budget downloading/freezing a large remote
+        // feed. The frozen source is already valid in that case and must be reused
+        // on the next request instead of downloading and hashing the feed again.
+        // Run IDs are unique, so an existing snapshot always belongs to this exact
+        // import run; the $resume flag remains part of the interface for callers but
+        // snapshot discovery itself must not depend on the record checkpoint.
+        $snapshot = $this->runSnapshots->load($runId, $shopId);
         if ($snapshot === null) {
             $location = $this->configuredLocation();
             $remote = $this->locations->isRemote($location);
