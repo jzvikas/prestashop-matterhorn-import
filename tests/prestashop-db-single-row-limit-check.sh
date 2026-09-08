@@ -92,6 +92,14 @@ probe_calls = list(call_bodies(probe, 'getValue'))
 if len(probe_calls) != 1 or not re.search(r'\bLIMIT\s+1\b', probe_calls[0][1], re.IGNORECASE):
     raise SystemExit('single-row LIMIT guard parser self-test failed')
 
+# PrestaShop Db::getRow() appends LIMIT 1 after the supplied SQL. A trailing locking
+# clause therefore becomes `... FOR UPDATE LIMIT 1`, which is invalid MariaDB syntax.
+# Db::getValue() delegates to the single-row path and is unsafe for the same pattern.
+lock_probe = "Db::getInstance()->getRow('SELECT status FROM t WHERE id=1 FOR UPDATE', false);"
+lock_probe_calls = list(call_bodies(lock_probe, 'getRow'))
+if len(lock_probe_calls) != 1 or not re.search(r'\bFOR\s+UPDATE\b', lock_probe_calls[0][1], re.IGNORECASE):
+    raise SystemExit('single-row locking-clause guard parser self-test failed')
+
 violations = []
 for php_file in paths:
     if not php_file.is_file():
@@ -99,17 +107,21 @@ for php_file in paths:
     text = php_file.read_text(encoding='utf-8')
     for method in ('getValue', 'getRow'):
         for start, body in call_bodies(text, method):
+            rel = php_file.relative_to(root)
+            line = text.count('\n', 0, start) + 1
             if re.search(r'\bLIMIT\s+1\b', body, re.IGNORECASE):
-                rel = php_file.relative_to(root)
-                line = text.count('\n', 0, start) + 1
                 violations.append(
                     f'{rel}:{line}: PrestaShop Db::{method}() appends LIMIT 1; remove manual LIMIT 1'
+                )
+            if re.search(r'\bFOR\s+UPDATE\b', body, re.IGNORECASE):
+                violations.append(
+                    f'{rel}:{line}: PrestaShop Db::{method}() appends LIMIT 1 after SQL; use a bounded executeS/query path so LIMIT precedes FOR UPDATE'
                 )
 
 if violations:
     for violation in violations:
         print(violation, file=sys.stderr)
-    raise SystemExit(f'Found {len(violations)} redundant PrestaShop single-row LIMIT clause(s)')
+    raise SystemExit(f'Found {len(violations)} unsafe PrestaShop single-row SQL clause(s)')
 
 print('PRESTASHOP_SINGLE_ROW_LIMIT_CHECK_OK')
 PY
