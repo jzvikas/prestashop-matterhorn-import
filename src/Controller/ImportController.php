@@ -2,9 +2,12 @@
 namespace Lp\MatterhornImport\Controller;
 
 use Lp\MatterhornImport\Admin\AdminErrorReporter;
+use Lp\MatterhornImport\Admin\ImageAjaxStatusProvider;
 use Lp\MatterhornImport\Admin\ImportStatusProvider;
 use Lp\MatterhornImport\Config\OperationalSettings;
 use Lp\MatterhornImport\Database\AjaxDatabaseSessionGuard;
+use Lp\MatterhornImport\Image\ImageReconciler;
+use Lp\MatterhornImport\Image\ImageWorker;
 use Lp\MatterhornImport\Import\ImportRunner;
 use Lp\MatterhornImport\Lock\ImportLock;
 use Lp\MatterhornImport\Repository\RunRepository;
@@ -20,11 +23,15 @@ final class ImportController extends PrestaShopAdminController
     private const SOURCE = 'matterhorn';
     private const AJAX_TIME_LIMIT_SECONDS = 10;
     private const MAX_AJAX_BATCH = 1000;
+    private const MAX_IMAGE_WORKER_SLOT = 2;
+    private const AJAX_IMAGE_RECONCILE_BATCH = 100;
+    private const AJAX_IMAGE_RECONCILE_TIME_LIMIT_SECONDS = 8;
 
     #[AdminSecurity("is_granted('read', request.get('_legacy_controller'))")]
     public function index(
         RunRepository $runs,
         ImportStatusProvider $status,
+        ImageAjaxStatusProvider $images,
         OperationalSettings $settings
     ): Response {
         if (\Shop::getContext() !== \Shop::CONTEXT_SHOP) {
@@ -45,7 +52,21 @@ final class ImportController extends PrestaShopAdminController
 
         [$shopId, $shopName] = $this->shopContext();
         $active = $runs->findActive($shopId, self::SOURCE);
-        $activePublic = $active === null ? null : $status->present($active);
+        $activePublic = $active === null ? null : $this->presentRun($active, $status, $images);
+
+        // A catalogue run is terminal before its durable image queue/reconciliation is necessarily
+        // finished. Restore the latest completed run as browser work while its image lane is active.
+        if ($activePublic === null) {
+            $latest = $runs->latest($shopId, self::SOURCE);
+            if ($latest !== null && (string) ($latest['status'] ?? '') === 'completed') {
+                $candidate = $this->presentRun($latest, $status, $images);
+                if ((bool) ($candidate['images']['active'] ?? false)) {
+                    $active = $latest;
+                    $activePublic = $candidate;
+                }
+            }
+        }
+
         $activeId = (int) ($active['id_run'] ?? 0);
         $recent = [];
         foreach ($runs->recent($shopId, self::SOURCE, 20) as $row) {
@@ -71,6 +92,7 @@ final class ImportController extends PrestaShopAdminController
         Request $request,
         RunRepository $runs,
         ImportStatusProvider $status,
+        ImageAjaxStatusProvider $images,
         ImportLock $lock,
         AdminErrorReporter $errors
     ): JsonResponse {
@@ -98,7 +120,7 @@ final class ImportController extends PrestaShopAdminController
             }
 
             return new JsonResponse(
-                ['success' => true, 'job' => $status->present($run)],
+                ['success' => true, 'job' => $this->presentRun($run, $status, $images)],
                 $active === null ? Response::HTTP_CREATED : Response::HTTP_OK
             );
         } catch (\Throwable $exception) {
@@ -112,6 +134,7 @@ final class ImportController extends PrestaShopAdminController
         RunRepository $runs,
         ImportRunner $runner,
         ImportStatusProvider $status,
+        ImageAjaxStatusProvider $images,
         AdminErrorReporter $errors,
         AjaxDatabaseSessionGuard $databaseSession
     ): JsonResponse {
@@ -145,11 +168,98 @@ final class ImportController extends PrestaShopAdminController
                 throw new \RuntimeException('Matterhorn import run disappeared after AJAX batch');
             }
 
-            return new JsonResponse(['success' => true, 'job' => $status->present($run)]);
+            return new JsonResponse(['success' => true, 'job' => $this->presentRun($run, $status, $images)]);
         } catch (\InvalidArgumentException $exception) {
             return $this->jsonError($exception->getMessage(), Response::HTTP_BAD_REQUEST);
         } catch (\Throwable $exception) {
             return $this->exceptionError('ajax-import-batch', $exception, $errors, Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    #[AdminSecurity("is_granted('update', request.get('_legacy_controller'))")]
+    public function imagesBatch(
+        Request $request,
+        RunRepository $runs,
+        ImportStatusProvider $status,
+        ImageAjaxStatusProvider $images,
+        ImageWorker $worker,
+        ImageReconciler $reconciler,
+        AdminErrorReporter $errors,
+        AjaxDatabaseSessionGuard $databaseSession
+    ): JsonResponse {
+        if (!$this->isValidAjaxPost($request)) {
+            return $this->jsonError('Invalid security token.', Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            [$shopId] = $this->shopContext();
+            $runId = $this->positiveRunId($request);
+            $slot = $this->imageWorkerSlot($request);
+            $run = $runs->assertContext($runId, $shopId, self::SOURCE);
+            if (!in_array((string) ($run['status'] ?? ''), ['running', 'paused', 'completed'], true)) {
+                return $this->jsonError(
+                    'This Matterhorn run cannot process images in its current state.',
+                    Response::HTTP_CONFLICT
+                );
+            }
+
+            $latest = $runs->latest($shopId, self::SOURCE);
+            if ($latest === null || (int) ($latest['id_run'] ?? 0) !== $runId) {
+                return $this->jsonError(
+                    'A newer Matterhorn run exists. Reload the page before continuing image processing.',
+                    Response::HTTP_CONFLICT
+                );
+            }
+
+            $databaseSession->prepareLegacy();
+            $imageState = $images->present($run);
+            $workerResult = null;
+            if ((bool) ($imageState['worker_active'] ?? false)) {
+                // One potentially slow image per HTTP request. Two browser slots provide bounded
+                // concurrency while the queue lease/token fencing prevents duplicate ownership.
+                $workerResult = $worker->tick($this->imageWorkerLabel($shopId, $runId, $slot), 1, $shopId);
+            }
+
+            $run = $runs->get($runId);
+            if ($run === null) {
+                throw new \RuntimeException('Matterhorn import run disappeared after AJAX image batch');
+            }
+            $imageState = $images->present($run);
+            $reconcileResult = null;
+
+            // Only slot 1 performs bounded final reconciliation. Slot 2 remains a download worker,
+            // which avoids two browser requests racing the exclusive import/reconcile lock.
+            if ($slot === 1 && (bool) ($imageState['needs_reconcile'] ?? false)) {
+                try {
+                    $reconcileResult = $reconciler->run(
+                        $runId,
+                        $shopId,
+                        self::AJAX_IMAGE_RECONCILE_BATCH,
+                        self::AJAX_IMAGE_RECONCILE_BATCH,
+                        self::AJAX_IMAGE_RECONCILE_TIME_LIMIT_SECONDS
+                    );
+                } catch (\RuntimeException $exception) {
+                    if ($exception->getMessage() !== 'Import/reconciliation lock is busy') {
+                        throw $exception;
+                    }
+                }
+
+                $run = $runs->get($runId);
+                if ($run === null) {
+                    throw new \RuntimeException('Matterhorn import run disappeared after AJAX image reconciliation');
+                }
+            }
+
+            return new JsonResponse([
+                'success' => true,
+                'job' => $this->presentRun($run, $status, $images),
+                'image_batch' => $workerResult,
+                'image_reconcile' => $reconcileResult,
+            ]);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->jsonError($exception->getMessage(), Response::HTTP_BAD_REQUEST);
+        } catch (\Throwable $exception) {
+            return $this->exceptionError('ajax-images-batch', $exception, $errors, Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -158,6 +268,7 @@ final class ImportController extends PrestaShopAdminController
         Request $request,
         RunRepository $runs,
         ImportStatusProvider $status,
+        ImageAjaxStatusProvider $images,
         AdminErrorReporter $errors
     ): JsonResponse {
         if (!$this->isValidAjaxPost($request)) {
@@ -168,7 +279,7 @@ final class ImportController extends PrestaShopAdminController
             [$shopId] = $this->shopContext();
             $run = $runs->assertContext($this->positiveRunId($request), $shopId, self::SOURCE);
 
-            return new JsonResponse(['success' => true, 'job' => $status->present($run)]);
+            return new JsonResponse(['success' => true, 'job' => $this->presentRun($run, $status, $images)]);
         } catch (\InvalidArgumentException $exception) {
             return $this->jsonError($exception->getMessage(), Response::HTTP_BAD_REQUEST);
         } catch (\Throwable $exception) {
@@ -181,6 +292,7 @@ final class ImportController extends PrestaShopAdminController
         Request $request,
         RunRepository $runs,
         ImportStatusProvider $status,
+        ImageAjaxStatusProvider $images,
         ImportLock $lock,
         AdminErrorReporter $errors,
         RunSourceSnapshotManager $runSources
@@ -216,7 +328,7 @@ final class ImportController extends PrestaShopAdminController
                 $lock->release();
             }
 
-            return new JsonResponse(['success' => true, 'job' => $status->present($run)]);
+            return new JsonResponse(['success' => true, 'job' => $this->presentRun($run, $status, $images)]);
         } catch (\InvalidArgumentException $exception) {
             return $this->jsonError($exception->getMessage(), Response::HTTP_BAD_REQUEST);
         } catch (\Throwable $exception) {
@@ -279,6 +391,39 @@ final class ImportController extends PrestaShopAdminController
         }
 
         return (int) $batch;
+    }
+
+    private function imageWorkerSlot(Request $request): int
+    {
+        $slot = filter_var(
+            $request->request->get('worker_slot'),
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1, 'max_range' => self::MAX_IMAGE_WORKER_SLOT]]
+        );
+        if ($slot === false) {
+            throw new \InvalidArgumentException(
+                'AJAX image worker slot must be an integer from 1 to ' . self::MAX_IMAGE_WORKER_SLOT . '.'
+            );
+        }
+
+        return (int) $slot;
+    }
+
+    private function imageWorkerLabel(int $shopId, int $runId, int $slot): string
+    {
+        return sprintf('ajax-image-s%d-r%d-w%d', $shopId, $runId, $slot);
+    }
+
+    /** @param array<string,mixed> $run @return array<string,mixed> */
+    private function presentRun(
+        array $run,
+        ImportStatusProvider $status,
+        ImageAjaxStatusProvider $images
+    ): array {
+        $presented = $status->present($run);
+        $presented['images'] = $images->present($run);
+
+        return $presented;
     }
 
     private function assetVersion(): string

@@ -27,6 +27,7 @@
     <div id="matterhorn-import-app"
          data-start-url="{{ path('matterhorn_import_ajax_start') }}"
          data-batch-url="{{ path('matterhorn_import_ajax_batch') }}"
+         data-images-batch-url="{{ path('matterhorn_import_ajax_images_batch') }}"
          data-status-url="{{ path('matterhorn_import_ajax_status') }}"
          data-cancel-url="{{ path('matterhorn_import_ajax_cancel') }}"
          data-token="{{ csrf_token('matterhorn_ajax_import') }}"
@@ -34,7 +35,7 @@
       <div class="alert alert-info">
         <strong>{{ 'Shop:'|trans({}, 'Admin.Global') }}</strong>
         {{ currentShopName }} (#{{ currentShopId }}).
-        {{ 'The browser executes the same resumable READ → IMPORT → UPDATE → REMOVE pipeline in short crash-safe batches.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+        {{ 'The browser runs the resumable READ → IMPORT → UPDATE → REMOVE pipeline and two parallel server-side AJAX image workers. Image bytes travel directly from Matterhorn to the server and never through the browser.'|trans({}, 'Modules.Matterhornimport.Admin') }}
       </div>
 
       <div class="card mb-3">
@@ -48,19 +49,21 @@
               <label for="matterhorn-batch-size">{{ 'Batch size'|trans({}, 'Modules.Matterhornimport.Admin') }}</label>
               <input id="matterhorn-batch-size" class="form-control" type="number" min="1" max="1000" value="{{ batchSize }}">
               <small class="form-text text-muted">
-                {{ 'Each AJAX request processes at most this many products and has a soft 10-second execution budget for shared-hosting safety. Recommended: 100-250.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+                {{ 'Each catalogue AJAX request processes at most this many products and has a soft 10-second execution budget. Images use two independent one-image AJAX workers.'|trans({}, 'Modules.Matterhornimport.Admin') }}
               </small>
             </div>
             <div class="col-md-8 text-md-right mt-3 mt-md-0">
               <button id="matterhorn-start" type="button" class="btn btn-primary">
                 <i class="material-icons">play_arrow</i>
-                {% if activeRun %}
+                {% if activeRun and activeRun.active %}
                   {{ 'Continue active import'|trans({}, 'Modules.Matterhornimport.Admin') }}
+                {% elseif activeRun and activeRun.images is defined and activeRun.images.active %}
+                  {{ 'Continue images'|trans({}, 'Modules.Matterhornimport.Admin') }}
                 {% else %}
                   {{ 'Start import'|trans({}, 'Modules.Matterhornimport.Admin') }}
                 {% endif %}
               </button>
-              <button id="matterhorn-cancel" type="button" class="btn btn-outline-danger" {% if not activeRun %}disabled{% endif %}>
+              <button id="matterhorn-cancel" type="button" class="btn btn-outline-danger" {% if not activeRun or not activeRun.active %}disabled{% endif %}>
                 <i class="material-icons">stop</i>
                 {{ 'Cancel'|trans({}, 'Admin.Actions') }}
               </button>
@@ -70,6 +73,10 @@
           {% set initialProgress = activeRun and activeRun.progress is defined ? activeRun.progress : null %}
           {% set initialPercent = initialProgress ? initialProgress.overall_percent : 0 %}
           <div class="mt-4">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <strong>CATALOG</strong>
+              <small class="text-muted">READ → IMPORT → UPDATE → REMOVE</small>
+            </div>
             <div class="progress" style="height: 24px;">
               <div id="matterhorn-progress-bar"
                    class="progress-bar{% if initialProgress and initialProgress.indeterminate %} progress-bar-striped progress-bar-animated{% endif %}"
@@ -94,8 +101,46 @@
                 {{ 'No active Matterhorn import for this shop.'|trans({}, 'Modules.Matterhornimport.Admin') }}
               {% endif %}
             </div>
-            <div id="matterhorn-error" class="alert alert-danger mt-3 d-none"></div>
           </div>
+
+          {% set initialImages = activeRun and activeRun.images is defined ? activeRun.images : null %}
+          {% set initialImagePercent = initialImages ? initialImages.percent : 0 %}
+          <div class="mt-4 pt-3 border-top">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <strong>IMAGES</strong>
+              <small class="text-muted">2 × server-side AJAX workers</small>
+            </div>
+            <div class="progress" style="height: 24px;">
+              <div id="matterhorn-image-progress-bar"
+                   class="progress-bar{% if initialImages and initialImages.indeterminate and initialImages.active %} progress-bar-striped progress-bar-animated{% endif %}"
+                   role="progressbar"
+                   aria-valuemin="0"
+                   aria-valuemax="100"
+                   aria-valuenow="{{ initialImagePercent }}"
+                   style="width: {{ initialImages and initialImages.indeterminate and initialImages.active ? 100 : initialImagePercent }}%">
+                {% if initialImages and initialImages.indeterminate and initialImages.active %}
+                  IMAGES — {{ initialImages.stage }}
+                {% else %}
+                  {{ initialImagePercent }}%
+                {% endif %}
+              </div>
+            </div>
+            <div id="matterhorn-image-status" class="mt-2 text-muted">
+              {% if initialImages %}
+                {{ initialImages.status }} — run queue: {{ initialImages.done }}/{{ initialImages.total }} done,
+                {{ initialImages.pending }} pending, {{ initialImages.processing }} processing, {{ initialImages.failed }} failed;
+                active source backlog: {{ initialImages.source_unresolved }}.
+                Reconcile: {{ initialImages.reconcile_status }} ({{ initialImages.reconcile_done }} products).
+              {% else %}
+                {{ 'Images will start automatically when IMPORT begins.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+              {% endif %}
+            </div>
+            <small class="form-text text-muted">
+              {{ 'Closing the browser only stops AJAX execution; the image queue remains durable and can continue from the same state when this page is opened again or by the CLI worker.'|trans({}, 'Modules.Matterhornimport.Admin') }}
+            </small>
+          </div>
+
+          <div id="matterhorn-error" class="alert alert-danger mt-3 d-none"></div>
         </div>
       </div>
 
@@ -115,6 +160,7 @@
                 <th>IMPORT</th>
                 <th>UPDATE</th>
                 <th>REMOVE</th>
+                <th>IMAGES</th>
                 <th>{{ 'Started'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
                 <th>{{ 'Finished'|trans({}, 'Modules.Matterhornimport.Admin') }}</th>
               </tr>
@@ -129,12 +175,13 @@
                   <td>{{ job.import_done }} / {{ job.import_failed }}</td>
                   <td>{{ job.update_done }} / {{ job.update_skipped }} / {{ job.update_failed }}</td>
                   <td>{{ job.remove_done }} / {{ job.remove_failed }}</td>
+                  <td>{{ job.image_reconcile_status }} / {{ job.image_reconcile_done }}</td>
                   <td>{{ job.started_at }}</td>
                   <td>{{ job.finished_at ?: '—' }}</td>
                 </tr>
               {% else %}
                 <tr>
-                  <td colspan="9" class="text-center text-muted py-4">
+                  <td colspan="10" class="text-center text-muted py-4">
                     {{ 'No Matterhorn import runs for this shop yet.'|trans({}, 'Modules.Matterhornimport.Admin') }}
                   </td>
                 </tr>
