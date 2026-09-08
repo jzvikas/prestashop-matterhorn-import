@@ -206,11 +206,10 @@ final class ImportController extends PrestaShopAdminController
                 try {
                     $runSources->release($runId, $shopId);
                 } catch (\Throwable $cleanupError) {
-                    error_log(sprintf(
-                        '[matterhornimport] could not release cancelled run source %d: %s',
-                        $runId,
-                        $cleanupError->getMessage()
-                    ));
+                    // Cleanup diagnostics use the same centralized redaction policy as
+                    // every other BO error path. report() is itself fail-safe and does
+                    // not replace the successful cancel response if logging fails.
+                    $errors->report('ajax-import-cancel-source-cleanup', $cleanupError);
                 }
             } finally {
                 $lock->release();
