@@ -2,6 +2,7 @@
 namespace Lp\MatterhornImport\Database;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\ConnectionLost;
 
 final class AjaxDatabaseSessionGuard
 {
@@ -16,7 +17,7 @@ final class AjaxDatabaseSessionGuard
     /**
      * Prepare Doctrine before the Back Office security layer starts querying again.
      * A stale persistent connection is re-opened once when MySQL has already
-     * dropped it (notably shared hosting with wait_timeout=30).
+     * dropped it (notably shared hosting with a low wait_timeout).
      */
     public function prepareDoctrine(): void
     {
@@ -45,7 +46,7 @@ final class AjaxDatabaseSessionGuard
         try {
             $this->applyLegacySession($db);
         } catch (\Throwable $exception) {
-            if (!$this->isConnectionLost($exception)) {
+            if (!$this->isConnectionLost($exception) && !$this->legacyConnectionLost($db)) {
                 throw $exception;
             }
 
@@ -66,7 +67,10 @@ final class AjaxDatabaseSessionGuard
     {
         foreach ($this->sessionStatements() as $sql) {
             if (!$db->execute($sql)) {
-                throw new \RuntimeException('Could not configure Matterhorn AJAX database session.');
+                throw new \RuntimeException(
+                    'Could not configure Matterhorn database session: ' . $db->getMsgError(),
+                    (int) $db->getNumberError()
+                );
             }
         }
     }
@@ -81,14 +85,35 @@ final class AjaxDatabaseSessionGuard
         ];
     }
 
+    private function legacyConnectionLost(\Db $db): bool
+    {
+        $number = (int) $db->getNumberError();
+        if ($number === 2006 || $number === 2013) {
+            return true;
+        }
+
+        $message = (string) $db->getMsgError();
+
+        return stripos($message, 'MySQL server has gone away') !== false
+            || stripos($message, 'Lost connection to MySQL server') !== false;
+    }
+
     private function isConnectionLost(\Throwable $exception): bool
     {
         for ($current = $exception; $current !== null; $current = $current->getPrevious()) {
+            if ($current instanceof ConnectionLost) {
+                return true;
+            }
+
+            $code = (int) $current->getCode();
+            if ($code === 2006 || $code === 2013) {
+                return true;
+            }
+
             $message = $current->getMessage();
             if (
                 stripos($message, 'MySQL server has gone away') !== false
                 || stripos($message, 'Lost connection to MySQL server') !== false
-                || stripos($message, 'Doctrine\\DBAL\\Exception\\ConnectionLost') !== false
                 || preg_match('/SQLSTATE\[HY000\].*(?:2006|2013)/i', $message) === 1
             ) {
                 return true;
