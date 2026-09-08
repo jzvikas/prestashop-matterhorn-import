@@ -142,8 +142,13 @@ final class NewProductWorker
                     }
 
                     $product = ProductData::fromJson((string) ($lockedJob['payload'] ?? ''));
-                    if (!hash_equals($product->sourceKey, (string) ($lockedJob['source_key'] ?? ''))) {
+                    $lockedSourceKey = (string) ($lockedJob['source_key'] ?? '');
+                    $lockedPayloadHash = (string) ($lockedJob['payload_hash'] ?? '');
+                    if (!hash_equals($product->sourceKey, $lockedSourceKey)) {
                         throw new \RuntimeException('New-product locked payload/source-key mismatch');
+                    }
+                    if ($lockedPayloadHash === '') {
+                        throw new \RuntimeException('New-product locked payload hash is empty');
                     }
                     $idProduct = $this->mapping->findProductId($jobShop, $source, $product->sourceKey);
                     $existing = $idProduct > 0;
@@ -174,10 +179,26 @@ final class NewProductWorker
                             $idProduct = $this->writer->create($product, $jobShop);
                         }
                     }
-                    $this->transactionGuard->restoreAfterExternalCommit();
+                    $this->restoreAndFenceGeneration(
+                        $idQueue,
+                        $token,
+                        $expectedRunId,
+                        $jobShop,
+                        $source,
+                        $lockedSourceKey,
+                        $lockedPayloadHash
+                    );
 
                     $this->features->sync($expectedRunId, $jobShop, $source, $idProduct, $product);
-                    $this->transactionGuard->restoreAfterExternalCommit();
+                    $this->restoreAndFenceGeneration(
+                        $idQueue,
+                        $token,
+                        $expectedRunId,
+                        $jobShop,
+                        $source,
+                        $lockedSourceKey,
+                        $lockedPayloadHash
+                    );
 
                     $combinationProduct = $this->combinationAttributes->resolve($product, $jobShop, $source);
                     $this->combinations->sync(
@@ -187,10 +208,26 @@ final class NewProductWorker
                         $idProduct,
                         $combinationProduct
                     );
-                    $this->transactionGuard->restoreAfterExternalCommit();
+                    $this->restoreAndFenceGeneration(
+                        $idQueue,
+                        $token,
+                        $expectedRunId,
+                        $jobShop,
+                        $source,
+                        $lockedSourceKey,
+                        $lockedPayloadHash
+                    );
 
                     $this->specificPrices->sync($expectedRunId, $jobShop, $source, $idProduct, $product);
-                    $this->transactionGuard->restoreAfterExternalCommit();
+                    $this->restoreAndFenceGeneration(
+                        $idQueue,
+                        $token,
+                        $expectedRunId,
+                        $jobShop,
+                        $source,
+                        $lockedSourceKey,
+                        $lockedPayloadHash
+                    );
 
                     $stats['hook_commit_recoveries'] += $this->transactionGuard->recoveryCount();
 
@@ -262,6 +299,40 @@ final class NewProductWorker
         }
 
         return $stats;
+    }
+
+    private function restoreAndFenceGeneration(
+        int $idQueue,
+        string $token,
+        int $expectedRunId,
+        int $shopId,
+        string $source,
+        string $sourceKey,
+        string $payloadHash
+    ): void {
+        if (!$this->transactionGuard->restoreAfterExternalCommit()) {
+            return;
+        }
+
+        // A PrestaShop ObjectModel/hook commit releases every InnoDB row lock held by
+        // this worker. Reacquire the queue row immediately before any later domain
+        // write. A newer enqueue is allowed to advance id_run/payload while the row
+        // remains processing, so continuing with the old ProductData after lock loss
+        // would let a stale worker overwrite newer catalog state.
+        $lockedJob = $this->queue->lockOwned($idQueue, $token);
+        if (
+            (int) ($lockedJob['id_shop'] ?? 0) !== $shopId
+            || !hash_equals($source, (string) ($lockedJob['source'] ?? ''))
+            || !hash_equals($sourceKey, (string) ($lockedJob['source_key'] ?? ''))
+        ) {
+            throw new \RuntimeException('New-product queue scope changed after external commit');
+        }
+        if ((int) ($lockedJob['id_run'] ?? 0) !== $expectedRunId) {
+            throw new \RuntimeException('New-product queue generation advanced after external commit');
+        }
+        if (!hash_equals($payloadHash, (string) ($lockedJob['payload_hash'] ?? ''))) {
+            throw new \RuntimeException('New-product queue payload changed after external commit');
+        }
     }
 
     private function transactionIsActive(\Db $db): bool
