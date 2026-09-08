@@ -1,6 +1,8 @@
 <?php
 namespace Lp\MatterhornImport\Repository;
 
+use Lp\MatterhornImport\Util\DiagnosticMessageSanitizer;
+
 final class ImageQueueRepository
 {
     private const TABLE = 'li_matterhornim_99dfbf_image_queue';
@@ -9,6 +11,10 @@ final class ImageQueueRepository
     private const ENQUEUE_CHUNK = 500;
     private const MAX_URL_BYTES = 16384;
     private const MAX_WRITE_VALUES_BYTES = 7340032; // 7 MiB escaped VALUES; reserve SQL overhead
+
+    public function __construct(private DiagnosticMessageSanitizer $sanitizer)
+    {
+    }
 
     public function enqueue(int $runId, int $shopId, string $source, string $sourceKey, int $productId, array $urls): void
     {
@@ -158,7 +164,7 @@ final class ImageQueueRepository
     public function supersede(int $id, string $token, string $reason): bool
     {
         $db = \Db::getInstance();
-        $message = 'superseded: ' . mb_substr($reason, 0, 3980);
+        $message = $this->sanitizer->sanitize('superseded: ' . trim($reason), 4000);
         if (!$db->execute(sprintf("UPDATE `%s%s` SET status='done',locked_by=NULL,locked_until=NULL,available_at=NULL,last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, pSQL($message, true), $id, pSQL($token)))) {
             throw new \RuntimeException('Matterhorn image queue supersede update failed');
         }
@@ -168,8 +174,9 @@ final class ImageQueueRepository
     public function fail(int $id, string $token, string $error, bool $retryable = true): bool
     {
         $retryFlag = $retryable ? 1 : 0;
+        $safeError = $this->sanitizer->sanitize($error, 4000);
         $db = \Db::getInstance();
-        if (!$db->execute(sprintf("UPDATE `%s%s` SET status=IF(%d=0 OR attempts>=%d,'failed','pending'),locked_by=NULL,locked_until=NULL,available_at=IF(%d=0 OR attempts>=%d,NULL,TIMESTAMPADD(SECOND,CASE attempts WHEN 1 THEN 15 WHEN 2 THEN 30 WHEN 3 THEN 60 WHEN 4 THEN 120 ELSE 300 END,NOW())),last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $retryFlag, self::MAX_ATTEMPTS, $retryFlag, self::MAX_ATTEMPTS, pSQL(mb_substr($error, 0, 4000), true), $id, pSQL($token)))) {
+        if (!$db->execute(sprintf("UPDATE `%s%s` SET status=IF(%d=0 OR attempts>=%d,'failed','pending'),locked_by=NULL,locked_until=NULL,available_at=IF(%d=0 OR attempts>=%d,NULL,TIMESTAMPADD(SECOND,CASE attempts WHEN 1 THEN 15 WHEN 2 THEN 30 WHEN 3 THEN 60 WHEN 4 THEN 120 ELSE 300 END,NOW())),last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $retryFlag, self::MAX_ATTEMPTS, $retryFlag, self::MAX_ATTEMPTS, pSQL($safeError, true), $id, pSQL($token)))) {
             throw new \RuntimeException('Matterhorn image queue failure update failed');
         }
         return (int) $db->Affected_Rows() === 1;
