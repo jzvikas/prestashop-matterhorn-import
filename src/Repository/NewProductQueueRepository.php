@@ -1,6 +1,8 @@
 <?php
 namespace Lp\MatterhornImport\Repository;
 
+use Lp\MatterhornImport\Util\DiagnosticMessageSanitizer;
+
 final class NewProductQueueRepository
 {
     private const TABLE = 'li_matterhornim_99dfbf_new_product_queue';
@@ -11,6 +13,10 @@ final class NewProductQueueRepository
     private const ENQUEUE_CHUNK = 500;
     private const MAX_FETCH_PAYLOAD_BYTES = 8388608; // 8 MiB per enqueue preload window
     private const MAX_WRITE_VALUES_BYTES = 7340032; // 7 MiB escaped VALUES; reserve ~1 MiB for SQL syntax
+
+    public function __construct(private DiagnosticMessageSanitizer $sanitizer)
+    {
+    }
 
     /** @return list<array<string,mixed>> */
     public function nextUnqueuedRows(int $runId, int $shopId, string $source, string $after = '', int $limit = 500): array
@@ -151,7 +157,7 @@ final class NewProductQueueRepository
             throw new \InvalidArgumentException('New-product supersede requires queue/token/run');
         }
         $db = \Db::getInstance();
-        $message = 'superseded: ' . mb_substr(trim($reason), 0, 3980);
+        $message = $this->sanitizer->sanitize('superseded: ' . trim($reason), 4000);
         if (!$db->execute(sprintf(
             "UPDATE `%s%s` SET status='done',locked_by=NULL,locked_until=NULL,available_at=NULL,last_error='%s',updated_at=NOW() " .
             "WHERE id_queue=%d AND id_run=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()",
@@ -182,8 +188,9 @@ final class NewProductQueueRepository
     {
         $retry = $retryable ? 1 : 0;
         $runFence = $expectedRunId > 0 ? ' AND id_run=' . $expectedRunId : '';
+        $safeMessage = $this->sanitizer->sanitize($message, 4000);
         $db = \Db::getInstance();
-        if (!$db->execute(sprintf("UPDATE `%s%s` SET status=IF(%d=0 OR attempts>=%d,'failed','pending'),locked_by=NULL,locked_until=NULL,available_at=IF(%d=0 OR attempts>=%d,NULL,TIMESTAMPADD(SECOND,CASE attempts WHEN 1 THEN 15 WHEN 2 THEN 30 WHEN 3 THEN 60 WHEN 4 THEN 120 ELSE 300 END,NOW())),last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()%s", _DB_PREFIX_, self::TABLE, $retry, self::MAX_ATTEMPTS, $retry, self::MAX_ATTEMPTS, pSQL(mb_substr($message, 0, 4000), true), $id, pSQL($token), $runFence))) {
+        if (!$db->execute(sprintf("UPDATE `%s%s` SET status=IF(%d=0 OR attempts>=%d,'failed','pending'),locked_by=NULL,locked_until=NULL,available_at=IF(%d=0 OR attempts>=%d,NULL,TIMESTAMPADD(SECOND,CASE attempts WHEN 1 THEN 15 WHEN 2 THEN 30 WHEN 3 THEN 60 WHEN 4 THEN 120 ELSE 300 END,NOW())),last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()%s", _DB_PREFIX_, self::TABLE, $retry, self::MAX_ATTEMPTS, $retry, self::MAX_ATTEMPTS, pSQL($safeMessage, true), $id, pSQL($token), $runFence))) {
             throw new \RuntimeException('Matterhorn new-product queue failure update failed');
         }
         if ((int) $db->Affected_Rows() === 1) { return true; }
