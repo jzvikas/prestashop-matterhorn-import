@@ -44,13 +44,14 @@ require_literal "$guard" "getValue('SELECT @@session.in_transaction', false)" 'g
 require_literal "$guard" 'START TRANSACTION' 'guard must restore an externally committed transaction'
 require_literal "$guard" "SAVEPOINT ' . \$this->savepoint" 'guard must restore the caller savepoint'
 require_literal "$guard" 'recoveryCount' 'guard must expose recovery count'
+require_literal "$guard" 'runs->lockRunning' 'guard must reacquire the cancelled-run row fence after external commits'
 
-require_literal "$import_stage" 'transactionGuard->arm($db, self::SAVEPOINT)' 'IMPORT must arm item savepoint recovery'
-require_literal "$update_stage" 'transactionGuard->arm($db, self::SAVEPOINT)' 'UPDATE must arm item savepoint recovery'
+require_literal "$import_stage" 'transactionGuard->arm($db, self::SAVEPOINT, $runId)' 'IMPORT must arm item savepoint and run cancellation recovery'
+require_literal "$update_stage" 'transactionGuard->arm($db, self::SAVEPOINT, $runId)' 'UPDATE must arm item savepoint and run cancellation recovery'
 require_literal "$import_stage" 'transactionGuard->disarm()' 'IMPORT must disarm transaction recovery'
 require_literal "$update_stage" 'transactionGuard->disarm()' 'UPDATE must disarm transaction recovery'
 
-require_literal "$remove_stage" 'transactionGuard->arm($db)' 'REMOVE must arm per-product transaction recovery'
+require_literal "$remove_stage" 'transactionGuard->arm($db, null, $runId)' 'REMOVE must arm per-product transaction and run cancellation recovery'
 require_literal "$remove_stage" 'transactionGuard->recoveryCount()' 'REMOVE must observe hook commit recovery'
 require_literal "$remove_stage" 'lockProductOwnership($shopId, $source, $sourceKey, $productId)' 'REMOVE must relock exact product ownership'
 
