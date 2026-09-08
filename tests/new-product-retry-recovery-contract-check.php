@@ -28,12 +28,12 @@ if ($mappingPos === false || $recoveryPos === false || $createPos === false || !
 }
 
 $unmappedStart = strpos($worker, '} else {', $mappingPos);
-$restorePos = strpos($worker, '$this->transactionGuard->restoreAfterExternalCommit();', $createPos);
-if ($unmappedStart === false || $restorePos === false || $unmappedStart >= $restorePos) {
+$generationFencePos = strpos($worker, '$this->restoreAndFenceGeneration(', $createPos);
+if ($unmappedStart === false || $generationFencePos === false || $unmappedStart >= $generationFencePos) {
     fwrite(STDERR, "FAIL: could not isolate unmapped new-product persistence flow\n");
     exit(1);
 }
-$unmappedFlow = substr($worker, $unmappedStart, $restorePos - $unmappedStart);
+$unmappedFlow = substr($worker, $unmappedStart, $generationFencePos - $unmappedStart);
 
 if (str_contains($unmappedFlow, "['attempts']") || str_contains($unmappedFlow, '> 1')) {
     fwrite(STDERR, "FAIL: interrupted-create recovery must not be gated by the resettable queue attempt counter\n");
@@ -45,6 +45,11 @@ if (!str_contains($unmappedFlow, "run['started_at']") || !str_contains($unmapped
 }
 if (!str_contains($unmappedFlow, '$stats[\'recovered\']++')) {
     fwrite(STDERR, "FAIL: recovered interrupted creates must remain observable\n");
+    exit(1);
+}
+
+if (!str_contains($worker, '$this->restoreAndFenceGeneration(')) {
+    fwrite(STDERR, "FAIL: product persistence must be followed by the post-hook generation fence\n");
     exit(1);
 }
 
