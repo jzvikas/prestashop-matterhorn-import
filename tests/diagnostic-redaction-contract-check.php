@@ -32,6 +32,8 @@ $root = dirname(__DIR__);
 $admin = (string) file_get_contents($root . '/src/Admin/AdminErrorReporter.php');
 $errors = (string) file_get_contents($root . '/src/Repository/ErrorRepository.php');
 $runFailure = (string) file_get_contents($root . '/src/Util/RunFailureRecorder.php');
+$newProducts = (string) file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
+$images = (string) file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
 
 if (!str_contains($admin, 'DiagnosticMessageSanitizer') || !str_contains($admin, '$this->sanitizer->sanitize(')) {
     $fail('AdminErrorReporter must use the shared diagnostic sanitizer');
@@ -44,6 +46,27 @@ if (str_contains($errors, 'get_class($error) . \': \' . $error->getMessage()')) 
 }
 if (!str_contains($runFailure, 'DiagnosticMessageSanitizer') || !str_contains($runFailure, '$this->sanitizer->sanitize($error, 1000)')) {
     $fail('RunFailureRecorder fallback must redact throwable diagnostics');
+}
+foreach ([
+    'new-product queue' => $newProducts,
+    'image queue' => $images,
+] as $label => $queue) {
+    if (!str_contains($queue, 'DiagnosticMessageSanitizer')) {
+        $fail($label . ' must receive the shared diagnostic sanitizer');
+    }
+    if (!str_contains($queue, '$this->sanitizer->sanitize(')) {
+        $fail($label . ' must sanitize last_error diagnostics before persistence');
+    }
+    if (str_contains($queue, 'pSQL(mb_substr($message, 0, 4000), true)') || str_contains($queue, 'pSQL(mb_substr($error, 0, 4000), true)')) {
+        $fail($label . ' must not persist raw worker failure text');
+    }
+}
+
+if (!str_contains($newProducts, "$message = $this->sanitizer->sanitize('superseded: ' . trim($reason), 4000);")) {
+    $fail('new-product supersede reason must be sanitized before persistence');
+}
+if (!str_contains($images, "$message = $this->sanitizer->sanitize('superseded: ' . trim($reason), 4000);")) {
+    $fail('image supersede reason must be sanitized before persistence');
 }
 
 echo "Diagnostic redaction contract: OK\n";
