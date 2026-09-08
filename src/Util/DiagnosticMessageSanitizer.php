@@ -18,9 +18,18 @@ final class DiagnosticMessageSanitizer
             $message
         ) ?? $message;
 
-        // Redact common header/assignment forms, including bearer/basic authorization values.
+        // Authorization headers commonly contain a scheme and a credential separated
+        // by whitespace ("Bearer token" / "Basic base64"). Redact the full value,
+        // not only the scheme token.
         $message = preg_replace(
-            '/\b(AccessKey|password|passwd|authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret)\b\s*[:=]\s*[^\s,;]+/i',
+            '/\bauthorization\b\s*[:=]\s*(?:(?:Bearer|Basic)\s+)?[^\s,;]+/i',
+            'authorization=***',
+            $message
+        ) ?? $message;
+
+        // Redact common single-token header/assignment forms.
+        $message = preg_replace(
+            '/\b(AccessKey|password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret)\b\s*[:=]\s*[^\s,;]+/i',
             '$1=***',
             $message
         ) ?? $message;
