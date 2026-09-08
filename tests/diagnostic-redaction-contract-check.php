@@ -37,6 +37,8 @@ $importRunner = (string) file_get_contents($root . '/src/Import/ImportRunner.php
 $readStage = (string) file_get_contents($root . '/src/Import/ReadStage.php');
 $newProducts = (string) file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
 $images = (string) file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
+$imageOrphans = (string) file_get_contents($root . '/src/Repository/ImageOrphanRepository.php');
+$imageWorker = (string) file_get_contents($root . '/src/Image/ImageWorker.php');
 
 if (!str_contains($admin, 'DiagnosticMessageSanitizer') || !str_contains($admin, '$this->sanitizer->sanitize(')) {
     $fail('AdminErrorReporter must use the shared diagnostic sanitizer');
@@ -83,6 +85,22 @@ if (!str_contains($newProducts, $queueSupersedeSanitizer)) {
 }
 if (!str_contains($images, $queueSupersedeSanitizer)) {
     $fail('image supersede reason must be sanitized before persistence');
+}
+
+if (!str_contains($imageOrphans, 'DiagnosticMessageSanitizer')) {
+    $fail('image orphan repository must receive the shared diagnostic sanitizer');
+}
+if (substr_count($imageOrphans, '$this->sanitizer->sanitize(') < 2) {
+    $fail('image orphan record/defer paths must sanitize persistent diagnostics');
+}
+if (str_contains($imageOrphans, 'pSQL(mb_substr($lastError, 0, 4000), true)') || str_contains($imageOrphans, 'pSQL(mb_substr($error, 0, 4000), true)')) {
+    $fail('image orphan repository must not persist raw recovery error text');
+}
+if (!str_contains($imageWorker, 'DiagnosticMessageSanitizer') || !str_contains($imageWorker, '$this->sanitizer->sanitize($orphanError, 1000)')) {
+    $fail('image orphan persistence fallback logging must redact throwable diagnostics');
+}
+if (str_contains($imageWorker, '$orphanError->getMessage()')) {
+    $fail('image orphan persistence fallback must not log raw exception text');
 }
 
 echo "Diagnostic redaction contract: OK\n";
