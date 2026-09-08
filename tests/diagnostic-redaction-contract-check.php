@@ -62,10 +62,11 @@ foreach ([
     }
 }
 
-if (!str_contains($newProducts, "$message = $this->sanitizer->sanitize('superseded: ' . trim($reason), 4000);")) {
+$queueSupersedeSanitizer = '$message = $this->sanitizer->sanitize(\'superseded: \' . trim($reason), 4000);';
+if (!str_contains($newProducts, $queueSupersedeSanitizer)) {
     $fail('new-product supersede reason must be sanitized before persistence');
 }
-if (!str_contains($images, "$message = $this->sanitizer->sanitize('superseded: ' . trim($reason), 4000);")) {
+if (!str_contains($images, $queueSupersedeSanitizer)) {
     $fail('image supersede reason must be sanitized before persistence');
 }
 
