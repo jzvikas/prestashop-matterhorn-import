@@ -1,6 +1,8 @@
 <?php
 namespace Lp\MatterhornImport\Util;
 
+use Lp\MatterhornImport\Repository\RunRepository;
+
 /**
  * Restores a caller-owned item transaction after PrestaShop ObjectModel/hooks commit
  * the shared DB connection. Import/update/remove stages arm the shared guard for the
@@ -11,16 +13,28 @@ final class ItemTransactionGuard
 {
     private ?\Db $db = null;
     private ?string $savepoint = null;
+    private ?int $runId = null;
     private int $recoveryCount = 0;
 
-    public function arm(\Db $db, ?string $savepoint = null): void
+    public function __construct(private RunRepository $runs)
+    {
+    }
+
+    public function arm(\Db $db, ?string $savepoint = null, ?int $runId = null): void
     {
         if ($savepoint !== null && !preg_match('/^[A-Za-z0-9_]+$/D', $savepoint)) {
             throw new \InvalidArgumentException('Invalid item transaction savepoint name');
         }
+        if ($runId !== null && $runId <= 0) {
+            throw new \InvalidArgumentException('Item transaction run ID must be positive');
+        }
         $this->db = $db;
         $this->savepoint = $savepoint;
+        $this->runId = $runId;
         $this->recoveryCount = 0;
+        if ($runId !== null) {
+            $this->runs->lockRunning($runId);
+        }
     }
 
     /** @return bool true when an externally committed transaction had to be recreated */
@@ -43,6 +57,14 @@ final class ItemTransactionGuard
                 'Could not restore item savepoint after PrestaShop external commit: ' . $this->db->getMsgError()
             );
         }
+        try {
+            if ($this->runId !== null) {
+                $this->runs->lockRunning($this->runId);
+            }
+        } catch (\Throwable $e) {
+            $this->db->execute('ROLLBACK');
+            throw $e;
+        }
         $this->recoveryCount++;
         return true;
     }
@@ -56,6 +78,7 @@ final class ItemTransactionGuard
     {
         $this->db = null;
         $this->savepoint = null;
+        $this->runId = null;
         $this->recoveryCount = 0;
     }
 }
