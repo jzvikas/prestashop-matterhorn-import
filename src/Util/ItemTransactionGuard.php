@@ -16,7 +16,7 @@ final class ItemTransactionGuard
     private ?int $runId = null;
     private int $recoveryCount = 0;
 
-    public function __construct(private RunRepository $runs)
+    public function __construct(private ?RunRepository $runs = null)
     {
     }
 
@@ -33,7 +33,7 @@ final class ItemTransactionGuard
         $this->runId = $runId;
         $this->recoveryCount = 0;
         if ($runId !== null) {
-            $this->runs->lockRunning($runId);
+            $this->requireRunRepository()->lockRunning($runId);
         }
     }
 
@@ -59,7 +59,7 @@ final class ItemTransactionGuard
         }
         try {
             if ($this->runId !== null) {
-                $this->runs->lockRunning($this->runId);
+                $this->requireRunRepository()->lockRunning($this->runId);
             }
         } catch (\Throwable $e) {
             $this->db->execute('ROLLBACK');
@@ -80,5 +80,13 @@ final class ItemTransactionGuard
         $this->savepoint = null;
         $this->runId = null;
         $this->recoveryCount = 0;
+    }
+
+    private function requireRunRepository(): RunRepository
+    {
+        if ($this->runs === null) {
+            throw new \LogicException('RunRepository is required when arming a run cancellation fence');
+        }
+        return $this->runs;
     }
 }
