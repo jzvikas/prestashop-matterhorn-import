@@ -33,6 +33,7 @@ $root = dirname(__DIR__);
 $admin = (string) file_get_contents($root . '/src/Admin/AdminErrorReporter.php');
 $errors = (string) file_get_contents($root . '/src/Repository/ErrorRepository.php');
 $runFailure = (string) file_get_contents($root . '/src/Util/RunFailureRecorder.php');
+$importRunner = (string) file_get_contents($root . '/src/Import/ImportRunner.php');
 $newProducts = (string) file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
 $images = (string) file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
 
@@ -47,6 +48,12 @@ if (str_contains($errors, 'get_class($error) . \': \' . $error->getMessage()')) 
 }
 if (!str_contains($runFailure, 'DiagnosticMessageSanitizer') || !str_contains($runFailure, '$this->sanitizer->sanitize($error, 1000)')) {
     $fail('RunFailureRecorder fallback must redact throwable diagnostics');
+}
+if (!str_contains($importRunner, 'DiagnosticMessageSanitizer') || !str_contains($importRunner, '$this->sanitizer->sanitize($finishError, 1000)')) {
+    $fail('ImportRunner failure-state fallback must redact throwable diagnostics');
+}
+if (str_contains($importRunner, '$finishError->getMessage()')) {
+    $fail('ImportRunner fallback must not log raw failure-state exception text');
 }
 foreach ([
     'new-product queue' => $newProducts,
