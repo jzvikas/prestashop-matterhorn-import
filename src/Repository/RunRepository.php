@@ -45,22 +45,46 @@ final class RunRepository
         return $run;
     }
 
+    /**
+     * Lock the run generation inside the caller-owned item/batch transaction.
+     * Cancellation uses the same row, so it either waits for the current atomic unit
+     * or wins after a PrestaShop hook commit; a stale worker can never continue after
+     * reacquiring a transaction once the run became cancelled.
+     */
+    public function lockRunning(int $runId): void
+    {
+        if ($runId <= 0) { throw new \InvalidArgumentException('Run lock requires a positive run ID'); }
+        $row = \Db::getInstance()->getRow(
+            'SELECT status FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . $runId . ' FOR UPDATE',
+            false
+        );
+        if (!is_array($row)) {
+            throw new \RuntimeException('Matterhorn import run disappeared while fencing execution');
+        }
+        if ((string) ($row['status'] ?? '') !== 'running') {
+            throw new \RuntimeException('Matterhorn import run is no longer running; stage execution stopped');
+        }
+    }
+
     public function stage(int $runId, string $stage, string $status): void
     {
         if (!in_array($stage, ['read','import','update','remove'], true)) { throw new \InvalidArgumentException('Invalid import stage: ' . $stage); }
         if (!in_array($status, ['pending','running','completed','failed','paused'], true)) { throw new \InvalidArgumentException('Invalid stage status: ' . $status); }
-        if (!\Db::getInstance()->update(self::TABLE, [$stage . '_status' => pSQL($status)], 'id_run=' . (int) $runId)) {
+        $db = \Db::getInstance();
+        if (!$db->update(self::TABLE, [$stage . '_status' => pSQL($status)], 'id_run=' . (int) $runId . " AND status<>'cancelled'")) {
             throw new \RuntimeException('Could not update Matterhorn stage status');
         }
+        $this->assertNotCancelled($runId);
     }
 
     public function increment(int $runId, string $field, int $by = 1): void
     {
         $allowed = ['source_total','source_valid','source_invalid','source_duplicate','import_done','import_failed','update_done','update_skipped','update_failed','remove_done','remove_failed'];
         if (!in_array($field, $allowed, true)) { throw new \InvalidArgumentException('Invalid run counter: ' . $field); }
-        if (!\Db::getInstance()->execute('UPDATE `' . _DB_PREFIX_ . self::TABLE . '` SET `' . $field . '`=`' . $field . '`+' . (int) $by . ' WHERE id_run=' . (int) $runId)) {
+        if (!\Db::getInstance()->execute('UPDATE `' . _DB_PREFIX_ . self::TABLE . '` SET `' . $field . '`=`' . $field . '`+' . (int) $by . ' WHERE id_run=' . (int) $runId . " AND status<>'cancelled'")) {
             throw new \RuntimeException('Could not increment run counter: ' . $field);
         }
+        $this->assertNotCancelled($runId);
     }
 
     public function resetStageFailureCounter(int $runId, string $stage): void
@@ -71,9 +95,10 @@ final class RunRepository
             'remove' => 'remove_failed',
             default => throw new \InvalidArgumentException('Stage has no item failure counter: ' . $stage),
         };
-        if (!\Db::getInstance()->update(self::TABLE, [$field => 0], 'id_run=' . (int) $runId)) {
+        if (!\Db::getInstance()->update(self::TABLE, [$field => 0], 'id_run=' . (int) $runId . " AND status<>'cancelled'")) {
             throw new \RuntimeException('Could not reset stage failure counter');
         }
+        $this->assertNotCancelled($runId);
     }
 
     public function resetRead(int $runId, ?string $fingerprint, string $policyHash): void
@@ -90,9 +115,10 @@ final class RunRepository
             'source_fingerprint' => $fingerprint === null ? null : pSQL($fingerprint),
             'source_policy_hash' => pSQL($policyHash),
             'finished_at' => null,
-        ], 'id_run=' . (int) $runId, 0, true)) {
+        ], 'id_run=' . (int) $runId . " AND status<>'cancelled'", 0, true)) {
             throw new \RuntimeException('Could not reset Matterhorn READ state');
         }
+        $this->assertNotCancelled($runId);
     }
 
     public function commitReadProgress(int $runId, int $checkpoint, int $total, int $valid, int $invalid): void
@@ -105,16 +131,22 @@ final class RunRepository
             '`source_total`=`source_total`+' . $total . ',' .
             '`source_valid`=`source_valid`+' . $valid . ',' .
             '`source_invalid`=`source_invalid`+' . $invalid .
-            ' WHERE id_run=' . (int) $runId;
-        if (!\Db::getInstance()->execute($sql)) { throw new \RuntimeException('Could not persist READ checkpoint'); }
+            ' WHERE id_run=' . (int) $runId . " AND status='running'";
+        $db = \Db::getInstance();
+        if (!$db->execute($sql)) { throw new \RuntimeException('Could not persist READ checkpoint'); }
+        if ((int) $db->Affected_Rows() !== 1) {
+            throw new \RuntimeException('Matterhorn READ progress lost its active run fence');
+        }
     }
 
     public function setReadDuplicate(int $runId, int $duplicates): void
     {
         if ($duplicates < 0) { throw new \InvalidArgumentException('Duplicate count cannot be negative'); }
-        if (!\Db::getInstance()->update(self::TABLE, ['source_duplicate' => $duplicates], 'id_run=' . (int) $runId)) {
+        $db = \Db::getInstance();
+        if (!$db->update(self::TABLE, ['source_duplicate' => $duplicates], 'id_run=' . (int) $runId . " AND status='running'")) {
             throw new \RuntimeException('Could not update duplicate counter');
         }
+        $this->assertNotCancelled($runId);
     }
 
     public function imageReconcileStart(int $runId): void
@@ -154,26 +186,40 @@ final class RunRepository
 
     public function resume(int $runId): void
     {
+        $db = \Db::getInstance();
+        if (!$db->update(
+            self::TABLE,
+            ['status' => 'running', 'finished_at' => null],
+            'id_run=' . (int) $runId . " AND status NOT IN ('completed','cancelled')",
+            0,
+            true
+        )) {
+            throw new \RuntimeException('Could not resume Matterhorn import run');
+        }
         $run = $this->get($runId);
         if ($run === null) {
             throw new \RuntimeException('Matterhorn import run not found: ' . $runId);
         }
-        if (in_array((string) ($run['status'] ?? ''), ['completed', 'cancelled'], true)) {
+        if ((string) ($run['status'] ?? '') !== 'running') {
             throw new \RuntimeException('Matterhorn import run #' . $runId . ' is terminal and cannot be resumed');
-        }
-        if (!\Db::getInstance()->update(self::TABLE, ['status' => 'running', 'finished_at' => null], 'id_run=' . (int) $runId, 0, true)) {
-            throw new \RuntimeException('Could not resume Matterhorn import run');
         }
     }
 
     public function finish(int $runId, string $status = 'completed'): void
     {
         if (!in_array($status, ['completed','failed','paused','cancelled'], true)) { throw new \InvalidArgumentException('Invalid run status: ' . $status); }
+        $where = 'id_run=' . (int) $runId;
+        if ($status !== 'cancelled') { $where .= " AND status<>'cancelled'"; }
         if (!\Db::getInstance()->update(self::TABLE, [
             'status' => pSQL($status),
             'finished_at' => date('Y-m-d H:i:s'),
-        ], 'id_run=' . (int) $runId)) {
+        ], $where)) {
             throw new \RuntimeException('Could not finish Matterhorn import run');
+        }
+        $run = $this->get($runId);
+        if ($run === null) { throw new \RuntimeException('Matterhorn import run disappeared while finishing'); }
+        if ((string) ($run['status'] ?? '') !== $status) {
+            throw new \RuntimeException('Matterhorn import run changed state before finish; terminal state preserved');
         }
     }
 
@@ -297,5 +343,14 @@ final class RunRepository
         }
 
         return array_values($rows);
+    }
+
+    private function assertNotCancelled(int $runId): void
+    {
+        $run = $this->get($runId);
+        if ($run === null) { throw new \RuntimeException('Matterhorn import run not found: ' . $runId); }
+        if ((string) ($run['status'] ?? '') === 'cancelled') {
+            throw new \RuntimeException('Matterhorn import run was cancelled; stale state mutation blocked');
+        }
     }
 }
