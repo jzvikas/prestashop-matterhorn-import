@@ -33,6 +33,8 @@ $controller = (string) file_get_contents(dirname(__DIR__) . '/src/Controller/Imp
 $categoryController = (string) file_get_contents(dirname(__DIR__) . '/src/Controller/CategoryController.php');
 $check(str_contains($controller, '$errors->safeMessage($exception)'), 'AJAX controller must route exception text through AdminErrorReporter');
 $check(str_contains($controller, "'Operation failed. Reference: '"), 'AJAX controller must expose a correlation reference when details are withheld');
+$check(str_contains($controller, "$errors->report('ajax-import-cancel-source-cleanup', $cleanupError)"), 'cancelled run-source cleanup failures must use the shared sanitized reporter');
+$check(!str_contains($controller, '$cleanupError->getMessage()'), 'cancelled run-source cleanup must not log raw exception text');
 $check(str_contains($source, '$this->sanitizer->sanitize($exception, 1200)'), 'internal logger must pass throwable diagnostics through the shared sanitizer');
 $check(str_contains($sanitizerSource, 'api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret'), 'diagnostic redaction must cover common token/secret names');
 $check(str_contains($categoryController, 'use Lp\\MatterhornImport\\Admin\\AdminErrorReporter;'), 'category admin controller must use the shared sanitized error reporter');
