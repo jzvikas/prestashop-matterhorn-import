@@ -8,6 +8,7 @@ use Lp\MatterhornImport\Repository\ImageQueueRepository;
 use Lp\MatterhornImport\Repository\ImageStateRepository;
 use Lp\MatterhornImport\Repository\MappingRepository;
 use Lp\MatterhornImport\Util\DatabaseSafety;
+use Lp\MatterhornImport\Util\DiagnosticMessageSanitizer;
 
 final class ImageWorker
 {
@@ -22,7 +23,8 @@ final class ImageWorker
         private ImageStateRepository $state,
         private ImageFailureClassifier $failureClassifier,
         private MappingRepository $mapping,
-        private ImageOrphanRepository $orphans
+        private ImageOrphanRepository $orphans,
+        private DiagnosticMessageSanitizer $sanitizer
     ) {
     }
 
@@ -65,8 +67,6 @@ final class ImageWorker
                     if (!is_array($prior) || (int) ($prior['id_image'] ?? 0) <= 0) { throw new \RuntimeException('Image returned 304 without reusable state'); }
                     if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start image revalidation transaction'); }
                     $transaction = true;
-                    // Re-read under a row lock because a newer import run may have superseded
-                    // id_run/position/cover while this worker was downloading/revalidating.
                     $row = $this->queue->lockOwned($idQueue, $token);
                     $this->assertLockedMappingOwnership($row);
                     $this->state->touchNotModified($row, (int) $prior['id_image']);
@@ -101,8 +101,6 @@ final class ImageWorker
                         $externalImageCommit = true;
                         $hookCommitRecoveries++;
                         if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not restore image transaction after PrestaShop hook commit'); }
-                        // The hook commit released our queue row lock. Acquire it again and
-                        // reload the newest desired run/placement before writing image_state.
                         $row = $this->queue->lockOwned($idQueue, $token);
                         $this->assertLockedMappingOwnership($row);
                     }
@@ -160,7 +158,7 @@ final class ImageWorker
                                 $orphanRecorded++;
                             } catch (\Throwable $orphanError) {
                                 $orphanRecordFailed++;
-                                error_log(sprintf('[matterhornimport] failed to persist image orphan marker queue=%d image=%d: %s', $idQueue, $attached->idImage, $orphanError->getMessage()));
+                                error_log(sprintf('[matterhornimport] failed to persist image orphan marker queue=%d image=%d: %s', $idQueue, $attached->idImage, $this->sanitizer->sanitize($orphanError, 1000)));
                             }
                         }
                     } else {
