@@ -10,6 +10,7 @@ use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\Repository\ErrorRepository;
 use Lp\MatterhornImport\Repository\RunRepository;
 use Lp\MatterhornImport\Repository\SnapshotRepository;
+use Lp\MatterhornImport\Util\DiagnosticMessageSanitizer;
 use Lp\MatterhornImport\Util\ExecutionBudget;
 use Lp\MatterhornImport\Util\RunFailureRecorder;
 use Lp\MatterhornImport\Util\ShopContextManager;
@@ -29,7 +30,8 @@ final class ReadStage
         private ShopContextManager $shopContext,
         private RunFailureRecorder $failureRecorder,
         private ExecutionBudget $budget,
-        private MatterhornPolicy $policy
+        private MatterhornPolicy $policy,
+        private DiagnosticMessageSanitizer $sanitizer
     ) {}
 
     public function run(int $runId, int $maxItems = 0, int $timeLimitSeconds = 0): bool
@@ -243,7 +245,7 @@ final class ReadStage
             error_log(sprintf(
                 '[matterhornimport] could not persist READ Prewk checkpoint for run %d: %s',
                 $runId,
-                $exception->getMessage()
+                $this->sanitizer->sanitize($exception, 1000)
             ));
         }
     }
@@ -259,7 +261,7 @@ final class ReadStage
             error_log(sprintf(
                 '[matterhornimport] could not release frozen source for run %d: %s',
                 $runId,
-                $exception->getMessage()
+                $this->sanitizer->sanitize($exception, 1000)
             ));
         }
     }
