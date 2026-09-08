@@ -4,6 +4,7 @@ namespace Lp\MatterhornImport\Import;
 use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\Lock\ImportLock;
 use Lp\MatterhornImport\Repository\RunRepository;
+use Lp\MatterhornImport\Util\DiagnosticMessageSanitizer;
 use Lp\MatterhornImport\Util\ExecutionBudget;
 
 final class ImportRunner
@@ -16,7 +17,8 @@ final class ImportRunner
         private ImportStage $import,
         private UpdateStage $update,
         private RemoveStage $remove,
-        private ExecutionBudget $budget
+        private ExecutionBudget $budget,
+        private DiagnosticMessageSanitizer $sanitizer
     ) {
     }
 
@@ -198,7 +200,7 @@ final class ImportRunner
             error_log(sprintf(
                 '[matterhornimport] failed to mark import run %d as failed: %s',
                 $runId,
-                $finishError->getMessage()
+                $this->sanitizer->sanitize($finishError, 1000)
             ));
         }
     }
