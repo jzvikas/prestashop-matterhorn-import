@@ -44,6 +44,15 @@ final class Db
         $row = $result->fetch_assoc();
         return is_array($row) ? $row : false;
     }
+    public function executeS(string $sql, bool $array = true, bool $useCache = true): array|false
+    {
+        $result = $this->db->query($sql);
+        if ($result === false) { return false; }
+        $rows = [];
+        while ($row = $result->fetch_assoc()) { $rows[] = $row; }
+        return $rows;
+    }
+    public function getMsgError(): string { return $this->db->error; }
     public function update(string $table, array $data, string $where = '', int $limit = 0, bool $nullValues = false): bool
     {
         $sets = [];
