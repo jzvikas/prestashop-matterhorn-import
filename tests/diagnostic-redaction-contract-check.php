@@ -13,11 +13,12 @@ $fail = static function (string $message): never {
 $sanitizer = new DiagnosticMessageSanitizer();
 $input = new RuntimeException(
     'download failed url=https://feed-user:feed-pass@supplier.invalid/path?token=topsecret&x=1 ' .
-    'password=hunter2 authorization=Bearer-abcdef api_key=key123 SQLSTATE[42000] table=ps_product'
+    'password=hunter2 authorization=Bearer bearer-secret Authorization: Basic YmFzaWMtc2VjcmV0 api_key=key123 ' .
+    'SQLSTATE[42000] table=ps_product'
 );
 $output = $sanitizer->sanitize($input, 4000);
 
-foreach (['feed-user', 'feed-pass', 'topsecret', 'hunter2', 'Bearer-abcdef', 'key123'] as $secret) {
+foreach (['feed-user', 'feed-pass', 'topsecret', 'hunter2', 'bearer-secret', 'YmFzaWMtc2VjcmV0', 'key123'] as $secret) {
     if (str_contains($output, $secret)) {
         $fail('diagnostic sanitizer leaked secret: ' . $secret);
     }
