@@ -40,7 +40,6 @@ $checks = [
     [$worker, 'queue->claim($worker, $sourceName, $limit, $shopId)', 'image worker claim must be source scoped'],
     [$worker, 'renew($idQueue, $token)', 'lease renewal fencing'],
     [$worker, '$this->queue->lockOwned($idQueue, $token)', 'latest desired queue row must be locked/reloaded before image state commit'],
-    [$worker, 'The hook commit released our queue row lock', 'hook-commit path must explicitly reacquire latest queue row'],
     [$worker, 'findByContentHash', 'content deduplication'],
     [$worker, 'GET_LOCK', 'content dedup lock'],
     [$worker, 'failureClassifier->isRetryable', 'retry classification'],
@@ -163,6 +162,19 @@ if ($leaseFence === false || $sourceAssignment === false || $runAssignment === f
 }
 if (str_contains($queue, 'id_run=VALUES(id_run),source=VALUES(source)')) {
     fwrite(STDERR, "FAIL: stale image enqueue must not unconditionally replace desired generation metadata\n");
+    exit(1);
+}
+if (!is_string($worker)) {
+    fwrite(STDERR, "FAIL: image worker source unavailable\n");
+    exit(1);
+}
+$hookCommitBranch = strpos($worker, 'if (!$this->transactionIsActive($db))');
+$hookCommitRestart = $hookCommitBranch === false ? false : strpos($worker, "START TRANSACTION", $hookCommitBranch);
+$hookCommitReacquire = $hookCommitRestart === false ? false : strpos($worker, '$row = $this->queue->lockOwned($idQueue, $token);', $hookCommitRestart);
+$hookCommitOwnershipFence = $hookCommitReacquire === false ? false : strpos($worker, '$this->assertLockedMappingOwnership($row);', $hookCommitReacquire);
+$hookCommitStateSave = $hookCommitOwnershipFence === false ? false : strpos($worker, '$this->state->save($row, $idImage, $download);', $hookCommitOwnershipFence);
+if ($hookCommitBranch === false || $hookCommitRestart === false || $hookCommitReacquire === false || $hookCommitOwnershipFence === false || $hookCommitStateSave === false) {
+    fwrite(STDERR, "FAIL: hook-commit recovery must restart the transaction, reacquire the queue row, re-fence mapping ownership, then save image state\n");
     exit(1);
 }
 if (str_contains((string) $reconciler, 'SELECT COUNT(*) FROM `%simage_shop` WHERE id_image=%d')) {
