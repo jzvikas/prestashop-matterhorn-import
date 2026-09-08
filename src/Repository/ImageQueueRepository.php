@@ -83,6 +83,10 @@ final class ImageQueueRepository
             throw new \InvalidArgumentException('Authoritative image manifest supersede requires run/shop/source/source-key/product');
         }
 
+        // Authoritative callers enqueue every currently desired URL first. Because uq_product_url
+        // reuses the same queue row and accepted enqueue moves that row to this run generation,
+        // any exact-owner row still left on an older generation is no longer part of the manifest.
+        // Clearing an active token here makes a stale downloader lose its next lease/row fence.
         $db = \Db::getInstance();
         $reason = 'superseded: removed from newer authoritative image manifest';
         if (!$db->execute(sprintf(
@@ -121,6 +125,10 @@ final class ImageQueueRepository
     public function renew(int $id, string $token): bool
     {
         $db = \Db::getInstance();
+        // One claim token owns a bounded batch that ImageWorker consumes sequentially. Heartbeat
+        // every still-active sibling whenever the current image renews so a slow download/attach
+        // cannot let untouched rows expire and consume their retry budget before they are attempted.
+        // Expired rows stay excluded, so renewal never steals ownership back from another worker.
         if (!$db->execute(sprintf(
             "UPDATE `%s%s` SET locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),updated_at=NOW() WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()",
             _DB_PREFIX_, self::TABLE, self::LEASE_MINUTES, pSQL($token)
@@ -256,6 +264,13 @@ final class ImageQueueRepository
 
     private function insertValues(array $values): void
     {
+        // The same product/url row is a desired-state handoff across import generations. A stale
+        // producer must never move that desired state backwards after a newer run has queued it.
+        // A processing lease may survive only while the exact source/source_key owner is unchanged;
+        // a newer owner handoff revokes the old worker before source identity is replaced.
+        // Keep source/source_key and id_run assignments after the lease expressions: MySQL/MariaDB
+        // evaluate single-table UPDATE assignments from left to right, so owner/generation predicates
+        // below still see the previously persisted identity and generation.
         $accept = "(VALUES(id_run)>id_run OR (VALUES(id_run)=id_run AND VALUES(source)=source AND VALUES(source_key)=source_key))";
         $sameOwner = "(VALUES(source)=source AND VALUES(source_key)=source_key)";
         $sql = sprintf(
