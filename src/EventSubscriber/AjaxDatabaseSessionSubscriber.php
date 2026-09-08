@@ -8,7 +8,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
 
 final class AjaxDatabaseSessionSubscriber implements EventSubscriberInterface
 {
-    private const ROUTE_PREFIX = 'matterhorn_import_ajax';
+    private const ROUTE_PREFIX = 'matterhorn_import_';
 
     public function __construct(private AjaxDatabaseSessionGuard $databaseSession)
     {
