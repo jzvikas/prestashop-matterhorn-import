@@ -50,6 +50,8 @@ final class ImportStatusProvider
             'import_status' => (string) ($run['import_status'] ?? 'pending'),
             'update_status' => (string) ($run['update_status'] ?? 'pending'),
             'remove_status' => (string) ($run['remove_status'] ?? 'pending'),
+            'image_reconcile_status' => (string) ($run['image_reconcile_status'] ?? 'pending'),
+            'image_reconcile_done' => (int) ($run['image_reconcile_done'] ?? 0),
             'source_total' => (int) ($run['source_total'] ?? 0),
             'source_valid' => (int) ($run['source_valid'] ?? 0),
             'source_invalid' => (int) ($run['source_invalid'] ?? 0),
