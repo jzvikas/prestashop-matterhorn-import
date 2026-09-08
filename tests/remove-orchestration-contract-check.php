@@ -15,7 +15,7 @@ $checks = [
     [$stage, 'MATTERHORNIMPORT_MAX_REMOVE_PERCENT'],
     [$stage, 'REMOVE safety guard blocked'],
     [$stage, 'ItemTransactionGuard'],
-    [$stage, '$this->transactionGuard->arm($db)'],
+    [$stage, '$this->transactionGuard->arm($db, null, $runId)'],
     [$stage, '$this->transactionGuard->restoreAfterExternalCommit()'],
     [$stage, '$this->transactionGuard->recoveryCount() > 0'],
     [$stage, '$this->mapping->lockProductOwnership($shopId, $source, $sourceKey, $productId)'],
