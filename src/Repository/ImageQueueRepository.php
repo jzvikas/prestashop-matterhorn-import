@@ -83,10 +83,6 @@ final class ImageQueueRepository
             throw new \InvalidArgumentException('Authoritative image manifest supersede requires run/shop/source/source-key/product');
         }
 
-        // Authoritative callers enqueue every currently desired URL first. Because uq_product_url
-        // reuses the same queue row and accepted enqueue moves that row to this run generation,
-        // any exact-owner row still left on an older generation is no longer part of the manifest.
-        // Clearing an active token here makes a stale downloader lose its next lease/row fence.
         $db = \Db::getInstance();
         $reason = 'superseded: removed from newer authoritative image manifest';
         if (!$db->execute(sprintf(
@@ -125,10 +121,6 @@ final class ImageQueueRepository
     public function renew(int $id, string $token): bool
     {
         $db = \Db::getInstance();
-        // One claim token owns a bounded batch that ImageWorker consumes sequentially. Heartbeat
-        // every still-active sibling whenever the current image renews so a slow download/attach
-        // cannot let untouched rows expire and consume their retry budget before they are attempted.
-        // Expired rows stay excluded, so renewal never steals ownership back from another worker.
         if (!$db->execute(sprintf(
             "UPDATE `%s%s` SET locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),updated_at=NOW() WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()",
             _DB_PREFIX_, self::TABLE, self::LEASE_MINUTES, pSQL($token)
@@ -176,15 +168,19 @@ final class ImageQueueRepository
         return (int) $db->Affected_Rows() === 1;
     }
 
-    public function fail(int $id, string $token, string $error, bool $retryable = true): bool
+    /** @return bool true if failure applied to this generation, false if a newer generation was requeued */
+    public function fail(int $id, string $token, string $error, bool $retryable = true, int $expectedRunId = 0): bool
     {
         $retryFlag = $retryable ? 1 : 0;
+        $runFence = $expectedRunId > 0 ? ' AND id_run=' . $expectedRunId : '';
         $safeError = $this->sanitizer->sanitize($error, 4000);
         $db = \Db::getInstance();
-        if (!$db->execute(sprintf("UPDATE `%s%s` SET status=IF(%d=0 OR attempts>=%d,'failed','pending'),locked_by=NULL,locked_until=NULL,available_at=IF(%d=0 OR attempts>=%d,NULL,TIMESTAMPADD(SECOND,CASE attempts WHEN 1 THEN 15 WHEN 2 THEN 30 WHEN 3 THEN 60 WHEN 4 THEN 120 ELSE 300 END,NOW())),last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $retryFlag, self::MAX_ATTEMPTS, $retryFlag, self::MAX_ATTEMPTS, pSQL($safeError, true), $id, pSQL($token)))) {
+        if (!$db->execute(sprintf("UPDATE `%s%s` SET status=IF(%d=0 OR attempts>=%d,'failed','pending'),locked_by=NULL,locked_until=NULL,available_at=IF(%d=0 OR attempts>=%d,NULL,TIMESTAMPADD(SECOND,CASE attempts WHEN 1 THEN 15 WHEN 2 THEN 30 WHEN 3 THEN 60 WHEN 4 THEN 120 ELSE 300 END,NOW())),last_error='%s',updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()%s", _DB_PREFIX_, self::TABLE, $retryFlag, self::MAX_ATTEMPTS, $retryFlag, self::MAX_ATTEMPTS, pSQL($safeError, true), $id, pSQL($token), $runFence))) {
             throw new \RuntimeException('Matterhorn image queue failure update failed');
         }
-        return (int) $db->Affected_Rows() === 1;
+        if ((int) $db->Affected_Rows() === 1) { return true; }
+        if ($expectedRunId > 0 && $this->requeueNewerGeneration($id, $token, $expectedRunId)) { return false; }
+        throw new \RuntimeException('Matterhorn image queue ownership lost before failure update');
     }
 
     public function retryFailed(string $source, ?int $shopId = null, int $limit = 1000): int
@@ -238,6 +234,15 @@ final class ImageQueueRepository
         return \Db::getInstance()->executeS('SELECT status,COUNT(*) qty FROM `' . _DB_PREFIX_ . self::TABLE . '`' . $where . ' GROUP BY status', true, false) ?: [];
     }
 
+    private function requeueNewerGeneration(int $id, string $token, int $expectedRunId): bool
+    {
+        $db = \Db::getInstance();
+        if (!$db->execute(sprintf("UPDATE `%s%s` SET status='pending',attempts=0,available_at=NULL,last_error=NULL,locked_by=NULL,locked_until=NULL,updated_at=NOW() WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW() AND id_run>%d", _DB_PREFIX_, self::TABLE, $id, pSQL($token), $expectedRunId))) {
+            throw new \RuntimeException('Matterhorn image newer-generation requeue failed');
+        }
+        return (int) $db->Affected_Rows() === 1;
+    }
+
     private function ownsActiveLease(int $id, string $token): bool
     {
         return (bool) \Db::getInstance()->getValue(sprintf("SELECT 1 FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW()", _DB_PREFIX_, self::TABLE, $id, pSQL($token)), false);
@@ -251,13 +256,6 @@ final class ImageQueueRepository
 
     private function insertValues(array $values): void
     {
-        // The same product/url row is a desired-state handoff across import generations. A stale
-        // producer must never move that desired state backwards after a newer run has queued it.
-        // A processing lease may survive only while the exact source/source_key owner is unchanged;
-        // a newer owner handoff revokes the old worker before source identity is replaced.
-        // Keep source/source_key and id_run assignments after the lease expressions: MySQL/MariaDB
-        // evaluate single-table UPDATE assignments from left to right, so owner/generation predicates
-        // below still see the previously persisted identity and generation.
         $accept = "(VALUES(id_run)>id_run OR (VALUES(id_run)=id_run AND VALUES(source)=source AND VALUES(source_key)=source_key))";
         $sameOwner = "(VALUES(source)=source AND VALUES(source_key)=source_key)";
         $sql = sprintf(
