@@ -60,8 +60,10 @@ if (!str_contains($source['remove'], '$this->transactionGuard->arm($db, null, $r
 
 foreach ([
     'private ?int $runId = null;',
-    '$this->runs->lockRunning($runId);',
-    '$this->runs->lockRunning($this->runId);',
+    'private ?RunRepository $runs = null',
+    '$this->requireRunRepository()->lockRunning($runId);',
+    '$this->requireRunRepository()->lockRunning($this->runId);',
+    'RunRepository is required when arming a run cancellation fence',
     '$this->db->execute(\'ROLLBACK\');',
 ] as $needle) {
     if (!str_contains($source['guard'], $needle)) {
@@ -71,7 +73,7 @@ foreach ([
 }
 $restore = strpos($source['guard'], 'public function restoreAfterExternalCommit(): bool');
 $startTx = $restore === false ? false : strpos($source['guard'], "execute('START TRANSACTION')", $restore);
-$relock = $startTx === false ? false : strpos($source['guard'], '$this->runs->lockRunning($this->runId);', $startTx);
+$relock = $startTx === false ? false : strpos($source['guard'], '$this->requireRunRepository()->lockRunning($this->runId);', $startTx);
 if ($restore === false || $startTx === false || $relock === false || !($restore < $startTx && $startTx < $relock)) {
     fwrite(STDERR, "FAIL: external-commit recovery must recreate the transaction before reacquiring the run row fence\n");
     exit(1);
