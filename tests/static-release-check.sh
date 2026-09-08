@@ -58,6 +58,7 @@ php tests/update-orchestration-contract-check.php
 php tests/remove-orchestration-contract-check.php
 php tests/run-orchestration-contract-check.php
 php tests/stale-run-generation-fence-check.php
+php tests/run-cancellation-fence-check.php
 bash tests/snapshot-write-sql-budget-check.sh
 php tests/image-pipeline-foundation-contract-check.php
 php tests/image-pipeline-worker-contract-check.php
