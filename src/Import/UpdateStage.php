@@ -65,7 +65,7 @@ final class UpdateStage
                         if ($this->budget->shouldStop()) { $paused = true; break; }
                         $mappedId = (int) $row['id_product'];
                         $cursor = $mappedId;
-                        $this->beginItemSavepoint($db);
+                        $this->beginItemSavepoint($db, $runId);
                         $product = null;
                         try {
                             $product = ProductData::fromJson((string) $row['payload']);
@@ -162,11 +162,11 @@ final class UpdateStage
         }
     }
 
-    private function beginItemSavepoint(\Db $db): void
+    private function beginItemSavepoint(\Db $db, int $runId): void
     {
         if (!$this->transactionIsActive($db) && !$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not restore UPDATE transaction'); }
         if (!$db->execute('SAVEPOINT ' . self::SAVEPOINT)) { throw new \RuntimeException('Could not create UPDATE item savepoint: ' . $db->getMsgError()); }
-        $this->transactionGuard->arm($db, self::SAVEPOINT);
+        $this->transactionGuard->arm($db, self::SAVEPOINT, $runId);
     }
 
     private function rollbackItemSavepoint(\Db $db, \Throwable $cause): void
