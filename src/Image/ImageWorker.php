@@ -35,11 +35,12 @@ final class ImageWorker
         if ($sourceName === '') { throw new \RuntimeException('Image worker source name is empty'); }
         $done = $failed = $lost = $superseded = $deduplicated = $notModified = $replacedDeleted = $replacementCleanupFailed = 0;
         $hookCommitRecoveries = $attachedRollbackDeletes = $attachedRollbackDeleteFailed = 0;
-        $orphanRecorded = $orphanRecordFailed = 0;
+        $orphanRecorded = $orphanRecordFailed = $generationRequeued = 0;
 
         foreach ($this->queue->claim($worker, $sourceName, $limit, $shopId) as $row) {
             $idQueue = (int) $row['id_queue'];
             $token = (string) ($row['locked_by'] ?? '');
+            $expectedRunId = (int) ($row['id_run'] ?? 0);
             if ($token === '' || !$this->queue->renew($idQueue, $token)) {
                 $lost++;
                 continue;
@@ -68,6 +69,7 @@ final class ImageWorker
                     if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start image revalidation transaction'); }
                     $transaction = true;
                     $row = $this->queue->lockOwned($idQueue, $token);
+                    $expectedRunId = $this->assertQueueGeneration($row, $expectedRunId, false);
                     $this->assertLockedMappingOwnership($row);
                     $this->state->touchNotModified($row, (int) $prior['id_image']);
                     $this->queue->done($idQueue, $token);
@@ -86,6 +88,7 @@ final class ImageWorker
                 if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start image transaction'); }
                 $transaction = true;
                 $row = $this->queue->lockOwned($idQueue, $token);
+                $expectedRunId = $this->assertQueueGeneration($row, $expectedRunId, false);
                 $this->assertLockedMappingOwnership($row);
 
                 $duplicate = $this->state->findByContentHash((int) $row['id_shop'], (string) $row['source'], (int) $row['id_product'], $download->contentHash);
@@ -102,6 +105,7 @@ final class ImageWorker
                         $hookCommitRecoveries++;
                         if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not restore image transaction after PrestaShop hook commit'); }
                         $row = $this->queue->lockOwned($idQueue, $token);
+                        $this->assertQueueGeneration($row, $expectedRunId, true);
                         $this->assertLockedMappingOwnership($row);
                     }
                     $this->state->save($row, $idImage, $download);
@@ -131,13 +135,22 @@ final class ImageWorker
                 }
 
                 $stale = $e instanceof StaleImageJobException;
+                $failureApplied = false;
                 try {
                     if ($stale) {
                         if ($this->queue->supersede($idQueue, $token, $e->getMessage())) { $superseded++; } else { $lost++; }
                     } else {
-                        $this->queue->fail($idQueue, $token, $e->getMessage(), $this->failureClassifier->isRetryable($e));
+                        $failureApplied = $this->queue->fail(
+                            $idQueue,
+                            $token,
+                            $e->getMessage(),
+                            $this->failureClassifier->isRetryable($e),
+                            $expectedRunId
+                        );
+                        if (!$failureApplied) { $generationRequeued++; }
                     }
                 } catch (\Throwable) {
+                    $lost++;
                 }
 
                 if ($attached instanceof AttachedImage && !$commitAttempted) {
@@ -165,7 +178,7 @@ final class ImageWorker
                         $this->processor->cleanupFilesystem($attached);
                     }
                 }
-                if (!$stale) { $failed++; }
+                if (!$stale && $failureApplied) { $failed++; }
             } finally {
                 if ($contentLock !== null) { $this->releaseContentLock($db, $contentLock); }
                 if ($download instanceof DownloadedImage && is_file($download->path)) { @unlink($download->path); }
@@ -176,9 +189,24 @@ final class ImageWorker
             'done'=>$done,'failed'=>$failed,'lost'=>$lost,'superseded'=>$superseded,'deduplicated'=>$deduplicated,'not_modified'=>$notModified,
             'replaced_deleted'=>$replacedDeleted,'replacement_cleanup_failed'=>$replacementCleanupFailed,'hook_commit_recoveries'=>$hookCommitRecoveries,
             'attached_rollback_deleted'=>$attachedRollbackDeletes,'attached_rollback_delete_failed'=>$attachedRollbackDeleteFailed,
-            'orphan_recorded'=>$orphanRecorded,'orphan_record_failed'=>$orphanRecordFailed,
-            'processed'=>$done+$failed+$lost+$superseded,
+            'orphan_recorded'=>$orphanRecorded,'orphan_record_failed'=>$orphanRecordFailed,'generation_requeued'=>$generationRequeued,
+            'processed'=>$done+$failed+$lost+$superseded+$generationRequeued,
         ];
+    }
+
+    private function assertQueueGeneration(array $row, int $expectedRunId, bool $exact): int
+    {
+        $lockedRunId = (int) ($row['id_run'] ?? 0);
+        if ($lockedRunId <= 0) {
+            throw new \RuntimeException('Image queue locked generation is invalid');
+        }
+        if ($exact && $lockedRunId !== $expectedRunId) {
+            throw new \RuntimeException('Image queue generation advanced after PrestaShop hook commit');
+        }
+        if (!$exact && $lockedRunId < $expectedRunId) {
+            throw new \RuntimeException('Image queue generation moved backwards before persistence');
+        }
+        return $lockedRunId;
     }
 
     private function mappingMatches(array $row): bool
