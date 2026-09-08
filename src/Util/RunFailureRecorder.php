@@ -16,6 +16,16 @@ final class RunFailureRecorder
     {
         try { $this->errors->add($runId, $stage, $sourceKey, $error); }
         catch (\Throwable $loggingError) { $this->fallback($runId, $stage, 'error-log', $loggingError); }
+
+        try {
+            $run = $this->runs->get($runId);
+            if (is_array($run) && (string) ($run['status'] ?? '') === 'cancelled') {
+                return;
+            }
+        } catch (\Throwable $lookupError) {
+            $this->fallback($runId, $stage, 'cancel-state', $lookupError);
+        }
+
         try { $this->runs->stage($runId, $stage, 'failed'); }
         catch (\Throwable $stageError) { $this->fallback($runId, $stage, 'stage-state', $stageError); }
         try { $this->runs->finish($runId, 'failed'); }
