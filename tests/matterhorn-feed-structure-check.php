@@ -60,10 +60,12 @@ expectFeedStructureFailure(
 // Matterhorn's supplier contract is <products> with direct <product> children.
 // StringWalker intentionally validates that depth instead of discovering any
 // nested element merely named product, which also prevents accidental capture
-// of product-like markup inside supplier content.
+// of product-like markup inside supplier content. The malformed-record recovery
+// layer may surface a concrete libxml parse detail, so assert the stable source-
+// record parse-error contract rather than one historical libxml message.
 expectFeedStructureFailure(
     '<?xml version="1.0"?><products><group><product id="3"><name>Nested</name><price>1</price></product></group></products>',
-    'invalid product XML'
+    'Matterhorn product XML parse error at source record 1:'
 );
 
 $sourceCode = (string) file_get_contents(dirname(__DIR__) . '/src/Source/MatterhornXmlSource.php');
