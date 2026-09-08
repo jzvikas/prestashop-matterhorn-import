@@ -25,7 +25,7 @@ foreach ($files as $name => $path) {
 foreach ([
     'public function lockRunning(int $runId): void',
     'SELECT status FROM `',
-    ' FOR UPDATE',
+    ' LIMIT 1 FOR UPDATE',
     "!== 'running'",
     "AND status<>'cancelled'",
     "AND status='running'",
@@ -95,18 +95,19 @@ if (!class_exists('Db', false)) {
         public static string $lastSql = '';
         private static ?self $instance = null;
         public static function getInstance(): self { return self::$instance ??= new self(); }
-        public function getRow(string $sql, bool $useCache = true): array|false
+        public function executeS(string $sql, bool $array = true, bool $useCache = true): array|false
         {
             self::$lastSql = $sql;
-            return ['status' => self::$status];
+            return [['status' => self::$status]];
         }
+        public function getMsgError(): string { return ''; }
     }
 }
 require_once $root . '/src/Repository/RunRepository.php';
 $repository = new \Lp\MatterhornImport\Repository\RunRepository();
 $repository->lockRunning(7);
-if (!str_contains(\Db::$lastSql, 'FOR UPDATE')) {
-    fwrite(STDERR, "FAIL: executable run fence did not use a row lock\n");
+if (!str_contains(\Db::$lastSql, 'LIMIT 1 FOR UPDATE')) {
+    fwrite(STDERR, "FAIL: executable run fence did not use a bounded row lock with valid MariaDB clause ordering\n");
     exit(1);
 }
 \Db::$status = 'cancelled';
