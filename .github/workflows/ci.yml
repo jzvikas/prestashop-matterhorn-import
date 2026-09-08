@@ -77,6 +77,7 @@ jobs:
           LP_DB_PREFIX: mh_
         run: |
           php tests/database-lifecycle-check.php
+          php tests/run-cancellation-mariadb-check.php
           php tests/image-placement-mariadb-check.php
           php tests/image-authoritative-manifest-mariadb-check.php
           php tests/image-out-of-feed-fence-mariadb-check.php
