@@ -71,7 +71,7 @@ final class ImportStage
                     foreach ($rows as $row) {
                         if ($this->budget->shouldStop()) { $paused = true; break; }
                         $cursor = (string) $row['source_key'];
-                        $this->beginItemSavepoint($db);
+                        $this->beginItemSavepoint($db, $runId);
                         $product = null;
                         try {
                             $product = ProductData::fromJson((string) $row['payload']);
@@ -158,7 +158,7 @@ final class ImportStage
         return '[' . $sourceKey . '] ' . ($message !== '' ? $message : $error::class);
     }
 
-    private function beginItemSavepoint(\Db $db): void
+    private function beginItemSavepoint(\Db $db, int $runId): void
     {
         if (!$this->transactionIsActive($db) && !$db->execute('START TRANSACTION')) {
             throw new \RuntimeException('Could not restore IMPORT transaction');
@@ -166,7 +166,7 @@ final class ImportStage
         if (!$db->execute('SAVEPOINT ' . self::SAVEPOINT)) {
             throw new \RuntimeException('Could not create IMPORT item savepoint: ' . $db->getMsgError());
         }
-        $this->transactionGuard->arm($db, self::SAVEPOINT);
+        $this->transactionGuard->arm($db, self::SAVEPOINT, $runId);
     }
 
     private function rollbackItemSavepoint(\Db $db, \Throwable $cause): void
