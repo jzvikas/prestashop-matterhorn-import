@@ -62,6 +62,7 @@ php tests/run-cancellation-fence-check.php
 bash tests/snapshot-write-sql-budget-check.sh
 php tests/image-pipeline-foundation-contract-check.php
 php tests/image-pipeline-worker-contract-check.php
+php tests/image-hook-commit-generation-fence-check.php
 php tests/image-curl-options-fail-closed-check.php
 php tests/image-failure-classifier-check.php
 php tests/image-queue-batch-lease-contract-check.php
