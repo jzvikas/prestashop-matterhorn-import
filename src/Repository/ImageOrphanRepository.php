@@ -1,10 +1,16 @@
 <?php
 namespace Lp\MatterhornImport\Repository;
 
+use Lp\MatterhornImport\Util\DiagnosticMessageSanitizer;
+
 final class ImageOrphanRepository
 {
     private const TABLE = 'li_matterhornim_99dfbf_image_orphan';
     private const INITIAL_DELAY_MINUTES = 30;
+
+    public function __construct(private DiagnosticMessageSanitizer $sanitizer)
+    {
+    }
 
     public function record(array $queueRow, int $idImage, string $reason, ?string $lastError = null): void
     {
@@ -13,7 +19,7 @@ final class ImageOrphanRepository
         }
         $errorSql = $lastError === null || trim($lastError) === ''
             ? 'NULL'
-            : "'" . pSQL(mb_substr($lastError, 0, 4000), true) . "'";
+            : "'" . pSQL($this->sanitizer->sanitize($lastError, 4000), true) . "'";
         $sql = sprintf(
             "INSERT INTO `%s%s` (`id_queue`,`id_run`,`id_shop`,`source`,`source_key`,`id_product`,`id_image`,`reason`,`attempts`,`available_at`,`last_error`,`created_at`,`updated_at`) " .
             "VALUES (%d,%d,%d,'%s','%s',%d,%d,'%s',0,DATE_ADD(NOW(),INTERVAL %d MINUTE),%s,NOW(),NOW()) " .
@@ -74,7 +80,7 @@ final class ImageOrphanRepository
         // terms of the post-increment value: first defer 15m, then 1h, 6h and finally 24h.
         $sql = sprintf(
             "UPDATE `%s%s` SET attempts=LEAST(attempts+1,255),available_at=TIMESTAMPADD(SECOND,CASE WHEN attempts<=1 THEN 900 WHEN attempts<=3 THEN 3600 WHEN attempts<=6 THEN 21600 ELSE 86400 END,NOW()),last_error='%s',updated_at=NOW() WHERE id_orphan=%d",
-            _DB_PREFIX_, self::TABLE, pSQL(mb_substr($error, 0, 4000), true), $idOrphan
+            _DB_PREFIX_, self::TABLE, pSQL($this->sanitizer->sanitize($error, 4000), true), $idOrphan
         );
         if (!\Db::getInstance()->execute($sql)) {
             throw new \RuntimeException('Matterhorn image orphan recovery defer failed');
