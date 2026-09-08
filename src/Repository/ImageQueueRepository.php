@@ -142,10 +142,15 @@ final class ImageQueueRepository
     public function lockOwned(int $id, string $token): array
     {
         if ($id <= 0 || $token === '') { throw new \InvalidArgumentException('Image queue lock requires id/token'); }
-        $row = \Db::getInstance()->getRow(sprintf(
-            "SELECT * FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW() FOR UPDATE",
+        $db = \Db::getInstance();
+        $rows = $db->executeS(sprintf(
+            "SELECT * FROM `%s%s` WHERE id_queue=%d AND status='processing' AND locked_by='%s' AND locked_until>NOW() LIMIT 1 FOR UPDATE",
             _DB_PREFIX_, self::TABLE, $id, pSQL($token)
-        ), false);
+        ), true, false);
+        if ($rows === false) {
+            throw new \RuntimeException('Matterhorn image queue lock query failed: ' . $db->getMsgError());
+        }
+        $row = $rows[0] ?? null;
         if (!is_array($row) || $row === []) {
             throw new \RuntimeException('Matterhorn image queue ownership lost before locked persistence');
         }
