@@ -34,6 +34,7 @@ $admin = (string) file_get_contents($root . '/src/Admin/AdminErrorReporter.php')
 $errors = (string) file_get_contents($root . '/src/Repository/ErrorRepository.php');
 $runFailure = (string) file_get_contents($root . '/src/Util/RunFailureRecorder.php');
 $importRunner = (string) file_get_contents($root . '/src/Import/ImportRunner.php');
+$readStage = (string) file_get_contents($root . '/src/Import/ReadStage.php');
 $newProducts = (string) file_get_contents($root . '/src/Repository/NewProductQueueRepository.php');
 $images = (string) file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
 
@@ -54,6 +55,12 @@ if (!str_contains($importRunner, 'DiagnosticMessageSanitizer') || !str_contains(
 }
 if (str_contains($importRunner, '$finishError->getMessage()')) {
     $fail('ImportRunner fallback must not log raw failure-state exception text');
+}
+if (!str_contains($readStage, 'DiagnosticMessageSanitizer') || substr_count($readStage, '$this->sanitizer->sanitize($exception, 1000)') < 2) {
+    $fail('READ checkpoint/source cleanup fallbacks must redact throwable diagnostics');
+}
+if (str_contains($readStage, '$exception->getMessage()')) {
+    $fail('READ best-effort fallbacks must not log raw exception text');
 }
 foreach ([
     'new-product queue' => $newProducts,
