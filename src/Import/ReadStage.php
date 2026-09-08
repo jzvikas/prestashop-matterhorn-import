@@ -8,6 +8,7 @@ use Lp\MatterhornImport\Contract\ProductMapperInterface;
 use Lp\MatterhornImport\Contract\RunScopedSourceInterface;
 use Lp\MatterhornImport\Contract\SourceInterface;
 use Lp\MatterhornImport\Repository\ErrorRepository;
+use Lp\MatterhornImport\Repository\MappingRepository;
 use Lp\MatterhornImport\Repository\RunRepository;
 use Lp\MatterhornImport\Repository\SnapshotRepository;
 use Lp\MatterhornImport\Util\ExecutionBudget;
@@ -25,6 +26,7 @@ final class ReadStage
         private ProductMapperInterface $mapper,
         private RunRepository $runs,
         private SnapshotRepository $snapshots,
+        private MappingRepository $mapping,
         private ErrorRepository $errors,
         private ShopContextManager $shopContext,
         private RunFailureRecorder $failureRecorder,
@@ -85,38 +87,50 @@ final class ReadStage
             $products = [];
             $batchErrors = [];
             $batchWarnings = [];
+            $batchSkipped = [];
             $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
             $paused = false;
 
             foreach ($stream as $row) {
                 if ($this->budget->shouldStop()) { $paused = true; break; }
                 ++$absoluteCheckpoint;
-                try {
-                    $product = $this->mapper->map($row);
-                    $payloadBytes = strlen($product->toJson());
-                    if ($payloadBytes > self::MAX_PRODUCT_PAYLOAD_BYTES) {
-                        throw new \RuntimeException('Normalized product payload exceeds READ limit of ' . self::MAX_PRODUCT_PAYLOAD_BYTES . ' bytes (' . $payloadBytes . ' bytes)');
+                $skipMalformed = (bool) ($row['_matterhorn_skip_record'] ?? false);
+                if ($skipMalformed) {
+                    $sourceKey = trim((string) ($row['id'] ?? ''));
+                    $reason = trim((string) ($row['_matterhorn_skip_reason'] ?? 'Malformed supplier XML record skipped'));
+                    if ($sourceKey === '') {
+                        throw new \RuntimeException('Malformed Matterhorn source record cannot be skipped safely without product id');
                     }
-                    if ($batchTotal > 0 && ($batchTotal >= self::WRITE_BATCH || $batchPayloadBytes + $payloadBytes > self::MAX_BATCH_PAYLOAD_BYTES)) {
-                        $this->flushBatch($runId, $absoluteCheckpoint - 1, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
-                        $this->persistRunCheckpointBestEffort(
-                            $runScopedSource,
-                            $runId,
-                            $absoluteCheckpoint - 1,
-                            $lastProcessedByteCheckpoint
-                        );
-                        $products = []; $batchErrors = []; $batchWarnings = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
-                    }
-                    $products[] = $product;
-                    foreach ((array) ($product->extra['supplier_warnings'] ?? []) as $warning) {
-                        $message = trim((string) $warning);
-                        if ($message !== '') { $batchWarnings[] = ['source_key' => $product->sourceKey, 'message' => $message]; }
-                    }
-                    $batchPayloadBytes += $payloadBytes;
-                    ++$batchValid;
-                } catch (\Throwable $e) {
                     ++$batchInvalid;
-                    $batchErrors[] = ['source_key' => (string) ($row['id'] ?? $row['reference'] ?? ''), 'error' => $e];
+                    $batchSkipped[] = ['source_key' => $sourceKey, 'message' => $reason];
+                } else {
+                    try {
+                        $product = $this->mapper->map($row);
+                        $payloadBytes = strlen($product->toJson());
+                        if ($payloadBytes > self::MAX_PRODUCT_PAYLOAD_BYTES) {
+                            throw new \RuntimeException('Normalized product payload exceeds READ limit of ' . self::MAX_PRODUCT_PAYLOAD_BYTES . ' bytes (' . $payloadBytes . ' bytes)');
+                        }
+                        if ($batchTotal > 0 && ($batchTotal >= self::WRITE_BATCH || $batchPayloadBytes + $payloadBytes > self::MAX_BATCH_PAYLOAD_BYTES)) {
+                            $this->flushBatch($runId, $shopId, (string) $run['source'], $absoluteCheckpoint - 1, $products, $batchErrors, $batchWarnings, $batchSkipped, $batchTotal, $batchValid, $batchInvalid);
+                            $this->persistRunCheckpointBestEffort(
+                                $runScopedSource,
+                                $runId,
+                                $absoluteCheckpoint - 1,
+                                $lastProcessedByteCheckpoint
+                            );
+                            $products = []; $batchErrors = []; $batchWarnings = []; $batchSkipped = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
+                        }
+                        $products[] = $product;
+                        foreach ((array) ($product->extra['supplier_warnings'] ?? []) as $warning) {
+                            $message = trim((string) $warning);
+                            if ($message !== '') { $batchWarnings[] = ['source_key' => $product->sourceKey, 'message' => $message]; }
+                        }
+                        $batchPayloadBytes += $payloadBytes;
+                        ++$batchValid;
+                    } catch (\Throwable $e) {
+                        ++$batchInvalid;
+                        $batchErrors[] = ['source_key' => (string) ($row['id'] ?? $row['reference'] ?? ''), 'error' => $e];
+                    }
                 }
 
                 // This cursor is produced by Prewk's own parser/stream buffering:
@@ -129,20 +143,20 @@ final class ReadStage
                 ++$batchTotal;
                 $this->budget->markItem();
                 if ($batchTotal >= self::WRITE_BATCH) {
-                    $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                    $this->flushBatch($runId, $shopId, (string) $run['source'], $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchSkipped, $batchTotal, $batchValid, $batchInvalid);
                     $this->persistRunCheckpointBestEffort(
                         $runScopedSource,
                         $runId,
                         $absoluteCheckpoint,
                         $lastProcessedByteCheckpoint
                     );
-                    $products = []; $batchErrors = []; $batchWarnings = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
+                    $products = []; $batchErrors = []; $batchWarnings = []; $batchSkipped = []; $batchTotal = $batchValid = $batchInvalid = $batchPayloadBytes = 0;
                 }
                 if ($this->budget->shouldStop()) { $paused = true; break; }
             }
 
             if ($batchTotal > 0) {
-                $this->flushBatch($runId, $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchTotal, $batchValid, $batchInvalid);
+                $this->flushBatch($runId, $shopId, (string) $run['source'], $absoluteCheckpoint, $products, $batchErrors, $batchWarnings, $batchSkipped, $batchTotal, $batchValid, $batchInvalid);
                 $this->persistRunCheckpointBestEffort(
                     $runScopedSource,
                     $runId,
@@ -166,7 +180,13 @@ final class ReadStage
             $duplicates = max(0, (int) $run['source_valid'] - $distinct);
             $this->runs->setReadDuplicate($runId, $duplicates);
             if ((int) $run['source_invalid'] > 0) {
-                throw new \RuntimeException('READ contains ' . (int) $run['source_invalid'] . ' invalid rows; downstream stages blocked');
+                $blockingInvalid = $this->errors->countBlockingReadErrors($runId);
+                if ($blockingInvalid > 0) {
+                    throw new \RuntimeException(
+                        'READ contains ' . (int) $run['source_invalid'] . ' invalid rows (' .
+                        $blockingInvalid . ' blocking); downstream stages blocked'
+                    );
+                }
             }
             if ($duplicates > 0) {
                 throw new \RuntimeException('READ contains ' . $duplicates . ' duplicate source keys; downstream stages blocked');
@@ -207,8 +227,21 @@ final class ReadStage
      * @param list<\Lp\MatterhornImport\DTO\ProductData> $products
      * @param list<array{source_key:string,error:\Throwable}> $batchErrors
      * @param list<array{source_key:string,message:string}> $batchWarnings
+     * @param list<array{source_key:string,message:string}> $batchSkipped
      */
-    private function flushBatch(int $runId, int $checkpoint, array $products, array $batchErrors, array $batchWarnings, int $total, int $valid, int $invalid): void
+    private function flushBatch(
+        int $runId,
+        int $shopId,
+        string $source,
+        int $checkpoint,
+        array $products,
+        array $batchErrors,
+        array $batchWarnings,
+        array $batchSkipped,
+        int $total,
+        int $valid,
+        int $invalid
+    ): void
     {
         $db = \Db::getInstance();
         if (!$db->execute('START TRANSACTION')) { throw new \RuntimeException('Could not start READ batch transaction'); }
@@ -216,6 +249,10 @@ final class ReadStage
             $this->snapshots->upsertBatch($runId, $products);
             foreach ($batchErrors as $item) { $this->errors->add($runId, 'read', $item['source_key'], $item['error']); }
             foreach ($batchWarnings as $item) { $this->errors->add($runId, 'read', $item['source_key'], 'WARNING: ' . $item['message']); }
+            foreach ($batchSkipped as $item) {
+                $this->errors->addSkippedSourceRecord($runId, 'read', $item['source_key'], $item['message']);
+                $this->mapping->markSeenWithoutStateChange($shopId, $source, $item['source_key'], $runId);
+            }
             $this->runs->commitReadProgress($runId, $checkpoint, $total, $valid, $invalid);
             if (!$db->execute('COMMIT')) { throw new \RuntimeException('Could not commit READ batch'); }
         } catch (\Throwable $e) {

@@ -5,6 +5,7 @@ final class ErrorRepository
 {
     private const TABLE = 'li_matterhornim_99dfbf_error';
     private const WARNING_PREFIX = 'WARNING: ';
+    private const SKIPPED_SOURCE_PREFIX = 'SKIPPED_SOURCE_RECORD: ';
 
     public function add(int $runId, string $stage, ?string $sourceKey, \Throwable|string $error): void
     {
@@ -40,6 +41,36 @@ final class ErrorRepository
             ));
             throw new \RuntimeException($persistenceError);
         }
+    }
+
+
+    public function addSkippedSourceRecord(int $runId, string $stage, string $sourceKey, string $message): void
+    {
+        $message = trim($message);
+        $this->add(
+            $runId,
+            $stage,
+            $sourceKey,
+            self::SKIPPED_SOURCE_PREFIX . ($message !== '' ? $message : 'Malformed supplier XML record skipped')
+        );
+        error_log(sprintf(
+            '[matterhornimport] skipped malformed source record run=%d stage=%s source_key=%s message=%s',
+            $runId,
+            $stage,
+            $sourceKey,
+            mb_substr($message, 0, 1000)
+        ));
+    }
+
+    public function countBlockingReadErrors(int $runId): int
+    {
+        return (int) \Db::getInstance()->getValue(
+            "SELECT COUNT(*) FROM `" . _DB_PREFIX_ . self::TABLE . "` WHERE id_run=" . (int) $runId .
+            " AND stage='read'" .
+            " AND message NOT LIKE '" . pSQL(self::WARNING_PREFIX) . "%'" .
+            " AND message NOT LIKE '" . pSQL(self::SKIPPED_SOURCE_PREFIX) . "%'",
+            false
+        );
     }
 
     public function purgeStage(int $runId, string $stage): int

@@ -79,12 +79,12 @@ final class SnapshotRepository
 
     public function removedRows(int $runId,int $shopId,string $source,int $afterProductId=0,int $limit=500):array
     {
-        $limit=max(1,min(2000,$limit)); return \Db::getInstance()->executeS(sprintf("SELECT m.* FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND m.id_product>%d AND s.source_key IS NULL ORDER BY m.id_product LIMIT %d",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source),$afterProductId,$limit), true, false)?:[];
+        $limit=max(1,min(2000,$limit)); return \Db::getInstance()->executeS(sprintf("SELECT m.* FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND m.id_product>%d AND s.source_key IS NULL AND COALESCE(m.last_seen_run_id,0)<>%d ORDER BY m.id_product LIMIT %d",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source),$afterProductId,$runId,$limit), true, false)?:[];
     }
 
     public function countRemoved(int $runId,int $shopId,string $source):int
     {
-        return (int)\Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND s.source_key IS NULL",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source)), false);
+        return (int)\Db::getInstance()->getValue(sprintf("SELECT COUNT(*) FROM `%s%s` m LEFT JOIN `%s%s` s ON s.id_run=%d AND s.source_key=m.source_key WHERE m.id_shop=%d AND m.source='%s' AND m.out_of_feed=0 AND s.source_key IS NULL AND COALESCE(m.last_seen_run_id,0)<>%d",_DB_PREFIX_,self::MAPPING_TABLE,_DB_PREFIX_,self::TABLE,$runId,$shopId,pSQL($source),$runId), false);
     }
 
     public function imageManifestRows(int $runId, int $shopId, string $source, string $after = '', int $limit = 500): array

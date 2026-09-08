@@ -32,7 +32,23 @@ final class CategorySynchronizer
         if ($keys === []) { throw new \RuntimeException('Category domain is present but contains no supplier category keys'); }
         $resolved = $this->mapping->resolveActiveCategoryIds($keys, $shopId);
         $missing = array_values(array_diff($keys, array_keys($resolved)));
-        if ($missing !== []) { throw new \RuntimeException('Unmapped supplier categories: ' . implode(', ', array_slice($missing, 0, 20))); }
+
+        /*
+         * A new supplier category must not make unattended IMPORT retry forever.
+         * Keep exact-path mapping as the first choice, but when an active supplier
+         * category is still unmapped, create the missing XML path and bind it.
+         * Manually disabled mappings remain disabled because CategoryAutoMapper
+         * refuses to create/assign them even when auto_create is requested.
+         */
+        if ($missing !== []) {
+            $this->autoMapper->prepare($this->withAutoCreate($data, $missing), $shopId);
+            $resolved = $this->mapping->resolveActiveCategoryIds($keys, $shopId);
+            $missing = array_values(array_diff($keys, array_keys($resolved)));
+        }
+
+        if ($missing !== []) {
+            throw new \RuntimeException('Unmapped supplier categories: ' . implode(', ', array_slice($missing, 0, 20)));
+        }
         $leafIds = array_values(array_unique(array_map('intval', array_values($resolved))));
         $categoryIds = $this->expandHierarchy($leafIds, $shopId);
         if ($categoryIds === []) { throw new \RuntimeException('Resolved category hierarchy is empty'); }
@@ -46,6 +62,37 @@ final class CategorySynchronizer
         $product->id_category_default = $leafIds[0];
         if (!$product->update()) { throw new \RuntimeException('Could not update default category for product ' . $productId); }
         if (!$product->updateCategories($categoryIds)) { throw new \RuntimeException('Could not update product categories for product ' . $productId); }
+    }
+
+    /** @param list<string> $supplierKeys */
+    private function withAutoCreate(ProductData $data, array $supplierKeys): ProductData
+    {
+        $wanted = array_fill_keys($supplierKeys, true);
+        $extra = $data->extra;
+        $categories = [];
+
+        foreach ((array) ($extra['categories'] ?? []) as $category) {
+            if (is_array($category)) {
+                $key = trim((string) ($category['key'] ?? ''));
+                if ($key !== '' && isset($wanted[$key])) {
+                    $category['auto_create'] = true;
+                }
+            }
+            $categories[] = $category;
+        }
+
+        $extra['categories'] = $categories;
+
+        return new ProductData(
+            $data->sourceKey,
+            $data->reference,
+            $data->name,
+            $data->price,
+            $data->quantity,
+            $data->active,
+            $data->images,
+            $extra
+        );
     }
 
     /** @param list<int> $leafIds @return list<int> */

@@ -158,6 +158,27 @@ final class MappingRepository
         if (!\Db::getInstance()->update(self::TABLE, ['out_of_feed'=>0,'last_seen_run_id'=>$runId,'updated_at'=>date('Y-m-d H:i:s')], sprintf("id_shop=%d AND source='%s' AND source_key='%s'", $shopId, pSQL($source), pSQL($sourceKey)))) { throw new \RuntimeException('Matterhorn mapping touch failed'); }
     }
 
+    public function markSeenWithoutStateChange(int $shopId, string $source, string $sourceKey, int $runId): void
+    {
+        if ($shopId <= 0 || $runId <= 0 || trim($source) === '' || trim($sourceKey) === '') {
+            throw new \InvalidArgumentException('Matterhorn seen-only mapping touch requires valid context');
+        }
+
+        if (!\Db::getInstance()->update(
+            self::TABLE,
+            ['last_seen_run_id' => $runId, 'updated_at' => date('Y-m-d H:i:s')],
+            sprintf(
+                "id_shop=%d AND source='%s' AND source_key='%s' AND COALESCE(last_seen_run_id,0)<=%d",
+                $shopId,
+                pSQL($source),
+                pSQL($sourceKey),
+                $runId
+            )
+        )) {
+            throw new \RuntimeException('Matterhorn seen-only mapping touch failed');
+        }
+    }
+
     public function delete(int $shopId, string $source, string $sourceKey): void
     {
         if (!\Db::getInstance()->delete(self::TABLE, sprintf("id_shop=%d AND source='%s' AND source_key='%s'", $shopId, pSQL($source), pSQL($sourceKey)))) { throw new \RuntimeException('Matterhorn mapping delete failed'); }

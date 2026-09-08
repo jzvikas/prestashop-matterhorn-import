@@ -171,18 +171,39 @@ final class FeatureMappingRepository
         string $storedName,
         string $storedValue
     ): void {
-        if ($storedName !== '' && !hash_equals($storedName, trim($featureName))) {
+        $featureName = trim($featureName);
+        $valueName = trim($valueName);
+        if ($storedName !== '' && !$this->semanticLabelEquals($storedName, $featureName)) {
             throw new \RuntimeException(
                 'Feature semantic identity collision for ' . $featureKey . ': stored name "' .
-                $storedName . '" differs from supplier name "' . trim($featureName) . '"'
+                $storedName . '" differs from supplier name "' . $featureName . '"'
             );
         }
-        if ($storedValue !== '' && !hash_equals($storedValue, trim($valueName))) {
+        if ($storedValue !== '' && !$this->semanticLabelEquals($storedValue, $valueName)) {
             throw new \RuntimeException(
                 'Feature semantic identity collision for ' . $featureKey . '/' . $valueKey . ': stored value "' .
-                $storedValue . '" differs from supplier value "' . trim($valueName) . '"'
+                $storedValue . '" differs from supplier value "' . $valueName . '"'
             );
         }
+    }
+
+    /**
+     * Supplier labels are display text. Letter case is not part of their semantic
+     * identity, while whitespace/punctuation still is. This keeps the slug-key
+     * collision fence strict without failing on harmless supplier casing drift.
+     */
+    private function semanticLabelEquals(string $stored, string $incoming): bool
+    {
+        $stored = trim($stored);
+        $incoming = trim($incoming);
+        if (function_exists('mb_strtolower')) {
+            return hash_equals(
+                mb_strtolower($stored, 'UTF-8'),
+                mb_strtolower($incoming, 'UTF-8')
+            );
+        }
+
+        return strcasecmp($stored, $incoming) === 0;
     }
 
     private function acquireSemanticLock(\Db $db, int $shopId, string $source, string $featureKey, string $valueKey): string

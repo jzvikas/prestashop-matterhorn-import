@@ -154,7 +154,24 @@ final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
                 );
             }
 
-            $row = $this->parseProduct($node, $record);
+            try {
+                $row = $this->parseProduct($node, $record);
+            } catch (\UnexpectedValueException $exception) {
+                $sourceKey = $this->recoverProductId($node);
+                if ($sourceKey === '') {
+                    // Without a stable supplier key we cannot safely protect an
+                    // already mapped product from the later REMOVE stage. Fail
+                    // closed instead of risking a false out-of-feed removal.
+                    throw $exception;
+                }
+
+                $row = [
+                    '_matterhorn_skip_record' => true,
+                    '_matterhorn_skip_reason' => $exception->getMessage(),
+                    '_matterhorn_source_record' => $record,
+                    'id' => $sourceKey,
+                ];
+            }
             $this->byteCheckpoint = $nextByte;
 
             if ($skipped < $skipRecords) {
@@ -408,6 +425,17 @@ final class MatterhornXmlSource implements ByteCheckpointableSourceInterface
             );
         }
         $seenFields[$field] = true;
+    }
+
+
+    private function recoverProductId(string $node): string
+    {
+        $prefix = substr($node, 0, min(strlen($node), 8192));
+        if (preg_match('/^\s*<product\b[^>]*\bid\s*=\s*(["\'])([0-9]{1,191})\1/i', $prefix, $match) !== 1) {
+            return '';
+        }
+
+        return (string) $match[2];
     }
 
     private function assertByteOffset(string $path, int $byteOffset): void
