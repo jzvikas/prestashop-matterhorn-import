@@ -132,7 +132,13 @@ if (!str_contains($snapshots, "WHERE id_run=' . (int) \$runId, false)")) {
 if (substr_count($snapshots, 'true, false') < 5 || !str_contains($snapshots, "executeS(\$sql, true, false)")) {
     $fail('snapshot decision and payload-window reads must bypass Db query cache');
 }
-if (!str_contains($snapshots, 'countRemoved') || !str_contains($snapshots, ')), false);')) {
+$countRemovedStart = strpos($snapshots, 'public function countRemoved(');
+$imageManifestStart = strpos($snapshots, 'public function imageManifestRows(', $countRemovedStart === false ? 0 : $countRemovedStart);
+if ($countRemovedStart === false || $imageManifestStart === false || $countRemovedStart >= $imageManifestStart) {
+    $fail('REMOVE count decision method boundaries missing');
+}
+$countRemovedMethod = substr($snapshots, $countRemovedStart, $imageManifestStart - $countRemovedStart);
+if (!str_contains($countRemovedMethod, 'getValue(sprintf(') || !str_contains($countRemovedMethod, '), false);')) {
     $fail('REMOVE count decision must bypass Db query cache');
 }
 
