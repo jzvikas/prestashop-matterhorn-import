@@ -44,7 +44,9 @@ require_literal "$guard" "getValue('SELECT @@session.in_transaction', false)" 'g
 require_literal "$guard" 'START TRANSACTION' 'guard must restore an externally committed transaction'
 require_literal "$guard" "SAVEPOINT ' . \$this->savepoint" 'guard must restore the caller savepoint'
 require_literal "$guard" 'recoveryCount' 'guard must expose recovery count'
-require_literal "$guard" 'runs->lockRunning' 'guard must reacquire the cancelled-run row fence after external commits'
+require_literal "$guard" 'private ?RunRepository $runs = null' 'guard must remain constructible in non-run domain contexts'
+require_literal "$guard" 'requireRunRepository()->lockRunning' 'guard must reacquire the cancelled-run row fence after external commits'
+require_literal "$guard" 'RunRepository is required when arming a run cancellation fence' 'run-scoped guard without repository must fail closed'
 
 require_literal "$import_stage" 'transactionGuard->arm($db, self::SAVEPOINT, $runId)' 'IMPORT must arm item savepoint and run cancellation recovery'
 require_literal "$update_stage" 'transactionGuard->arm($db, self::SAVEPOINT, $runId)' 'UPDATE must arm item savepoint and run cancellation recovery'
@@ -58,14 +60,10 @@ require_literal "$remove_stage" 'lockProductOwnership($shopId, $source, $sourceK
 require_literal "$new_worker" 'transactionGuard->arm($db)' 'new-product worker must arm transaction recovery'
 require_literal "$new_worker" 'transactionGuard->recoveryCount()' 'new-product worker must expose hook commit recovery'
 
-# These services directly invoke PrestaShop ObjectModel/API paths that can run hooks and commit
-# the shared connection; each must restore the caller-owned item transaction immediately after.
 for file in "$base_writer" "$matterhorn_writer" "$category" "$manufacturer" "$feature_resolver" "$combination"; do
   require_literal "$file" 'transactionGuard->restoreAfterExternalCommit()' 'nested ObjectModel path must restore transaction after hook commit'
 done
 
-# FeatureSynchronizer itself uses direct DB writes. ObjectModel creation is delegated to
-# FeatureResolver, which is guarded above; do not add a redundant recovery probe to the hot sync path.
 require_literal "$feature_sync" 'resolver->resolveOrCreate' 'feature synchronizer must delegate feature ObjectModel creation to guarded resolver'
 reject_literal "$feature_sync" 'new \\Feature(' 'feature synchronizer must not bypass guarded feature resolver'
 reject_literal "$feature_sync" 'new \\FeatureValue(' 'feature synchronizer must not bypass guarded feature-value resolver'
