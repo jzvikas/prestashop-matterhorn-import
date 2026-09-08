@@ -90,7 +90,7 @@ final class RemoveStage
                             throw new \RuntimeException('Could not start REMOVE item transaction');
                         }
                         $transaction = true;
-                        $this->transactionGuard->arm($db);
+                        $this->transactionGuard->arm($db, null, $runId);
 
                         if (!$this->mapping->lockProductOwnership($shopId, $source, $sourceKey, $productId)) {
                             throw new \RuntimeException('REMOVE mapping ownership changed before policy execution');
@@ -100,8 +100,8 @@ final class RemoveStage
 
                         // Product/Stock ObjectModels and third-party hooks can commit the shared
                         // PrestaShop connection. If that happened, the row lock was released too.
-                        // Restore the item transaction and reacquire exact mapping ownership before
-                        // recording the durable out-of-feed completion.
+                        // Restore the item transaction and reacquire both the run cancellation fence
+                        // and exact mapping ownership before recording durable out-of-feed completion.
                         $this->transactionGuard->restoreAfterExternalCommit();
                         if ($this->transactionGuard->recoveryCount() > 0
                             && !$this->mapping->lockProductOwnership($shopId, $source, $sourceKey, $productId)
