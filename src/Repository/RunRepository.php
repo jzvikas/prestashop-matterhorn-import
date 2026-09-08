@@ -54,10 +54,16 @@ final class RunRepository
     public function lockRunning(int $runId): void
     {
         if ($runId <= 0) { throw new \InvalidArgumentException('Run lock requires a positive run ID'); }
-        $row = \Db::getInstance()->getRow(
-            'SELECT status FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . $runId . ' FOR UPDATE',
+        $db = \Db::getInstance();
+        $rows = $db->executeS(
+            'SELECT status FROM `' . _DB_PREFIX_ . self::TABLE . '` WHERE id_run=' . $runId . ' LIMIT 1 FOR UPDATE',
+            true,
             false
         );
+        if ($rows === false) {
+            throw new \RuntimeException('Could not lock Matterhorn import run: ' . $db->getMsgError());
+        }
+        $row = $rows[0] ?? null;
         if (!is_array($row)) {
             throw new \RuntimeException('Matterhorn import run disappeared while fencing execution');
         }
