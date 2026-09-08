@@ -28,6 +28,13 @@ matterhorn_import_ajax_batch:
     _controller: 'Lp\MatterhornImport\Controller\ImportController::batch'
     _legacy_controller: AdminModules
 
+matterhorn_import_ajax_images_batch:
+  path: /matterhornimport/import/images/batch
+  methods: [POST]
+  defaults:
+    _controller: 'Lp\MatterhornImport\Controller\ImportController::imagesBatch'
+    _legacy_controller: AdminModules
+
 matterhorn_import_ajax_status:
   path: /matterhornimport/import/status
   methods: [POST]
