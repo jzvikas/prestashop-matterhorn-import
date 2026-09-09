@@ -16,6 +16,14 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Fenced image processing to the exact active `(shop, source, source_key, id_product)` mapping before download and before state persistence; retained unresolved rows whose mapping is already `out_of_feed=1` are superseded and no longer block authoritative reconciliation, with static and MariaDB regression coverage.
 - Optimized GitHub Actions release validation with read-only permissions, concurrency cancellation, explicit timeouts, cheap-static-first gating, parallel MariaDB/PrestaShop lifecycle jobs, checkout v5 and parallel Docker image pre-pull without weakening the full PR/main test suite.
 
+## 1.0.11
+
+- Added an idempotent retained-schema repair migration so installations registered as the legacy `1.0.10` line receive every current table, column and index without overwriting supplier settings.
+- Added portable MySQL 8 and MariaDB transaction-state detection across IMPORT, UPDATE, REMOVE, new-product and image workers instead of assuming MariaDB-only `@@session.in_transaction` support.
+- Removed the redundant `CURLOPT_FILE` binding from the callback-driven remote feed download, preventing a closed file handle from remaining attached to cURL cleanup.
+- Switched image cleanup and diagnostics to PrestaShop 9's `_PS_PRODUCT_IMG_DIR_` constant.
+- Fixed queue and image-state row locking so PrestaShop cannot append `LIMIT 1` after MySQL's `FOR UPDATE` clause.
+
 ## 0.1.7
 
 - Enforced exclusive PrestaShop product ownership per shop with `uq_shop_product_owner (id_shop, id_product)` so two supplier sources cannot manage the same product silently.
