@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $mapping = (string) file_get_contents($root . '/src/Repository/MappingRepository.php');
+$queue = (string) file_get_contents($root . '/src/Repository/ImageQueueRepository.php');
 $worker = (string) file_get_contents($root . '/src/Image/ImageWorker.php');
 $reconciler = (string) file_get_contents($root . '/src/Image/ImageReconciler.php');
 
@@ -11,6 +12,9 @@ $checks = [
     [$mapping, 'public function ownsActiveProduct(', 'active mapping read API'],
     [$mapping, 'public function lockActiveProductOwnership(', 'active mapping row-lock API'],
     [$mapping, 'AND out_of_feed=0', 'active mapping must exclude out-of-feed rows'],
+    [$queue, "private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';", 'queue active mapping table contract'],
+    [$queue, 'private function claimRows(', 'active-first queue claim helper'],
+    [$queue, 'm.id_shop=q.id_shop AND m.source=q.source AND m.source_key=q.source_key AND m.id_product=q.id_product AND m.out_of_feed=0', 'queue exact active-owner claim fence'],
     [$worker, '$this->mapping->ownsActiveProduct(', 'worker pre-download active ownership fence'],
     [$worker, '$this->mapping->lockActiveProductOwnership(', 'worker locked persistence active ownership fence'],
     [$worker, 'active mapping no longer owns queued product', 'worker out-of-feed supersede reason'],
@@ -24,6 +28,28 @@ foreach ($checks as [$haystack, $needle, $label]) {
         fwrite(STDERR, "FAIL: {$label}\n");
         exit(1);
     }
+}
+
+$claimStart = strpos($queue, 'public function claim(string $worker, string $source');
+$renewStart = strpos($queue, 'public function renew(int $id, string $token): bool');
+if ($claimStart === false || $renewStart === false || $claimStart >= $renewStart) {
+    fwrite(STDERR, "FAIL: image active-first claim method boundaries missing\n");
+    exit(1);
+}
+$claim = substr($queue, $claimStart, $renewStart - $claimStart);
+$activeClaim = strpos($claim, '$this->claimRows($token, $source, $limit, $shopId, true)');
+$fallbackClaim = strpos($claim, '$this->claimRows($token, $source, $limit, $shopId, false)');
+if ($activeClaim === false || $fallbackClaim === false || $activeClaim >= $fallbackClaim) {
+    fwrite(STDERR, "FAIL: active image rows must be claimed before stale cleanup fallback\n");
+    exit(1);
+}
+if (!str_contains($claim, 'AND EXISTS (SELECT 1 FROM `%s%s` m')) {
+    fwrite(STDERR, "FAIL: image claim must fence active rows atomically inside the claim UPDATE\n");
+    exit(1);
+}
+if (!str_contains($claim, "UPDATE `%s%s` q SET status='processing'")) {
+    fwrite(STDERR, "FAIL: active image claim UPDATE must expose queue alias for exact-owner correlation\n");
+    exit(1);
 }
 
 $methodStart = strpos($reconciler, 'private function unresolvedForActiveMappings(');

@@ -35,6 +35,13 @@ $value = static function (mysqli $db, string $sql): int {
     $result->free();
     return $row === null ? 0 : (int) $row[0];
 };
+$row = static function (mysqli $db, string $sql): array {
+    $result = $db->query($sql);
+    if (!$result) { outOfFeedFenceFail($db->error . ' SQL=' . $sql); }
+    $record = $result->fetch_assoc();
+    $result->free();
+    return is_array($record) ? $record : [];
+};
 $countActive = static function (mysqli $db, string $queue, string $mapping, int $shopId, string $source, ?int $runId = null) use ($value): int {
     $runWhere = $runId === null ? '' : ' AND q.id_run=' . $runId;
     return $value($db,
@@ -73,6 +80,11 @@ try {
         source_key VARCHAR(191) NOT NULL,
         id_product INT UNSIGNED NOT NULL,
         status VARCHAR(16) NOT NULL,
+        attempts INT UNSIGNED NOT NULL DEFAULT 0,
+        available_at DATETIME NULL,
+        locked_by VARCHAR(80) NULL,
+        locked_until DATETIME NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id_queue),
         KEY idx_scope (id_shop,source,status,id_run)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -82,12 +94,15 @@ try {
         (1,'matterhorn','removed',202,1),
         (1,'other','foreign',303,0),
         (2,'matterhorn','other-shop',404,0)");
+
+    // Keep stale/inactive rows physically before the active row. This reproduces the production
+    // failure where ORDER BY id_queue alone lets AJAX workers spend requests on invisible cleanup.
     $exec($db, "INSERT INTO `{$queue}` (id_run,id_shop,source,source_key,id_product,status) VALUES
+        (10,1,'matterhorn','removed',202,'pending'),
+        (10,1,'matterhorn','active',999,'pending'),
         (10,1,'matterhorn','active',101,'pending'),
-        (10,1,'matterhorn','removed',202,'processing'),
         (10,1,'other','foreign',303,'pending'),
         (10,2,'matterhorn','other-shop',404,'pending'),
-        (10,1,'matterhorn','active',999,'pending'),
         (11,1,'matterhorn','active',101,'done')");
 
     if (!$ownsActive($db, $mapping, 1, 'matterhorn', 'active', 101)) {
@@ -103,7 +118,26 @@ try {
         outOfFeedFenceFail('source active unresolved count must exclude out-of-feed/foreign/mismatched rows');
     }
 
-    $exec($db, "UPDATE `{$queue}` SET status='done' WHERE id_shop=1 AND source='matterhorn' AND source_key='active' AND id_product=101 AND id_run=10");
+    // Exercise the same MariaDB UPDATE shape used by ImageQueueRepository::claimRows(). The first
+    // active claim must skip lower-id stale/out-of-feed/mismatched rows and take the exact owner.
+    $token = 'test-active-claim';
+    $exec($db, "UPDATE `{$queue}` q SET status='processing',locked_by='{$token}',locked_until=DATE_ADD(NOW(),INTERVAL 15 MINUTE),available_at=NULL,attempts=attempts+1,updated_at=NOW()
+        WHERE ((q.status='pending' AND (q.available_at IS NULL OR q.available_at<=NOW())) OR (q.status='processing' AND q.locked_until<=NOW()))
+        AND q.attempts<5 AND q.source='matterhorn' AND q.id_shop=1
+        AND EXISTS (SELECT 1 FROM `{$mapping}` m WHERE m.id_shop=q.id_shop AND m.source=q.source AND m.source_key=q.source_key AND m.id_product=q.id_product AND m.out_of_feed=0)
+        ORDER BY q.id_queue LIMIT 1");
+    if ($db->affected_rows !== 1) {
+        outOfFeedFenceFail('active-first claim did not claim exactly one row');
+    }
+    $claimed = $row($db, "SELECT source_key,id_product FROM `{$queue}` WHERE locked_by='{$token}' LIMIT 1");
+    if (($claimed['source_key'] ?? '') !== 'active' || (int) ($claimed['id_product'] ?? 0) !== 101) {
+        outOfFeedFenceFail('active-first claim selected stale queue work before the visible active backlog');
+    }
+    if ($value($db, "SELECT COUNT(*) FROM `{$queue}` WHERE source_key='removed' AND id_product=202 AND status='pending'") !== 1) {
+        outOfFeedFenceFail('active-first claim unexpectedly consumed stale cleanup while active work existed');
+    }
+
+    $exec($db, "UPDATE `{$queue}` SET status='done',locked_by=NULL,locked_until=NULL WHERE id_shop=1 AND source='matterhorn' AND source_key='active' AND id_product=101 AND id_run=10");
     if ($countActive($db, $queue, $mapping, 1, 'matterhorn', 10) !== 0
         || $countActive($db, $queue, $mapping, 1, 'matterhorn') !== 0) {
         outOfFeedFenceFail('retained unresolved out-of-feed job still blocked active reconciliation');

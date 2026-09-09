@@ -4,6 +4,7 @@ namespace Lp\MatterhornImport\Repository;
 final class ImageQueueRepository
 {
     private const TABLE = 'li_matterhornim_99dfbf_image_queue';
+    private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';
     private const LEASE_MINUTES = 15;
     private const MAX_ATTEMPTS = 5;
     private const ENQUEUE_CHUNK = 500;
@@ -108,12 +109,56 @@ final class ImageQueueRepository
         $source = trim($source);
         if ($source === '') { throw new \InvalidArgumentException('Image queue claim requires source'); }
         $limit = max(1, min(500, $limit));
-        $scopeWhere = " AND source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
         $token = $this->claimToken($worker);
-        if (!\Db::getInstance()->execute(sprintf("UPDATE `%s%s` SET status='processing',locked_by='%s',locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),available_at=NULL,attempts=attempts+1,updated_at=NOW() WHERE ((status='pending' AND (available_at IS NULL OR available_at<=NOW())) OR (status='processing' AND locked_until<=NOW())) AND attempts<%d%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), self::LEASE_MINUTES, self::MAX_ATTEMPTS, $scopeWhere, $limit))) {
+
+        // The BO/reconciler backlog is intentionally defined by the exact active mapping. Claim
+        // those rows first as well; otherwise a large retained out-of-feed/stale prefix can make
+        // thousands of successful AJAX requests consume invisible cleanup while active backlog
+        // appears frozen. Only fall back to stale cleanup when no active row is claimable.
+        $active = $this->claimRows($token, $source, $limit, $shopId, true);
+        if ($active !== []) {
+            return $active;
+        }
+
+        return $this->claimRows($token, $source, $limit, $shopId, false);
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function claimRows(string $token, string $source, int $limit, ?int $shopId, bool $activeOnly): array
+    {
+        $scopeWhere = " AND source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
+        $updateScope = " AND q.source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND q.id_shop=' . (int) $shopId);
+        $activeFence = $activeOnly ? sprintf(
+            " AND EXISTS (SELECT 1 FROM `%s%s` m WHERE m.id_shop=q.id_shop AND m.source=q.source AND m.source_key=q.source_key AND m.id_product=q.id_product AND m.out_of_feed=0)",
+            _DB_PREFIX_,
+            self::MAPPING_TABLE
+        ) : '';
+
+        $db = \Db::getInstance();
+        if (!$db->execute(sprintf(
+            "UPDATE `%s%s` q SET status='processing',locked_by='%s',locked_until=DATE_ADD(NOW(),INTERVAL %d MINUTE),available_at=NULL,attempts=attempts+1,updated_at=NOW() " .
+            "WHERE ((q.status='pending' AND (q.available_at IS NULL OR q.available_at<=NOW())) OR (q.status='processing' AND q.locked_until<=NOW())) " .
+            "AND q.attempts<%d%s%s ORDER BY q.id_queue LIMIT %d",
+            _DB_PREFIX_,
+            self::TABLE,
+            pSQL($token),
+            self::LEASE_MINUTES,
+            self::MAX_ATTEMPTS,
+            $updateScope,
+            $activeFence,
+            $limit
+        ))) {
             throw new \RuntimeException('Matterhorn image queue claim failed');
         }
-        return \Db::getInstance()->executeS(sprintf("SELECT * FROM `%s%s` WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()%s ORDER BY id_queue LIMIT %d", _DB_PREFIX_, self::TABLE, pSQL($token), $scopeWhere, $limit), true, false) ?: [];
+
+        return $db->executeS(sprintf(
+            "SELECT * FROM `%s%s` WHERE status='processing' AND locked_by='%s' AND locked_until>NOW()%s ORDER BY id_queue LIMIT %d",
+            _DB_PREFIX_,
+            self::TABLE,
+            pSQL($token),
+            $scopeWhere,
+            $limit
+        ), true, false) ?: [];
     }
 
     public function renew(int $id, string $token): bool
