@@ -2,6 +2,7 @@
 $root = dirname(__DIR__);
 $files = [
     'stage' => file_get_contents($root . '/src/Import/ImportStage.php'),
+    'transaction_state' => file_get_contents($root . '/src/Util/TransactionState.php'),
     'snapshot' => file_get_contents($root . '/src/Repository/SnapshotRepository.php'),
     'mapping' => file_get_contents($root . '/src/Repository/MappingRepository.php'),
     'recovery' => file_get_contents($root . '/src/Product/InterruptedCreateRecovery.php'),
@@ -13,7 +14,8 @@ $files = [
 foreach ($files as $name => $content) { if ($content === false) { throw new RuntimeException('Missing IMPORT file: ' . $name); } }
 $checks = [
     ['stage','READ must complete before IMPORT'], ['stage','InterruptedCreateRecovery'], ['stage','CombinationAttributeResolver'],
-    ['stage','FeatureSynchronizer'], ['stage','ImageQueueRepository'], ['stage','SAVEPOINT'], ['stage','@@session.in_transaction'],
+    ['stage','FeatureSynchronizer'], ['stage','ImageQueueRepository'], ['stage','SAVEPOINT'], ['stage','TransactionState::isActive($db)'],
+    ['transaction_state','@@session.in_transaction'], ['transaction_state','performance_schema.events_transactions_current'],
     ['stage','FAILURE_SAMPLE_LIMIT = 3'], ['stage','FAILURE_SAMPLE_MESSAGE_BYTES = 240'], ['stage','failureSample('],
     ['stage',"'; examples: ' . implode(' | ', \$failureSamples)"],
     ['snapshot','MAX_FETCH_PAYLOAD_BYTES'], ['snapshot','newRows'], ['mapping','last_seen_run_id'],
