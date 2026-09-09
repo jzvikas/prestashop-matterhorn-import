@@ -52,28 +52,7 @@ final class Installer
             // Preserve retained or partially-created module data on a failed reinstall/repair.
             // Destructive rollback is only safe when no Matterhorn-owned table existed before this call.
             $schemaPreExisted = $this->anyOwnedTableExists();
-            foreach (self::INSTALL_SQL as $file) {
-                foreach ($this->statements($file) as $sql) {
-                    if (!\Db::getInstance()->execute($sql)) {
-                        throw new \RuntimeException('Matterhorn install SQL failed from ' . $file . ': ' . \Db::getInstance()->getMsgError());
-                    }
-                }
-            }
-            if (!$this->upgradeMappingState()) {
-                throw new \RuntimeException('Could not initialize Matterhorn mapping state schema');
-            }
-            if (!$this->ensureExclusiveProductOwnership()) {
-                throw new \RuntimeException('Could not initialize exclusive Matterhorn product ownership schema');
-            }
-            if (!$this->ensureRunPolicySchema()) {
-                throw new \RuntimeException('Could not initialize Matterhorn run policy schema');
-            }
-            if (!$this->ensureImageReconcileSchema()) {
-                throw new \RuntimeException('Could not initialize resumable image reconciliation schema');
-            }
-            if (!$this->ensurePerformanceIndexes()) {
-                throw new \RuntimeException('Could not initialize Matterhorn performance indexes');
-            }
+            $this->installOrRepairSchema();
             $defaults = [
                 self::RETAIN_DATA_KEY => '1',
                 'MATTERHORNIMPORT_FEATURE_AUTO_CREATE' => '1',
@@ -94,6 +73,21 @@ final class Installer
             foreach (array_keys($defaults) as $key) {
                 try { \Configuration::deleteByName($key); } catch (\Throwable) {}
             }
+            return false;
+        }
+    }
+
+    /**
+     * Idempotently repair retained/legacy module data without overwriting any
+     * configured supplier or operational values.
+     */
+    public function repairSchema(): bool
+    {
+        try {
+            $this->installOrRepairSchema();
+            return true;
+        } catch (\Throwable $e) {
+            error_log('[matterhornimport] schema repair failed: ' . $e->getMessage());
             return false;
         }
     }
@@ -315,6 +309,35 @@ final class Installer
             if ($this->tableExists($suffix)) { return true; }
         }
         return false;
+    }
+
+    private function installOrRepairSchema(): void
+    {
+        foreach (self::INSTALL_SQL as $file) {
+            foreach ($this->statements($file) as $sql) {
+                if (!\Db::getInstance()->execute($sql)) {
+                    throw new \RuntimeException(
+                        'Matterhorn install SQL failed from ' . $file . ': ' .
+                        \Db::getInstance()->getMsgError()
+                    );
+                }
+            }
+        }
+        if (!$this->upgradeMappingState()) {
+            throw new \RuntimeException('Could not initialize Matterhorn mapping state schema');
+        }
+        if (!$this->ensureExclusiveProductOwnership()) {
+            throw new \RuntimeException('Could not initialize exclusive Matterhorn product ownership schema');
+        }
+        if (!$this->ensureRunPolicySchema()) {
+            throw new \RuntimeException('Could not initialize Matterhorn run policy schema');
+        }
+        if (!$this->ensureImageReconcileSchema()) {
+            throw new \RuntimeException('Could not initialize resumable image reconciliation schema');
+        }
+        if (!$this->ensurePerformanceIndexes()) {
+            throw new \RuntimeException('Could not initialize Matterhorn performance indexes');
+        }
     }
 
     private function tableExists(string $suffix): bool
