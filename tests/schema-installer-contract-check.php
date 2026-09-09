@@ -98,7 +98,9 @@ schemaCheck(str_contains($upgrade017, 'upgrade_module_0_1_7'), '0.1.7 upgrade en
 schemaCheck(str_contains($upgrade017, 'ensureExclusiveProductOwnership()'), '0.1.7 upgrade must reuse idempotent ownership migration');
 schemaCheck(str_contains($upgrade018, 'upgrade_module_0_1_8'), '0.1.8 upgrade entrypoint must exist');
 schemaCheck(str_contains($upgrade018, "Configuration::deleteByName('MATTERHORNIMPORT_CATEGORY_AUTO_CREATE')"), '0.1.8 upgrade must remove retired category configuration from DB');
-schemaCheck(str_contains($main, "\$this->version = '0.1.8'"), 'module version must match 0.1.8 category policy migration');
+$versionMatches = [];
+schemaCheck(preg_match('/\$this->version\s*=\s*\'([^\']+)\'/', $main, $versionMatches) === 1, 'module version declaration must be readable');
+schemaCheck(version_compare((string) ($versionMatches[1] ?? ''), '0.1.8', '>='), 'module version must include the 0.1.8 category policy migration');
 schemaCheck(str_contains($main, '(new Installer())->install()'), 'module install hook must invoke schema installer');
 schemaCheck(str_contains($main, '(new Installer())->uninstall()'), 'module uninstall hook must invoke schema installer');
 
