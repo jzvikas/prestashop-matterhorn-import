@@ -8,6 +8,7 @@ use Lp\MatterhornImport\Repository\ImageQueueRepository;
 use Lp\MatterhornImport\Repository\ImageStateRepository;
 use Lp\MatterhornImport\Repository\MappingRepository;
 use Lp\MatterhornImport\Util\DatabaseSafety;
+use Lp\MatterhornImport\Util\TransactionState;
 
 final class ImageWorker
 {
@@ -268,8 +269,6 @@ final class ImageWorker
     private function releaseContentLock(\Db $db,string $name): void { try{$db->getValue("SELECT RELEASE_LOCK('".pSQL($name)."')", false);}catch(\Throwable){} }
     private function transactionIsActive(\Db $db): bool
     {
-        $value=$db->getValue('SELECT @@session.in_transaction', false);
-        if($value===false){throw new \RuntimeException('Could not inspect image transaction state: '.$db->getMsgError());}
-        return (int)$value===1;
+        return TransactionState::isActive($db);
     }
 }

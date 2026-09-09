@@ -10,6 +10,7 @@ use Lp\MatterhornImport\Util\DatabaseSafety;
 use Lp\MatterhornImport\Util\ExecutionBudget;
 use Lp\MatterhornImport\Util\ItemTransactionGuard;
 use Lp\MatterhornImport\Util\RunFailureRecorder;
+use Lp\MatterhornImport\Util\TransactionState;
 use Lp\MatterhornImport\Util\TransientDatabaseFailure;
 
 final class RemoveStage
@@ -171,11 +172,7 @@ final class RemoveStage
 
     private function transactionIsActive(\Db $db): bool
     {
-        $value = $db->getValue('SELECT @@session.in_transaction', false);
-        if ($value === false) {
-            throw new \RuntimeException('Could not inspect REMOVE transaction state: ' . $db->getMsgError());
-        }
-        return (int) $value === 1;
+        return TransactionState::isActive($db);
     }
 
     private function assertRunnable(array $run): void

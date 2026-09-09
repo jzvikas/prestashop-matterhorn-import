@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $stage = (string) file_get_contents($root . '/src/Import/RemoveStage.php');
+$transactionState = (string) file_get_contents($root . '/src/Util/TransactionState.php');
 $mapping = (string) file_get_contents($root . '/src/Repository/MappingRepository.php');
 $snapshot = (string) file_get_contents($root . '/src/Repository/SnapshotRepository.php');
 $installer = (string) file_get_contents($root . '/src/Installer.php');
@@ -20,7 +21,9 @@ $checks = [
     [$stage, '$this->transactionGuard->recoveryCount() > 0'],
     [$stage, '$this->mapping->lockProductOwnership($shopId, $source, $sourceKey, $productId)'],
     [$stage, '$this->mapping->markOutOfFeed($shopId, $source, $sourceKey, $productId, $runId)'],
-    [$stage, "getValue('SELECT @@session.in_transaction', false)"],
+    [$stage, 'TransactionState::isActive($db)'],
+    [$transactionState, "getValue('SELECT @@session.in_transaction', false)"],
+    [$transactionState, 'performance_schema.events_transactions_current'],
     [$mapping, 'out_of_feed'],
     [$mapping, 'countInFeedSource'],
     [$mapping, 'AND id_product=%d'],

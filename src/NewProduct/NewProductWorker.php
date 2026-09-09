@@ -16,6 +16,7 @@ use Lp\MatterhornImport\Repository\RunRepository;
 use Lp\MatterhornImport\SpecificPrice\SpecificPriceSynchronizer;
 use Lp\MatterhornImport\Util\DatabaseSafety;
 use Lp\MatterhornImport\Util\ItemTransactionGuard;
+use Lp\MatterhornImport\Util\TransactionState;
 use Lp\MatterhornImport\Util\TransientDatabaseFailure;
 
 final class NewProductWorker
@@ -266,10 +267,6 @@ final class NewProductWorker
 
     private function transactionIsActive(\Db $db): bool
     {
-        $value = $db->getValue('SELECT @@session.in_transaction', false);
-        if ($value === false) {
-            throw new \RuntimeException('Could not inspect new-product transaction state: ' . $db->getMsgError());
-        }
-        return (int) $value === 1;
+        return TransactionState::isActive($db);
     }
 }

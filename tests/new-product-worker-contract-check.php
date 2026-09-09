@@ -12,6 +12,7 @@ $files = [
     'src/Command/NewProductsEnqueueCommand.php',
     'src/Command/NewProductsCommand.php',
     'src/Util/ItemTransactionGuard.php',
+    'src/Util/TransactionState.php',
 ];
 foreach ($files as $file) {
     if (!is_file($root . '/' . $file)) { fwrite(STDERR, "Missing new-product file: {$file}\n"); exit(1); }
@@ -25,6 +26,7 @@ $command = (string) file_get_contents($root . '/src/Command/NewProductsCommand.p
 $services = (string) file_get_contents($root . '/config/services.yml');
 $specific = (string) file_get_contents($root . '/src/SpecificPrice/SpecificPriceSynchronizer.php');
 $guard = (string) file_get_contents($root . '/src/Util/ItemTransactionGuard.php');
+$transactionState = (string) file_get_contents($root . '/src/Util/TransactionState.php');
 
 $checks = [
     [$queue, "private const TABLE = 'li_matterhornim_99dfbf_new_product_queue'", 'module-owned new-product queue'],
@@ -84,12 +86,14 @@ $checks = [
     [$worker, '$this->transactionGuard->recoveryCount()', 'nested recovery metric'],
     [$worker, '$finalizedGeneration = $this->queue->done(', 'completion generation fence'],
     [$worker, 'fail($idQueue, $token, $e->getMessage(), $retryable, $expectedRunId)', 'failure generation fence'],
-    [$worker, "getValue('SELECT @@session.in_transaction', false)", 'live transaction-state read'],
+    [$worker, 'TransactionState::isActive($db)', 'portable live transaction-state read'],
     [$worker, 'combinationAttributes->resolve', 'Size/combo attribute resolution'],
     [$worker, 'images->enqueue', 'separate image pipeline'],
     [$worker, 'TransientDatabaseFailure::isRetryable', 'transient retry classification'],
     [$guard, 'private int $recoveryCount = 0', 'guard recovery counter'],
-    [$guard, "getValue('SELECT @@session.in_transaction', false)", 'guard live connection-state read'],
+    [$guard, 'TransactionState::isActive($this->db)', 'guard portable connection-state delegation'],
+    [$transactionState, "getValue('SELECT @@session.in_transaction', false)", 'MariaDB transaction-state read'],
+    [$transactionState, 'performance_schema.events_transactions_current', 'MySQL transaction-state read'],
     [$specific, "array_key_exists('specific_prices'", 'specific-price no-op unless explicitly supplied'],
     [$enqueue, "parent::__construct('matterhornimport:new-products:enqueue')", 'enqueue command name'],
     [$enqueue, 'private const DEFAULT_MAX_ITEMS = 50000', 'bounded enqueue default item budget'],

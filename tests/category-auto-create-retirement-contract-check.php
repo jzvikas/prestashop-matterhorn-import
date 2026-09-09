@@ -20,8 +20,9 @@ $fail = static function (string $message): never {
     exit(1);
 };
 
-if (!str_contains($module, "\$this->version = '0.1.8';")) {
-    $fail('module version must be 0.1.8 for category configuration migration');
+if (preg_match('/\$this->version\s*=\s*\'([^\']+)\'/', $module, $versionMatch) !== 1
+    || version_compare((string) ($versionMatch[1] ?? ''), '0.1.8', '<')) {
+    $fail('module version must include the 0.1.8 category configuration migration');
 }
 
 foreach ([

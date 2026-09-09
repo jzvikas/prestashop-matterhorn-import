@@ -28,11 +28,7 @@ final class ItemTransactionGuard
     {
         if ($this->db === null) { return false; }
 
-        $value = $this->db->getValue('SELECT @@session.in_transaction', false);
-        if ($value === false) {
-            throw new \RuntimeException('Could not inspect item transaction state: ' . $this->db->getMsgError());
-        }
-        if ((int) $value === 1) { return false; }
+        if (TransactionState::isActive($this->db)) { return false; }
 
         if (!$this->db->execute('START TRANSACTION')) {
             throw new \RuntimeException('Could not restore item transaction after PrestaShop external commit');

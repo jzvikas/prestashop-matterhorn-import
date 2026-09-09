@@ -213,7 +213,7 @@ final class PrestaImageProcessor
 
     public function cleanupFilesystem(AttachedImage $attached): void
     {
-        $root = realpath(_PS_PROD_IMG_DIR_);
+        $root = realpath(_PS_PRODUCT_IMG_DIR_);
         $directory = realpath(dirname($attached->basePath));
         if ($root === false || $directory === false) {
             return;

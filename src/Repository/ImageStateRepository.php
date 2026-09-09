@@ -83,10 +83,11 @@ final class ImageStateRepository
             (int) $queueRow['id_shop'], pSQL((string) $queueRow['source']), pSQL((string) $queueRow['source_key']), pSQL((string) $queueRow['url_hash']), (int) $queueRow['id_product'], $idImage
         );
         if (!$db->execute($sql) || (int) $db->Affected_Rows() > 1) { throw new \RuntimeException('Image state revalidation update failed'); }
-        $live = (bool) $db->getValue(sprintf(
-            "SELECT 1 FROM `%s` s INNER JOIN `%s` i ON i.id_image=s.id_image AND i.id_product=s.id_product INNER JOIN `%s` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop WHERE s.id_shop=%d AND s.source='%s' AND s.source_key='%s' AND s.url_hash='%s' AND s.id_product=%d AND s.id_image=%d FOR UPDATE",
+        $liveRows = $db->executeS(sprintf(
+            "SELECT 1 FROM `%s` s INNER JOIN `%s` i ON i.id_image=s.id_image AND i.id_product=s.id_product INNER JOIN `%s` ish ON ish.id_image=s.id_image AND ish.id_shop=s.id_shop WHERE s.id_shop=%d AND s.source='%s' AND s.source_key='%s' AND s.url_hash='%s' AND s.id_product=%d AND s.id_image=%d LIMIT 1 FOR UPDATE",
             $state, $image, $imageShop, (int) $queueRow['id_shop'], pSQL((string) $queueRow['source']), pSQL((string) $queueRow['source_key']), pSQL((string) $queueRow['url_hash']), (int) $queueRow['id_product'], $idImage
-        ), false);
+        ), true, false) ?: [];
+        $live = count($liveRows) === 1;
         if (!$live) { throw new \RuntimeException('Image state revalidation lost its live PrestaShop image association'); }
     }
 
