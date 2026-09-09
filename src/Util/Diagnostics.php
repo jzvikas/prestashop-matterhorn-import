@@ -140,7 +140,7 @@ final class Diagnostics
             else { $message .= ' invalid_stored=' . $setting['raw'] . ' (default applied)'; }
             $checks[] = $this->check('config:' . strtolower($key), $setting['valid'] ? 'ok' : 'warning', $message);
         }
-        foreach (['_PS_CACHE_DIR_','_PS_PROD_IMG_DIR_'] as $constant) {
+        foreach (['_PS_CACHE_DIR_','_PS_PRODUCT_IMG_DIR_'] as $constant) {
             $path = defined($constant) ? (string)constant($constant) : '';
             $checks[] = $this->check('path:' . $constant, $path !== '' && is_dir($path) && is_writable($path) ? 'ok' : 'error', $path !== '' ? $path : 'constant missing');
         }
