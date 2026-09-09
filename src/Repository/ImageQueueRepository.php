@@ -126,8 +126,8 @@ final class ImageQueueRepository
     /** @return list<array<string,mixed>> */
     private function claimRows(string $token, string $source, int $limit, ?int $shopId, bool $activeOnly): array
     {
+        $scopeWhere = " AND source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
         $updateScope = " AND q.source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND q.id_shop=' . (int) $shopId);
-        $selectScope = " AND source='" . pSQL($source) . "'" . ($shopId === null ? '' : ' AND id_shop=' . (int) $shopId);
         $activeFence = $activeOnly ? sprintf(
             " AND EXISTS (SELECT 1 FROM `%s%s` m WHERE m.id_shop=q.id_shop AND m.source=q.source AND m.source_key=q.source_key AND m.id_product=q.id_product AND m.out_of_feed=0)",
             _DB_PREFIX_,
@@ -156,7 +156,7 @@ final class ImageQueueRepository
             _DB_PREFIX_,
             self::TABLE,
             pSQL($token),
-            $selectScope,
+            $scopeWhere,
             $limit
         ), true, false) ?: [];
     }
