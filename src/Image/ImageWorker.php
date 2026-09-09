@@ -12,6 +12,9 @@ use Lp\MatterhornImport\Util\DatabaseSafety;
 final class ImageWorker
 {
     private const CONTENT_LOCK_TIMEOUT_SECONDS = 30;
+    private const QUEUE_TABLE = 'li_matterhornim_99dfbf_image_queue';
+    private const MAPPING_TABLE = 'li_matterhornim_99dfbf_mapping';
+    private const LEGACY_REDIRECT_RETRY_LIMIT = 1000;
 
     public function __construct(
         private ImageQueueRepository $queue,
@@ -31,6 +34,13 @@ final class ImageWorker
         $this->safety->assertTransactionalCore();
         $sourceName = trim($this->sourceAdapter->name());
         if ($sourceName === '') { throw new \RuntimeException('Image worker source name is empty'); }
+
+        // Older builds did not follow Matterhorn HTTP->HTTPS/CDN redirects. Those jobs eventually
+        // exhausted all five retries as generic "Image HTTP failure 30x" rows. Requeue only that
+        // legacy signature, and only while an exact active mapping still owns the product. New
+        // redirect-specific permanent errors use different messages, so they cannot loop here.
+        $legacyRedirectRetried = $this->retryLegacyRedirectFailures($sourceName, $shopId);
+
         $done = $failed = $lost = $superseded = $deduplicated = $notModified = $replacedDeleted = $replacementCleanupFailed = 0;
         $hookCommitRecoveries = $attachedRollbackDeletes = $attachedRollbackDeleteFailed = 0;
         $orphanRecorded = $orphanRecordFailed = 0;
@@ -179,8 +189,41 @@ final class ImageWorker
             'replaced_deleted'=>$replacedDeleted,'replacement_cleanup_failed'=>$replacementCleanupFailed,'hook_commit_recoveries'=>$hookCommitRecoveries,
             'attached_rollback_deleted'=>$attachedRollbackDeletes,'attached_rollback_delete_failed'=>$attachedRollbackDeleteFailed,
             'orphan_recorded'=>$orphanRecorded,'orphan_record_failed'=>$orphanRecordFailed,
+            'legacy_redirect_retried'=>$legacyRedirectRetried,
             'processed'=>$done+$failed+$lost+$superseded,
         ];
+    }
+
+    private function retryLegacyRedirectFailures(string $source, ?int $shopId): int
+    {
+        $shopWhere = $shopId === null ? '' : ' AND q.id_shop=' . (int) $shopId;
+        // Build the LIKE list explicitly rather than broad-matching all HTTP errors: only failures
+        // produced by the old no-redirect downloader are safe to resurrect automatically.
+        $redirectWhere = "q.last_error LIKE 'Image HTTP failure 301%'"
+            . " OR q.last_error LIKE 'Image HTTP failure 302%'"
+            . " OR q.last_error LIKE 'Image HTTP failure 303%'"
+            . " OR q.last_error LIKE 'Image HTTP failure 307%'"
+            . " OR q.last_error LIKE 'Image HTTP failure 308%'";
+
+        $db = \Db::getInstance();
+        if (!$db->execute(sprintf(
+            "UPDATE `%s%s` q SET status='pending',attempts=0,available_at=NULL,locked_by=NULL,locked_until=NULL,last_error=NULL,updated_at=NOW() " .
+            "WHERE q.status='failed' AND q.attempts>=5 AND q.source='%s'%s AND (%s) " .
+            "AND EXISTS (SELECT 1 FROM `%s%s` m WHERE m.id_shop=q.id_shop AND m.source=q.source AND m.source_key=q.source_key AND m.id_product=q.id_product AND m.out_of_feed=0) " .
+            "ORDER BY q.id_queue LIMIT %d",
+            _DB_PREFIX_,
+            self::QUEUE_TABLE,
+            pSQL($source),
+            $shopWhere,
+            $redirectWhere,
+            _DB_PREFIX_,
+            self::MAPPING_TABLE,
+            self::LEGACY_REDIRECT_RETRY_LIMIT
+        ))) {
+            throw new \RuntimeException('Matterhorn legacy redirect image retry reset failed');
+        }
+
+        return (int) $db->Affected_Rows();
     }
 
     private function mappingMatches(array $row): bool

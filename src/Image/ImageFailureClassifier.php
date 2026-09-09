@@ -18,6 +18,11 @@ final class ImageFailureClassifier
             'unsupported image mime',
             'invalid or oversized image dimensions',
             'invalid image url port',
+            'image redirect response without location',
+            'image redirect limit exceeded',
+            'image redirect loop detected',
+            'image redirect protocol downgrade blocked',
+            'invalid image redirect location',
         ] as $permanent) {
             if (str_contains($message, $permanent)) {
                 return false;
@@ -29,7 +34,7 @@ final class ImageFailureClassifier
             if (in_array($status, [408, 425, 429], true) || $status >= 500) {
                 return true;
             }
-            if ($status >= 400 && $status < 500) {
+            if ($status >= 300 && $status < 500) {
                 return false;
             }
         }
