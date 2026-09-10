@@ -17,7 +17,7 @@ class MatterhornImport extends Module
     {
         $this->name = 'matterhornimport';
         $this->tab = 'administration';
-        $this->version = '1.0.11';
+        $this->version = '1.0.12';
         $this->author = 'LP';
         $this->need_instance = 0;
         $this->bootstrap = true;

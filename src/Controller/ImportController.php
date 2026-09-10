@@ -10,6 +10,7 @@ use Lp\MatterhornImport\Image\ImageReconciler;
 use Lp\MatterhornImport\Image\ImageWorker;
 use Lp\MatterhornImport\Import\ImportRunner;
 use Lp\MatterhornImport\Lock\ImportLock;
+use Lp\MatterhornImport\Repository\ImageQueueRepository;
 use Lp\MatterhornImport\Repository\RunRepository;
 use Lp\MatterhornImport\Source\RunSourceSnapshotManager;
 use PrestaShopBundle\Controller\Admin\PrestaShopAdminController;
@@ -60,7 +61,10 @@ final class ImportController extends PrestaShopAdminController
             $latest = $runs->latest($shopId, self::SOURCE);
             if ($latest !== null && (string) ($latest['status'] ?? '') === 'completed') {
                 $candidate = $this->presentRun($latest, $status, $images);
-                if ((bool) ($candidate['images']['active'] ?? false)) {
+                if (
+                    (bool) ($candidate['images']['active'] ?? false)
+                    || (string) ($candidate['images']['status'] ?? '') === 'failed'
+                ) {
                     $active = $latest;
                     $activePublic = $candidate;
                 }
@@ -260,6 +264,68 @@ final class ImportController extends PrestaShopAdminController
             return $this->jsonError($exception->getMessage(), Response::HTTP_BAD_REQUEST);
         } catch (\Throwable $exception) {
             return $this->exceptionError('ajax-images-batch', $exception, $errors, Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    #[AdminSecurity("is_granted('update', request.get('_legacy_controller'))")]
+    public function imagesRetry(
+        Request $request,
+        RunRepository $runs,
+        ImportStatusProvider $status,
+        ImageAjaxStatusProvider $images,
+        ImageQueueRepository $queue,
+        OperationalSettings $settings,
+        AdminErrorReporter $errors,
+        AjaxDatabaseSessionGuard $databaseSession
+    ): JsonResponse {
+        if (!$this->isValidAjaxPost($request)) {
+            return $this->jsonError('Invalid security token.', Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            [$shopId] = $this->shopContext();
+            $runId = $this->positiveRunId($request);
+            $run = $runs->assertContext($runId, $shopId, self::SOURCE);
+            if ((string) ($run['status'] ?? '') !== 'completed') {
+                return $this->jsonError(
+                    'Failed images can be retried after the catalogue run completes.',
+                    Response::HTTP_CONFLICT
+                );
+            }
+
+            $latest = $runs->latest($shopId, self::SOURCE);
+            if ($latest === null || (int) ($latest['id_run'] ?? 0) !== $runId) {
+                return $this->jsonError(
+                    'A newer Matterhorn run exists. Reload the page before retrying images.',
+                    Response::HTTP_CONFLICT
+                );
+            }
+
+            $imageState = $images->present($run);
+            if ((bool) ($imageState['worker_active'] ?? false)) {
+                return $this->jsonError(
+                    'Pending image downloads must finish before failed images are retried.',
+                    Response::HTTP_CONFLICT
+                );
+            }
+
+            $databaseSession->prepareLegacy();
+            $limit = $settings->retryLimit($shopId);
+            $retried = $queue->retryFailed(self::SOURCE, $shopId, $limit);
+            $run = $runs->get($runId);
+            if ($run === null) {
+                throw new \RuntimeException('Matterhorn import run disappeared after image retry');
+            }
+
+            return new JsonResponse([
+                'success' => true,
+                'job' => $this->presentRun($run, $status, $images),
+                'image_retry' => ['retried' => $retried, 'limit' => $limit],
+            ]);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->jsonError($exception->getMessage(), Response::HTTP_BAD_REQUEST);
+        } catch (\Throwable $exception) {
+            return $this->exceptionError('ajax-images-retry', $exception, $errors, Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 

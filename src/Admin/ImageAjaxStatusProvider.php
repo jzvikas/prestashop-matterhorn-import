@@ -28,6 +28,14 @@ final class ImageAjaxStatusProvider
         $sourceProcessing = $sourceCounts['processing'];
         $sourceFailed = $sourceCounts['failed'];
         $sourceDownloadWork = ($sourcePending + $sourceProcessing) > 0;
+        $runDownloadWork = $runCounts['pending'] + $runCounts['processing'];
+        $sourceDownloadWorkCount = $sourcePending + $sourceProcessing;
+        // A later idempotent run can legitimately own no new image rows while its BO page
+        // continues durable work left by an older generation. In that case a run-scoped
+        // percentage (0/0, or a smaller run subset) is not a truthful source-backlog
+        // percentage. Keep the progress bar animated/indeterminate while counts remain visible.
+        $progressScopeMismatch = $sourceDownloadWork
+            && $runDownloadWork !== $sourceDownloadWorkCount;
         $catalogCanProduceImages = in_array($catalogStatus, ['running', 'paused'], true)
             && in_array($importStatus, ['running', 'completed'], true);
 
@@ -49,7 +57,7 @@ final class ImageAjaxStatusProvider
         $total = array_sum($runCounts);
         $done = $runCounts['done'];
         $percent = $total > 0 ? (int) floor(($done / $total) * 100) : 0;
-        $indeterminate = !$catalogCompleted || $needsReconcile;
+        $indeterminate = !$catalogCompleted || $needsReconcile || $progressScopeMismatch;
         $stage = 'waiting';
         $status = 'waiting';
 

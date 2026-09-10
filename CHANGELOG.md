@@ -16,6 +16,11 @@ All notable Matterhorn Import changes are tracked here. A version is not product
 - Fenced image processing to the exact active `(shop, source, source_key, id_product)` mapping before download and before state persistence; retained unresolved rows whose mapping is already `out_of_feed=1` are superseded and no longer block authoritative reconciliation, with static and MariaDB regression coverage.
 - Optimized GitHub Actions release validation with read-only permissions, concurrency cancellation, explicit timeouts, cheap-static-first gating, parallel MariaDB/PrestaShop lifecycle jobs, checkout v5 and parallel Docker image pre-pull without weakening the full PR/main test suite.
 
+## 1.0.12
+
+- Show image downloads as indeterminate when a later idempotent run has no run-scoped image rows but its Back Office workers are draining an older active source backlog, instead of displaying a misleading empty `0/0` progress bar.
+- Added a CSRF-, permission-, shop-, source- and latest-run-fenced Back Office action that reopens a configured bounded batch of failed image jobs only after pending downloads finish, then resumes the two AJAX workers without requiring CLI access.
+
 ## 1.0.11
 
 - Added an idempotent retained-schema repair migration so installations registered as the legacy `1.0.10` line receive every current table, column and index without overwriting supplier settings.

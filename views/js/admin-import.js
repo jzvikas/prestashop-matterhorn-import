@@ -13,6 +13,7 @@
     const statusBox = document.getElementById('matterhorn-status');
     const imageProgressBar = document.getElementById('matterhorn-image-progress-bar');
     const imageStatusBox = document.getElementById('matterhorn-image-status');
+    const retryImagesButton = document.getElementById('matterhorn-images-retry');
     const errorBox = document.getElementById('matterhorn-error');
 
     let runId = Number(app.dataset.activeJob || 0);
@@ -21,13 +22,14 @@
     let cancelRequested = false;
     let transientBatchFailures = 0;
     let imageLoopsRunning = false;
+    let imageRetryInFlight = false;
     let lastJob = null;
     let reloadScheduled = false;
     const imageTransientFailures = {1: 0, 2: 0};
     const startAllowed = !startButton.disabled;
     const maxTransientBatchRetries = 3;
     const imageWorkerSlots = [1, 2];
-    let lastState = {catalogActive: false, imageActive: false, imageStatus: 'waiting'};
+    let lastState = {catalogActive: false, imageActive: false, imageStatus: 'waiting', sourceFailed: 0};
 
     class MatterhornHttpError extends Error {
         constructor(message, status = 0, retryable = false) {
@@ -155,9 +157,18 @@
     };
 
     const updateButtons = () => {
+        const failedRetryAvailable = lastState.imageStatus === 'failed'
+            && lastState.sourceFailed > 0
+            && runId > 0;
         startButton.disabled = !startAllowed
+            || failedRetryAvailable
             || (lastState.catalogActive ? running : (lastState.imageActive && imageLoopsRunning));
         cancelButton.disabled = !lastState.catalogActive || cancelRequested;
+        retryImagesButton.disabled = !failedRetryAvailable || imageRetryInFlight;
+        retryImagesButton.classList.toggle('d-none', !failedRetryAvailable);
+        retryImagesButton.textContent = failedRetryAvailable
+            ? `Retry failed images (${lastState.sourceFailed})`
+            : 'Retry failed images';
     };
 
     const updateImages = (job) => {
@@ -227,10 +238,11 @@
             catalogActive,
             imageActive,
             imageStatus: String(job.images && job.images.status || 'waiting'),
+            sourceFailed: Number(job.images && job.images.source_failed || 0),
         };
         updateButtons();
 
-        if (!catalogActive && !imageActive) {
+        if (!catalogActive && !imageActive && lastState.imageStatus !== 'failed') {
             runId = 0;
         }
 
@@ -391,7 +403,7 @@
                 if (!state.catalogActive) {
                     if (state.imageStatus === 'failed') {
                         const failed = Number(payload.job.images && payload.job.images.source_failed || 0);
-                        showError(`Image AJAX phase stopped with ${failed} failed active queue item(s). Review image errors before retrying.`);
+                        showError(`Image AJAX phase stopped with ${failed} failed active queue item(s). Use Retry failed images to grant a fresh bounded retry budget.`);
                     } else {
                         scheduleReload();
                     }
@@ -477,6 +489,37 @@
 
         if (!batchInFlight) {
             await performCancel();
+        }
+    });
+
+    retryImagesButton.addEventListener('click', async () => {
+        if (runId <= 0 || imageRetryInFlight || lastState.imageStatus !== 'failed') {
+            return;
+        }
+
+        clearError();
+        imageRetryInFlight = true;
+        updateButtons();
+        try {
+            const payload = await post(app.dataset.imagesRetryUrl, {
+                _token: app.dataset.token,
+                job_id: String(runId),
+            });
+            const retried = Number(payload.image_retry && payload.image_retry.retried || 0);
+            const state = updateJob(payload.job);
+            imageRetryInFlight = false;
+            updateButtons();
+
+            if (retried > 0 && state.imageActive) {
+                imageLoopsRunning = false;
+                startImageWorkers();
+            } else if (retried <= 0) {
+                showError('No failed active Matterhorn image jobs were available for retry.');
+            }
+        } catch (error) {
+            imageRetryInFlight = false;
+            updateButtons();
+            showError(error instanceof Error ? error.message : String(error));
         }
     });
 
