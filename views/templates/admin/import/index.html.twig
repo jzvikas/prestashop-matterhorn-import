@@ -28,6 +28,7 @@
          data-start-url="{{ path('matterhorn_import_ajax_start') }}"
          data-batch-url="{{ path('matterhorn_import_ajax_batch') }}"
          data-images-batch-url="{{ path('matterhorn_import_ajax_images_batch') }}"
+         data-images-retry-url="{{ path('matterhorn_import_ajax_images_retry') }}"
          data-status-url="{{ path('matterhorn_import_ajax_status') }}"
          data-cancel-url="{{ path('matterhorn_import_ajax_cancel') }}"
          data-token="{{ csrf_token('matterhorn_ajax_import') }}"
@@ -138,6 +139,9 @@
             <small class="form-text text-muted">
               {{ 'Closing the browser only stops AJAX execution; the image queue remains durable and can continue from the same state when this page is opened again or by the CLI worker.'|trans({}, 'Modules.Matterhornimport.Admin') }}
             </small>
+            <button id="matterhorn-images-retry" type="button" class="btn btn-outline-warning btn-sm mt-2 d-none" disabled>
+              {{ 'Retry failed images'|trans({}, 'Modules.Matterhornimport.Admin') }}
+            </button>
           </div>
 
           <div id="matterhorn-error" class="alert alert-danger mt-3 d-none"></div>

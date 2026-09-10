@@ -18,6 +18,7 @@ $categoryPathReader = (string) file_get_contents($root . '/src/Category/Category
 $categoryMapping = (string) file_get_contents($root . '/src/Repository/CategoryMappingRepository.php');
 $snapshots = (string) file_get_contents($root . '/src/Repository/SnapshotRepository.php');
 $newWorker = (string) file_get_contents($root . '/src/NewProduct/NewProductWorker.php');
+$transactionState = (string) file_get_contents($root . '/src/Util/TransactionState.php');
 $production = (string) file_get_contents($root . '/docs/PRODUCTION.md');
 $mapper = (string) file_get_contents($root . '/src/Mapper/MatterhornProductMapper.php');
 $dbSafety = (string) file_get_contents($root . '/src/Util/DatabaseSafety.php');
@@ -58,16 +59,31 @@ foreach ([[$import, '$this->specificPrices->sync', 'IMPORT specific-price parity
 if (!str_contains($update, "'specific_price'")) { $fail('UPDATE does not route specific_price hash domain'); }
 
 foreach ([
-    [$import, "getValue('SELECT @@session.in_transaction', false)", 'IMPORT transaction state must bypass Db query cache'],
-    [$update, "getValue('SELECT @@session.in_transaction', false)", 'UPDATE transaction state must bypass Db query cache'],
-    [$remove, "getValue('SELECT @@session.in_transaction', false)", 'REMOVE transaction state must bypass Db query cache'],
-    [$newWorker, "getValue('SELECT @@session.in_transaction', false)", 'new-product transaction state must bypass Db query cache'],
+    [$import, 'TransactionState::isActive($db)', 'IMPORT must use portable transaction state detection'],
+    [$update, 'TransactionState::isActive($db)', 'UPDATE must use portable transaction state detection'],
+    [$remove, 'TransactionState::isActive($db)', 'REMOVE must use portable transaction state detection'],
+    [$newWorker, 'TransactionState::isActive($db)', 'new-product worker must use portable transaction state detection'],
     [$importLock, "RELEASE_LOCK('" , 'advisory import lock release missing'],
-    [$imageWorker, "getValue('SELECT @@session.in_transaction', false)", 'image transaction state must bypass Db query cache'],
+    [$imageWorker, 'TransactionState::isActive($db)', 'image worker must use portable transaction state detection'],
     [$imageWorker, 'GET_LOCK', 'image content lock acquisition missing'],
     [$imageWorker, 'false', 'image lock/session reads must bypass Db query cache'],
 ] as [$source, $needle, $label]) {
     if (!str_contains($source, $needle)) { $fail($label); }
+}
+if (!str_contains($transactionState, "getValue('SELECT VERSION()', false)")) {
+    $fail('transaction state database-family detection must bypass Db query cache');
+}
+if (!str_contains($transactionState, "getValue('SELECT @@session.in_transaction', false)")) {
+    $fail('MariaDB transaction-state read must bypass Db query cache');
+}
+if (!str_contains($transactionState, 'events_transactions_current') || !str_contains($transactionState, "CONNECTION_ID() AND tx.STATE='ACTIVE'")) {
+    $fail('MySQL transaction-state detection must be scoped to the current connection');
+}
+if (!preg_match('/events_transactions_current.*?\n\s*false\s*\n\s*\)/s', $transactionState)) {
+    $fail('MySQL transaction-state read must bypass Db query cache');
+}
+if (!str_contains($transactionState, 'SAVEPOINT ') || !str_contains($transactionState, 'RELEASE SAVEPOINT ')) {
+    $fail('transaction-state detection must retain the portable savepoint fallback');
 }
 if (!preg_match('/GET_LOCK\([^\n]+\).*?\n\s*false\s*\n\s*\)/s', $importLock)) {
     $fail('advisory import lock reads must bypass Db query cache');
